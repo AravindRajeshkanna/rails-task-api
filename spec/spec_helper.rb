@@ -17,7 +17,7 @@ if ENV["COVERAGE"]
     add_group "Gems", "gems"
     add_group "AIOps Lambdas", "deploy/lambda"
 
-    minimum_coverage line: ENV.fetch("COVERAGE_MIN_LINE", 90).to_f, branch: ENV.fetch("COVERAGE_MIN_BRANCH", 78).to_f
+    minimum_coverage line: ENV.fetch("COVERAGE_MIN_LINE", 91).to_f, branch: ENV.fetch("COVERAGE_MIN_BRANCH", 79).to_f
   end
 end
 

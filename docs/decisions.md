@@ -271,3 +271,79 @@ two named objects, and a **dry run until explicitly enabled**. Neither can be tr
 - **Amazon MQ / Redis**: SNS/SQS cover messaging; Solid Cache/Queue cover caching and jobs.
 - **Moving webhooks into the Notification service**: webhook configuration is project data owned by the monolith; the
   service handles email and Slack. The event stream makes that move mechanical when wanted.
+
+---
+
+# Hardening and growth
+
+## 29. Strict RuboCop by extending omakase, not by switching to StandardRB
+
+The codebase follows Rails' own style (`rubocop-rails-omakase`: spaces inside array brackets, indented `private` members).
+StandardRB is zero-configuration, but it formats differently, so adopting it would rewrite nearly every file for no
+change in behavior. Strictness comes from what is *enabled*, not from the style engine: omakase turns almost everything
+off, so `.rubocop.yml` turns the Lint, Rails and Performance departments on and adds complexity limits (ABC 30, 20-line methods,
+cyclomatic and perceived complexity 10; RuboCop's defaults are far tighter than anyone reviews to). That found real
+things (assignments inside conditions, `update_columns` calls that needed a stated justification, a Lambda method taking six
+positional arguments) and a number of false positives, handled by configuration with the reason written next to it
+(`params.expect` is for nested form params and this API takes flat JSON; `find_by_password_reset_token!` is not a dynamic finder).
+`rubocop-rspec` was tried in spirit and left out: its defaults (example length, one expectation per example) fight the
+journey-style specs this suite relies on. Eight pre-existing methods over the limits are listed in `.rubocop_todo.yml` so that
+**new** code meets the standard while the debt stays visible; the file only shrinks.
+
+## 30. Commands, queries and forms: where logic goes, and what was not added
+
+Controllers were already thin (authorize, query, render), so there was nothing to extract wholesale and a mass refactor would
+have been churn. The convention is now explicit instead: **commands** (`app/commands`, `ApplicationCommand`) are multi-record
+writes that must succeed or fail together (`Organizations::Create`, `AddMember`, `RemoveMember`); **queries** (`app/queries`)
+return data without changing anything (`TaskQuery`, `Analytics::ProjectReport`); **forms** (`app/forms`, `ApplicationForm`) validate
+input that is more than one model's attributes (`Analytics::ReportForm`). No interactor gem and no `Result` type: a command
+returns its value or raises, and `ErrorHandling` already turns the exceptions into the one error envelope. `dry-validation` was not
+added: ActiveModel validations cover the cases and every contributor knows them. A command does not authorize; the controller asks
+Pundit first, so the policy stays visible at the HTTP boundary.
+
+## 31. The database is the last line of defense, and migrations are written for a rolling deploy
+
+Validations only guard paths that go through the model. `insert_all`, `update_columns`, a console, and any future service sharing
+the database skip them, so the invariants that matter are also CHECK constraints (enum values, non-blank names, non-negative
+counters, roles). They are added `NOT VALID` and validated in a second migration so that adding them never scans a table under a
+heavy lock; `strong_migrations` enforces that pattern and its siblings (concurrent indexes, non-validated foreign keys, expand /
+contract) and the rules are in a runbook. Indexes are added only when `EXPLAIN ANALYZE` on realistic data shows a scan: of the
+hot queries, exactly one needed an index (the default task listing of a very large project, 10 ms to 0.05 ms), and speculative
+ones were declined because each costs every write ([docs/performance.md](performance.md)).
+
+## 32. HTTP caching: revalidate by body hash; no hand-made ETags, no fragment caches
+
+`Rack::ETag` (already in the stack) hashes the finished body, so a `304` is correct by construction. A controller-level
+`fresh_when` would also skip serialization, but it needs a key that covers *everything the representation depends on*: a task's
+JSON includes its assignee's and creator's names, its tags, and signed attachment URLs, none of which touch the task row when they
+change. A hand-built key would sooner or later serve stale data to someone. So responses are `Cache-Control: no-cache, private` with
+`Vary: Authorization, Accept` (clients may keep a copy but must revalidate, shared caches may not store it) and anything carrying a
+credential is `no-store`. There is no `Last-Modified` for the same reason. Fragment (Russian-doll) caching is skipped for task and
+project JSON for the same dependency reasons; the two expensive computations are cached explicitly under a project-version key
+(project statistics, the analytics report; tasks `touch` their project, which changes the key). Revisit if profiling ever shows
+serialization, not queries, dominating: the fix is `touch: true` on the associations in the key, then `fresh_when`.
+
+## 33. `secure_headers` with a deny-everything policy, because the API is never rendered
+
+A JSON API has no scripts, styles, frames or forms, so its Content-Security-Policy is `default-src 'none'` (plus the directives that do not
+fall back to it) and the rest of the headers say "do not frame, sniff or leak a referrer". The gem is used over Rails'
+`default_headers` for what it adds: it validates the policy (it refuses a CSP that lets `script-src` fall back), it supports a per-request
+override (Swagger UI at `/api-docs` is the one HTML page and needs a policy it can run under), and it mounts at the top of the stack, so the
+headers are on answers produced before routing too (Rack::Attack's 429, Host Authorization). HSTS stays with `config.force_ssl`; two sources of
+truth for one header is how they drift.
+
+## 34. Organizations: a tenant boundary resolved in the policies
+
+An organization has owners, admins and members. Its owners and admins **administer every project of the organization without being
+added to each one**; plain members can create projects in it and see nothing else automatically (projects stay private to their members).
+Two designs were possible: keep copies of that access as project memberships and keep them in sync, or *derive* it in the policy layer.
+Copies drift (a missed callback leaves a former admin with access); derivation cannot, because there is nothing to keep in sync. It costs one
+LEFT JOIN in `ProjectPolicy::Scope` and one clause in `member_project_ids`, which every child resource already scopes through, so tasks,
+comments, tags, webhooks, Action Cable and the AI tools followed without changes, and `tenant_isolation_spec` proves it for every route.
+
+Rules that keep the boundary meaningful: a project's organization is fixed at creation (moving it would drag its members and data across a
+tenant line); a project of an organization only accepts members of that organization (a model validation, so only a bulk insert that skips
+validations gets past it); removing someone from the organization removes their project memberships there and is refused while they still
+own one of its projects; the organization keeps at least one owner and cannot be deleted while it has projects; only owners delete and
+restore its projects and grant roles above `member`. **Teams** (sub-groups inside an organization) are not built; they would be a
+second kind of principal on projects and are the next step if per-team access is needed ([roadmap](roadmap.md)).

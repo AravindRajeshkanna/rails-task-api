@@ -4,6 +4,13 @@ require "ai_core"
 require "aiops/alarm"
 
 module AiopsHelpers
+  # Array#sole is ActiveSupport's; the Lambdas (and so their specs) run on plain Ruby.
+  def sole(list)
+    raise "expected exactly one, got #{list.size}: #{list.inspect}" unless list.size == 1
+
+    list.first
+  end
+
   # An SNS event carrying a CloudWatch alarm state change.
   def alarm_event(name: "task-api-prod-queue-backlog", state: "ALARM", old: "OK", attributes: {}, message: nil)
     body = message || { "AlarmName" => name, "NewStateValue" => state, "OldStateValue" => old, "NewStateReason" => "Threshold Crossed: 1 datapoint [812.0] was greater than 500.0",
@@ -43,4 +50,5 @@ class FakeK8s
     end
 end
 
-RSpec.configure { |config| config.include AiopsHelpers }
+# Only for the Lambdas' specs, so these helper names cannot shadow anything in the app's specs.
+RSpec.configure { |config| config.include AiopsHelpers, file_path: %r{/deploy/lambda/aiops/spec/} }
