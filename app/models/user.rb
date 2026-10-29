@@ -7,6 +7,8 @@ class User < ApplicationRecord
 
   has_many :sessions, dependent: :destroy
   has_many :memberships, dependent: :destroy
+  has_many :organization_memberships, dependent: :destroy
+  has_many :organizations, through: :organization_memberships
   has_many :projects, through: :memberships
   has_many :owned_projects, class_name: "Project", foreign_key: :owner_id, inverse_of: :owner, dependent: :restrict_with_error
   has_many :assigned_tasks, class_name: "Task", foreign_key: :assignee_id, inverse_of: :assignee, dependent: :nullify
@@ -49,7 +51,7 @@ class User < ApplicationRecord
   def self.link_legacy_user(subject, legacy_id)
     return if legacy_id.blank?
 
-    where(id: legacy_id, auth_subject: nil).first&.tap { |user| user.update_columns(auth_subject: subject) }
+    where(id: legacy_id, auth_subject: nil).first&.tap { |user| user.update_columns(auth_subject: subject) } # rubocop:disable Rails/SkipsModelValidations -- a link, not an edit
   end
 
   def externally_authenticated? = auth_subject.present?

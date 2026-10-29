@@ -16,6 +16,12 @@ RSpec.describe "Registration, sessions and tokens", type: :request do
       expect(data["user"]).to include("id" => new_user.uid, "email_address" => "sam@example.com")
     end
 
+    it "forbids storing the response, which carries credentials" do
+      post_json("/api/v1/registrations", { name: "Sam New", email_address: "sam@example.com", password: "long-enough-pw" })
+
+      expect(response.headers["Cache-Control"]).to eq("private, no-store")
+    end
+
     it "validates like the monolith did" do
       post_json("/api/v1/registrations", { name: "", email_address: "pat@example.com", password: "short" })
 

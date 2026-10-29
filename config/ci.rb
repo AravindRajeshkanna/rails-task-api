@@ -8,7 +8,7 @@ CI.run do
   step "Security: Gem audit", "bin/bundler-audit"
   step "Security: Brakeman code analysis", "bin/brakeman --quiet --no-pager --exit-on-warn --exit-on-error"
 
-  step "Tests: RSpec", "bundle exec rspec"
+  step "Tests: RSpec (the app, the gems and the Lambdas, with the coverage floor)", "COVERAGE=1 bundle exec rspec spec gems deploy/lambda"
 
   # Optional: set a green GitHub commit status to unblock PR merge.
   # Requires the `gh` CLI and `gh extension install basecamp/gh-signoff`.

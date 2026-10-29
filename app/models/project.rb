@@ -4,6 +4,9 @@ class Project < ApplicationRecord
   include EventEmitting
 
   belongs_to :owner, class_name: "User"
+  # Optional: a personal project has none. Set when the project is created and never changed, so a
+  # project cannot leave (or enter) a tenant with its members and data.
+  belongs_to :organization, optional: true
 
   has_many :memberships, dependent: :destroy
   has_many :members, through: :memberships, source: :user
@@ -15,6 +18,7 @@ class Project < ApplicationRecord
 
   validates :name, presence: true, length: { maximum: 120 }
   validates :description, length: { maximum: 5_000 }
+  validate :organization_is_fixed, on: :update
 
   after_create :add_owner_as_admin
   after_create { queue_event("created") }
@@ -35,6 +39,10 @@ class Project < ApplicationRecord
   def event_project_id = id
 
   private
+    def organization_is_fixed
+      errors.add(:organization_id, "cannot be changed once the project exists") if organization_id_changed?
+    end
+
     def add_owner_as_admin
       memberships.create!(user: owner, role: :admin)
     end

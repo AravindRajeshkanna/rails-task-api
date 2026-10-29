@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_29_150000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -59,6 +59,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_150000) do
     t.index ["project_id"], name: "index_ai_usages_on_project_id"
     t.index ["user_id", "created_at"], name: "index_ai_usages_on_user_id_and_created_at"
     t.index ["user_id"], name: "index_ai_usages_on_user_id"
+    t.check_constraint "input_tokens >= 0 AND output_tokens >= 0 AND cost_micros >= 0", name: "ai_usages_counts_non_negative"
   end
 
   create_table "audit_events", force: :cascade do |t|
@@ -83,6 +84,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_150000) do
     t.datetime "updated_at", null: false
     t.index ["task_id"], name: "index_comments_on_task_id"
     t.index ["user_id"], name: "index_comments_on_user_id"
+    t.check_constraint "char_length(btrim(body)) > 0", name: "comments_body_present"
   end
 
   create_table "memberships", force: :cascade do |t|
@@ -94,6 +96,26 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_150000) do
     t.index ["project_id", "user_id"], name: "index_memberships_on_project_id_and_user_id", unique: true
     t.index ["project_id"], name: "index_memberships_on_project_id"
     t.index ["user_id"], name: "index_memberships_on_user_id"
+    t.check_constraint "role::text = ANY (ARRAY['member'::character varying, 'admin'::character varying]::text[])", name: "memberships_role_valid"
+  end
+
+  create_table "organization_memberships", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.bigint "user_id", null: false
+    t.string "role", default: "member", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["organization_id", "user_id"], name: "index_organization_memberships_on_organization_id_and_user_id", unique: true
+    t.index ["organization_id"], name: "index_organization_memberships_on_organization_id"
+    t.index ["user_id"], name: "index_organization_memberships_on_user_id"
+    t.check_constraint "role::text = ANY (ARRAY['member'::character varying, 'admin'::character varying, 'owner'::character varying]::text[])", name: "organization_memberships_role_valid"
+  end
+
+  create_table "organizations", force: :cascade do |t|
+    t.string "name", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.check_constraint "char_length(btrim(name::text)) > 0", name: "organizations_name_present"
   end
 
   create_table "projects", force: :cascade do |t|
@@ -103,8 +125,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_150000) do
     t.datetime "discarded_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "organization_id"
     t.index ["discarded_at"], name: "index_projects_on_discarded_at"
+    t.index ["organization_id"], name: "index_projects_on_organization_id"
     t.index ["owner_id"], name: "index_projects_on_owner_id"
+    t.check_constraint "char_length(btrim(name::text)) > 0", name: "projects_name_present"
   end
 
   create_table "sessions", force: :cascade do |t|
@@ -138,6 +163,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_150000) do
     t.datetime "updated_at", null: false
     t.index ["project_id", "name"], name: "index_tags_on_project_id_and_name", unique: true
     t.index ["project_id"], name: "index_tags_on_project_id"
+    t.check_constraint "char_length(btrim(name::text)) > 0", name: "tags_name_present"
   end
 
   create_table "tasks", force: :cascade do |t|
@@ -162,10 +188,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_150000) do
     t.index ["creator_id"], name: "index_tasks_on_creator_id"
     t.index ["discarded_at"], name: "index_tasks_on_discarded_at"
     t.index ["embedding"], name: "index_tasks_on_embedding", opclass: :vector_cosine_ops, using: :hnsw
+    t.index ["project_id", "created_at", "id"], name: "index_tasks_on_project_id_and_created_at_when_kept", order: { created_at: :desc, id: :desc }, where: "(discarded_at IS NULL)"
     t.index ["project_id", "due_on"], name: "index_tasks_on_project_id_and_due_on"
     t.index ["project_id", "status"], name: "index_tasks_on_project_id_and_status"
     t.index ["project_id"], name: "index_tasks_on_project_id"
     t.index ["title"], name: "index_tasks_on_title", opclass: :gin_trgm_ops, using: :gin
+    t.check_constraint "char_length(btrim(title::text)) > 0", name: "tasks_title_present"
+    t.check_constraint "comments_count >= 0 AND lock_version >= 0", name: "tasks_counters_non_negative"
+    t.check_constraint "priority = ANY (ARRAY[0, 1, 2, 3])", name: "tasks_priority_valid"
+    t.check_constraint "status = ANY (ARRAY[0, 1, 2])", name: "tasks_status_valid"
   end
 
   create_table "users", force: :cascade do |t|
@@ -177,6 +208,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_150000) do
     t.string "auth_subject"
     t.index ["auth_subject"], name: "index_users_on_auth_subject", unique: true, where: "(auth_subject IS NOT NULL)"
     t.index ["email_address"], name: "index_users_on_email_address", unique: true
+    t.check_constraint "char_length(btrim(email_address::text)) > 0", name: "users_email_present"
+    t.check_constraint "char_length(btrim(name::text)) > 0", name: "users_name_present"
   end
 
   create_table "webhook_deliveries", force: :cascade do |t|
@@ -214,6 +247,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_150000) do
   add_foreign_key "comments", "users"
   add_foreign_key "memberships", "projects"
   add_foreign_key "memberships", "users"
+  add_foreign_key "organization_memberships", "organizations"
+  add_foreign_key "organization_memberships", "users"
+  add_foreign_key "projects", "organizations"
   add_foreign_key "projects", "users", column: "owner_id"
   add_foreign_key "sessions", "users"
   add_foreign_key "taggings", "tags"

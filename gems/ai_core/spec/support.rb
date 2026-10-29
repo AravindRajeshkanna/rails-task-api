@@ -23,4 +23,6 @@ module AiCoreHelpers
   end
 end
 
-RSpec.configure { |config| config.include AiCoreHelpers }
+# Only for this gem's own specs. Included everywhere, `usage` would silently override a `let(:usage)` in
+# an app spec whenever both suites run in one process.
+RSpec.configure { |config| config.include AiCoreHelpers, file_path: %r{/gems/ai_core/spec/} }

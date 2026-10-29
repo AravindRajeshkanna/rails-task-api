@@ -43,7 +43,7 @@ class RefreshToken < ApplicationRecord
   end
 
   def self.revoke_family!(family_id)
-    where(family_id: family_id, revoked_at: nil).update_all(revoked_at: Time.current)
+    where(family_id: family_id, revoked_at: nil).update_all(revoked_at: Time.current) # rubocop:disable Rails/SkipsModelValidations -- one UPDATE for the whole family
   end
 
   # Signing out: revokes the token's whole family. Unknown tokens are ignored, so it is safe to repeat.

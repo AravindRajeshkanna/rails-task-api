@@ -1,7 +1,7 @@
 module Ai
   module Gateway
     class Local
-      def enabled? = AiCore.enabled?
+      def enabled? = AiCore.enabled? # rubocop:disable Rails/Delegate -- a module function, not an object to delegate to
 
       def run(feature, input) = guard { AiCore.client.run(feature, input) }
       def converse(system:, messages:, tools: []) = guard { AiCore.client.converse(system: system, messages: messages, tools: tools) }

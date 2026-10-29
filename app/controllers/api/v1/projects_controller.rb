@@ -15,9 +15,14 @@ module Api
         render_resource ProjectDetailResource, @project
       end
 
+      # `organization_id` creates the project inside an organization the caller belongs to (404 otherwise).
+      # It is fixed for life, so it is not a permitted attribute of #update.
       def create
         authorize Project
-        project = current_user.owned_projects.create!(project_params)
+        organization = policy_scope(Organization).find(params[:organization_id]) if params[:organization_id].present?
+        authorize organization, :create_project? if organization
+
+        project = current_user.owned_projects.create!(project_params.merge(organization: organization))
         render_resource ProjectDetailResource, policy_scope(Project).find(project.id), status: :created
       end
 

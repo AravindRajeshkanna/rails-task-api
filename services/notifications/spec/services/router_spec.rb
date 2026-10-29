@@ -53,7 +53,7 @@ RSpec.describe Notifications::Router do
     it "acts on an event once, however many times it arrives" do
       event = assigned_event(id: "evt-1")
 
-      results = 3.times.map { router.dispatch(event) }
+      results = Array.new(3) { router.dispatch(event) }
 
       expect(results).to eq(%i[handled duplicate duplicate])
       expect(sent.size).to eq(1)
@@ -61,7 +61,7 @@ RSpec.describe Notifications::Router do
 
     it "does not mark an event processed when its handler fails, so a retry can succeed" do
       event = assigned_event(id: "evt-2")
-      allow_any_instance_of(ActionMailer::MessageDelivery).to receive(:deliver_now).and_raise(Net::SMTPServerBusy.new("busy")) # rubocop:disable RSpec/AnyInstance
+      allow_any_instance_of(ActionMailer::MessageDelivery).to receive(:deliver_now).and_raise(Net::SMTPServerBusy.new("busy"))
 
       expect { router.dispatch(event) }.to raise_error(Notifications::DeliveryError, /SMTP/)
       expect(ProcessedEvent.where(event_id: "evt-2")).to be_empty

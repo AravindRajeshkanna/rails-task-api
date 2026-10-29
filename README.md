@@ -14,17 +14,18 @@ observability with anomaly alarms and an AIOps loop, and Terraform + Helm + Argo
 [docs/architecture/overview.md](docs/architecture/overview.md); to deploy, follow [docs/aws/setup-guide.md](docs/aws/setup-guide.md).
 
 - **Interactive docs:** run the server and open <http://localhost:3000/api-docs> (OpenAPI 3, generated from the specs)
-- **Spec:** [swagger/v1/swagger.yaml](swagger/v1/swagger.yaml)
+- **Spec:** [swagger/v1/swagger.yaml](swagger/v1/swagger.yaml) · **What changed for clients:** [CHANGELOG.md](CHANGELOG.md)
+- **What was built, in which pull request, and what comes next:** [docs/roadmap.md](docs/roadmap.md)
 
 ## What's in it
 
 | Area | Implementation |
 | --- | --- |
-| Resources | Users, Projects, Memberships, Tasks, Comments, Tags, Webhooks, Audit events |
+| Resources | Users, Organizations, Projects, Memberships, Tasks, Comments, Tags, Webhooks, Audit events, Activity, Analytics |
 | Auth | Bearer-token sessions (digest-only storage), sign-up, sign-in/out, password reset |
-| Authorization | Pundit policies; project roles `member` / `admin`; owner-only deletes |
+| Authorization | Pundit policies; project roles `member` / `admin`; owner-only deletes; organizations (`owner` / `admin` / `member`) whose owners and admins administer all of their projects, and whose projects only take their members |
 | API design | `/api/v1` namespace, shallow routes, [Alba](https://github.com/okuramasafumi/alba) serializers, [Pagy](https://github.com/ddnexus/pagy) pagination, filtering / sorting / search, one error envelope |
-| Hardening | `rack-cors`, `rack-attack` + Rails 8 `rate_limit`, optimistic locking, SSRF-guarded webhooks |
+| Hardening | `rack-cors`, `rack-attack` + Rails 8 `rate_limit`, `secure_headers`, optimistic locking, SSRF-guarded webhooks, database CHECK constraints, a tenant-isolation sweep over every route ([docs/security.md](docs/security.md)) |
 | Background work | Solid Queue: assignment & reminder emails, webhook delivery with retries, retention purge |
 | Real time | Solid Cable: `ProjectChannel` pushes task and comment events |
 | Storage | Active Storage: user avatars, task attachments (type and size validated, signed short-lived URLs) |
@@ -35,7 +36,8 @@ observability with anomaly alarms and an AIOps loop, and Terraform + Helm + Argo
 | Observability | Structured events as JSON logs, Prometheus `/metrics`, OpenTelemetry → X-Ray, CloudWatch anomaly alarms, SNS → PagerDuty/Slack ([docs](docs/architecture/observability-and-aiops.md)) |
 | Services | Auth (JWT, rotating refresh tokens), AI, Notifications (SQS consumer), events as CloudEvents on SNS/SQS ([docs](docs/architecture/microservices.md)) |
 | Platform | Docker Compose, `kind`, one Helm chart, Terraform (EKS, Karpenter, Aurora, SNS/SQS, WAF), Argo CD + Rollouts, KEDA, AIOps Lambdas ([deploy/](deploy/README.md)) |
-| Quality | RSpec (595 across the app, shared gems, Lambdas), the services' own suites, Bullet raising on N+1, RuboCop, Brakeman, bundler-audit, `terraform validate`, Kubernetes schema checks |
+| Quality | RSpec (741 across the app, shared gems and Lambdas, with a line/branch coverage floor; 72 more in the services), Bullet raising on N+1, RuboCop with the Lint/Rails/Performance cops, Brakeman, bundler-audit, `strong_migrations`, `terraform validate`, Kubernetes schema checks ([docs/testing.md](docs/testing.md)) |
+| Performance | Measured, not guessed: `EXPLAIN` on 149k tasks, k6 load tests, one evidence-based index ([docs/performance.md](docs/performance.md)) |
 | Delivery | Dockerfile, Kamal 2 config (single host), EKS via GitOps (below), GitHub Actions, JSON logs, `/up` health check, optional Sentry |
 
 ## Quick start
@@ -117,7 +119,8 @@ purged for good after 30 days.
 | --- | --- |
 | Auth | `POST /registrations` · `POST /session` · `DELETE /session` · `POST /passwords` · `PATCH /passwords/:token` |
 | Account | `GET` `PATCH /me` · `PUT` `DELETE /me/avatar` |
-| Projects | `GET` `POST /projects` · `GET` `PATCH` `DELETE /projects/:id` · `POST /projects/:id/restore` |
+| Organizations | `GET` `POST /organizations` · `GET` `PATCH` `DELETE /organizations/:id` · `GET` `POST /organizations/:id/members` · `PATCH` `DELETE /organizations/:id/members/:member_id` |
+| Projects | `GET` `POST /projects` (`organization_id` creates one inside an organization) · `GET` `PATCH` `DELETE /projects/:id` · `POST /projects/:id/restore` |
 | Members | `GET` `POST /projects/:id/memberships` · `PATCH` `DELETE /memberships/:id` |
 | Tasks | `GET` `POST /projects/:id/tasks` · `GET` `PATCH` `DELETE /tasks/:id` · `POST /tasks/:id/restore` |
 | Comments | `GET` `POST /tasks/:id/comments` · `PATCH` `DELETE /comments/:id` |
@@ -125,6 +128,8 @@ purged for good after 30 days.
 | Tags | `GET` `POST /projects/:id/tags` · `DELETE /tags/:id` |
 | Webhooks | `GET` `POST /projects/:id/webhooks` · `GET` `PATCH` `DELETE /webhooks/:id` · `GET /webhooks/:id/deliveries` |
 | Audit | `GET /projects/:id/audit_events` (admins) |
+| Activity | `GET /activity` (everything that happened in your projects) |
+| Analytics | `GET /projects/:id/analytics?from&to&interval` |
 
 All paths are under `/api/v1`. Full parameter and schema detail: `/api-docs`.
 
@@ -137,6 +142,10 @@ All paths are under `/api/v1`. Full parameter and schema detail: `/api-docs`.
 | Delete any task or comment, restore tasks | | ✓ | ✓ |
 | Edit project, manage members, webhooks, audit log | | ✓ | ✓ |
 | Delete / restore the project | | | ✓ |
+
+Owners and admins of the project's **organization** count as project admins without being added to it; organization owners may also delete and restore its projects.
+Within an organization: `owner` does everything (and is the only one who can grant `admin`/`owner` or delete it), `admin` adds and removes plain members,
+`member` can create projects there. Details: [decision 34](docs/decisions.md).
 
 ### Real time
 
@@ -231,10 +240,11 @@ Schedules live in [config/recurring.yml](config/recurring.yml).
 ## Testing & quality
 
 ```bash
-bundle exec rspec                                   # 595 (app + gems + Lambdas), ~8 s
+bundle exec rspec                                   # the app, ~8 s; accepts any file or directory
+bundle exec rspec spec gems deploy/lambda           # 741 (app + gems + Lambdas), what CI runs
 for s in ai auth notifications; do (cd services/$s && bundle exec rspec); done   # the services
 bin/rails ai:eval                                   # score the configured model against the golden sets
-bin/ci                                              # rubocop + bundler-audit + brakeman + rspec (same as GitHub Actions)
+bin/ci                                              # rubocop + bundler-audit + brakeman + rspec with the coverage floor (as GitHub Actions)
 RAILS_ENV=test bin/rails rswag:specs:swaggerize     # regenerate swagger/v1/swagger.yaml after API changes
 ```
 
@@ -242,7 +252,9 @@ RAILS_ENV=test bin/rails rswag:specs:swaggerize     # regenerate swagger/v1/swag
 - `spec/requests` – behaviour: authorization matrices, filters, pagination, rate limits, CORS, error envelope.
 - `spec/models`, `policies`, `jobs`, `mailers`, `channels`, `services`, `subscribers` – unit level.
 - [Bullet](https://github.com/flyerhzm/bullet) raises in the test environment on N+1 queries *and* unused eager loading.
-- `spec/requests/api_docs_spec.rb` fails when a route is added without documenting it.
+- `spec/requests/api_docs_spec.rb` fails when a route is added without documenting it; `spec/requests/tenant_isolation_spec.rb` fails when one has no isolation decision.
+- Load tests: `loadtest/` (k6) against a seeded 150k-task database; results in [docs/performance.md](docs/performance.md).
+- More: [docs/testing.md](docs/testing.md), [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Deployment
 
@@ -281,7 +293,8 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 - Members are added by the email of an **existing** user; there is no invitation flow, and an admin can therefore probe whether an email is registered.
 - Offset pagination: fine for this data shape, but very deep pages on huge projects would want keyset pagination.
 - Active Storage defaults to local disk; on Kubernetes set `ACTIVE_STORAGE_SERVICE=amazon` (S3).
-- Image dimension analysis uses `libvips` when present (it is in the Docker image). Locally you will see a harmless boot warning unless you `brew install vips`; no image variants are generated.
+- Image dimension analysis needs `libvips` at runtime (it is in the Docker image; locally `brew install vips`). Without it uploads still work, their dimensions are just not recorded. No image variants are generated.
+- No in-app notification inbox and no teams inside organizations; see "Next" in [docs/roadmap.md](docs/roadmap.md).
 - No GraphQL endpoint (optional in the roadmap); no public demo deployment is bundled.
 - The platform code is validated statically and by CI (the four images build, Terraform validates, every Helm release renders and passes
   Kubernetes/CRD schema checks) and the services were exercised together locally with an AWS mock. The Compose stack, the `kind` script and
@@ -289,6 +302,19 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 - Tasks and Projects stay in the monolith on purpose ([decision 21](docs/decisions.md)). Webhooks stay there too.
 - Events are published after commit through a job, not a transactional outbox: an SNS outage longer than the job's retries loses an event.
 - Access tokens from the Auth service live up to 15 minutes after logout.
+
+## Documentation
+
+| | |
+| --- | --- |
+| [docs/roadmap.md](docs/roadmap.md) | Everything that was planned and built, by pull request, with status and what is next |
+| [docs/decisions.md](docs/decisions.md) | Why (34 architecture decisions) |
+| [docs/architecture/](docs/architecture/overview.md) | System overview, AI, observability and AIOps, microservices, service contracts |
+| [docs/testing.md](docs/testing.md) · [docs/performance.md](docs/performance.md) · [docs/security.md](docs/security.md) | How it is tested, measured and defended |
+| [docs/api-versioning.md](docs/api-versioning.md) · [CHANGELOG.md](CHANGELOG.md) | Versioning policy and what changed for API clients |
+| [docs/runbooks/](docs/runbooks/) | Operating it: alerts, backups and restores, zero-downtime migrations |
+| [docs/aws/setup-guide.md](docs/aws/setup-guide.md) · [deploy/README.md](deploy/README.md) | Standing the platform up on AWS |
+| [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) | Working on it; reporting a vulnerability |
 
 ## License
 

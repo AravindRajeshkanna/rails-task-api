@@ -12,7 +12,7 @@ if allowed_origins.any?
       resource "/api/*",
         headers: :any,
         methods: %i[get post put patch delete options head],
-        expose: %w[Link Current-Page Page-Limit Total-Count Total-Pages Retry-After X-Request-Id],
+        expose: %w[Link Current-Page Page-Limit Total-Count Total-Pages Retry-After X-Request-Id API-Version Deprecation Sunset],
         max_age: 600
     end
   end

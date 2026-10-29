@@ -8,6 +8,7 @@ class Membership < ApplicationRecord
 
   validates :user_id, uniqueness: { scope: :project_id, message: "is already a member of this project" }
   validate :owner_remains_admin, on: :update
+  validate :user_belongs_to_organization, on: :create
 
   before_destroy :prevent_removing_owner, prepend: true
 
@@ -16,6 +17,15 @@ class Membership < ApplicationRecord
   def owner? = project.owner_id == user_id
 
   private
+    # The tenant boundary: a project of an organization only takes members of that organization.
+    def user_belongs_to_organization
+      return unless project&.organization_id && user
+
+      unless OrganizationMembership.exists?(organization_id: project.organization_id, user_id: user_id)
+        errors.add(:user, "must be a member of the project's organization")
+      end
+    end
+
     def owner_remains_admin
       errors.add(:role, "of the project owner cannot be changed") if owner? && !admin?
     end

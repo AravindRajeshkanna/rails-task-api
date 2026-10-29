@@ -1,5 +1,5 @@
 class ProjectResource < ApplicationResource
-  attributes :id, :name, :description, :created_at, :updated_at
+  attributes :id, :name, :description, :organization_id, :created_at, :updated_at
 
   # The viewer's role, selected by ProjectPolicy::Scope as +current_role+.
   attribute :role do |project|

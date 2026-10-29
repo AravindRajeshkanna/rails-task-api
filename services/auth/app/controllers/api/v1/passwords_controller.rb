@@ -19,7 +19,7 @@ module Api
         user = User.find_by_password_reset_token!(params[:token])
 
         if user.update(params.permit(:password, :password_confirmation))
-          user.refresh_tokens.update_all(revoked_at: Time.current) # a reset signs out every device
+          user.refresh_tokens.update_all(revoked_at: Time.current) # rubocop:disable Rails/SkipsModelValidations -- a reset signs out every device
           head :no_content
         else
           render_error :unprocessable_content, "validation_failed", "Validation failed", user.errors.messages

@@ -1,2 +1,1 @@
 --require spec_helper
---pattern "spec/**/*_spec.rb,gems/*/spec/**/*_spec.rb,deploy/lambda/*/spec/**/*_spec.rb"

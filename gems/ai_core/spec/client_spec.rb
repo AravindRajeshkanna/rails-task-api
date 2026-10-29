@@ -54,9 +54,10 @@ RSpec.describe AiCore::Client do
   end
 
   describe "AiCore.client" do
-    # The app's initializer configures the fake provider; put everything back afterwards.
+    # In the full suite the app's initializer configures the fake provider; on its own nothing is configured,
+    # and asking for the client would raise. Read the instance variable instead, and put everything back afterwards.
     around do |example|
-      provider, client = AiCore.configuration.provider, AiCore.client
+      provider, client = AiCore.configuration.provider, AiCore.instance_variable_get(:@client)
       example.run
     ensure
       AiCore.configuration.provider = provider

@@ -23,7 +23,7 @@ RSpec.describe Aiops::Rca do
 
     described_class.process(alarm, env: env, sns: sns, evidence: evidence, client: client)
 
-    message = published(sns).sole
+    message = sole(published(sns))
     expect(message[:subject]).to eq("RCA: Workers stopped after a deploy")
     expect(message[:message]).to include("Likely cause (medium confidence)", "rolled out 6 minutes before", "Runbook: docs/runbooks/queue-backlog.md", "1. Roll back worker", "can be wrong")
     expect(message[:message_attributes]).to include("kind" => { data_type: "String", string_value: "rca" }, "alarm" => { data_type: "String", string_value: "task-api-prod-queue-latency" })
@@ -47,10 +47,22 @@ RSpec.describe Aiops::Rca do
     expect(seen[:tools].map { |tool| tool[:name] }).to eq([ "analyze_incident" ])
   end
 
-  it "works end to end with the offline model" do
+  # What the Lambda runs with AI_PROVIDER=fake. In the full suite the app's initializer has already set it up;
+  # run alone, nothing is configured, so do it here and put everything back.
+  around(:example, :offline_ai) do |example|
+    provider, client = AiCore.configuration.provider, AiCore.instance_variable_get(:@client)
+    AiCore.configure { |config| config.provider = "fake" }
+    AiCore.client = nil
+    example.run
+  ensure
+    AiCore.configuration.provider = provider
+    AiCore.client = client
+  end
+
+  it "works end to end with the offline model", :offline_ai do
     described_class.process(alarm, env: env, sns: sns, evidence: evidence)
 
-    expect(published(sns).sole[:message]).to include("Heuristic baseline", "a deploy happened")
+    expect(sole(published(sns))[:message]).to include("Heuristic baseline", "a deploy happened")
   end
 
   it "only analyzes alarms that are firing" do

@@ -97,8 +97,26 @@ jobs:
       - name: Set up database
         run: bin/rails db:test:prepare
 
-      - name: Run specs
-        run: bundle exec rspec
+      - name: Run specs (the app, the shared gems and the Lambdas) with the coverage floor
+        env:
+          COVERAGE: "1"
+        run: bundle exec rspec spec gems deploy/lambda
+
+      - name: Show coverage
+        if: always()
+        run: |
+          if [ -f coverage/.last_run.json ]; then
+            ruby -rjson -e 'r = JSON.parse(File.read("coverage/.last_run.json"))["result"]; puts "### Coverage\n\nLine: #{r["line"]}%  \nBranch: #{r["branch"]}%"' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Check the committed OpenAPI document is up to date
         run: |

@@ -20,7 +20,7 @@ RSpec.describe Aiops::Remediate do
       result = run("task-api-prod-queue-backlog")
 
       expect(result).to eq(action: "raise_worker_floor", from: 2, to: 4, applied: true)
-      path, body = k8s.patches.sole
+      path, body = sole(k8s.patches)
       expect(path).to eq(scaled_object_path)
       expect(body[:spec]).to eq(minReplicaCount: 4)
       expect(body[:metadata][:annotations]).to include("aiops.taskapi.dev/original-min-replicas" => "2", "aiops.taskapi.dev/last-action-at" => now.iso8601)
@@ -77,14 +77,14 @@ RSpec.describe Aiops::Remediate do
 
       expect(result).to include(applied: false, to: 4)
       expect(k8s.patches).to be_empty
-      message = published(sns).sole
+      message = sole(published(sns))
       expect(message[:message]).to start_with("[dry run] WOULD HAVE acted")
     end
 
     it "reports what it did to the on-call channel, marked so no Lambda re-processes it" do
       run("task-api-prod-queue-backlog")
 
-      message = published(sns).sole
+      message = sole(published(sns))
       expect(message[:message]).to include("DID acted on task-api-prod-queue-backlog (ALARM)")
       expect(message[:message_attributes]["kind"][:string_value]).to eq("rca")
     end

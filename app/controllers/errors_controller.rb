@@ -7,12 +7,8 @@ class ErrorsController < ActionController::API
     status = request.path_parameters[:status].to_i
     status = 500 unless Rack::Utils::HTTP_STATUS_CODES.key?(status) && status >= 400
 
-    # Rack's status table holds binary (ASCII-8BIT) strings, which String#parameterize rejects.
-    reason = Rack::Utils::HTTP_STATUS_CODES[status].dup.force_encoding(Encoding::UTF_8)
-    message = status == 400 ? "The request could not be parsed" : reason
+    message = "The request could not be parsed" if status == 400
 
-    render json: {
-      error: { status: status, code: reason.parameterize(separator: "_"), message: message }
-    }, status: status
+    render json: ErrorSerializer.for_status(status, message: message, request_id: request.request_id), status: status
   end
 end

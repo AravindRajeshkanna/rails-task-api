@@ -15,7 +15,8 @@ module Ai
       return false if task.embedding_digest == digest && task.embedding.present?
 
       embedding = Runner.new(project: task.project).embed(text)
-      task.update_columns(embedding: embedding.vector, embedding_digest: digest, embedded_at: Time.current)
+      # update_columns on purpose: saving would touch the project and re-enqueue this very job.
+      task.update_columns(embedding: embedding.vector, embedding_digest: digest, embedded_at: Time.current) # rubocop:disable Rails/SkipsModelValidations
       true
     end
   end

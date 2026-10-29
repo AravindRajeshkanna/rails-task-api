@@ -52,3 +52,7 @@
 /gems/*/spec/
 /.github/
 /docker-compose*.yml
+
+# Load-testing tools: not needed to run the app, and the seeder is dev-only
+/loadtest/
+/lib/tasks/loadtest.rake
