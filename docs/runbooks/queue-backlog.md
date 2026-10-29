@@ -29,7 +29,7 @@ Look in the alert channel for its note.
 |---|---|
 | Not enough workers, KEDA at max | Raise `keda.maxReplicaCount` in `deploy/gitops/envs/<env>/worker.yaml`; raise `JOB_CONCURRENCY` for more threads per pod only if CPU allows |
 | A job fails every time | Fix or roll back; then retry the failed executions (`failed.retry`) or discard them |
-| SNS publishing failing (`PublishEventJob`) | Topic ARN/permissions (Pod Identity role for `worker`), SNS service health |
+| SNS publishing failing (events waiting in the outbox) | See [event-outbox.md](event-outbox.md): nothing is lost, they are sent when SNS recovers; check the topic ARN, the `worker` Pod Identity role and SNS health |
 | Embedding backfill flooding the queue | Pause by scaling nothing: it is bounded by the AI budget; or pause the queue |
 | No workers at all, jobs waiting | `kubectl rollout restart deploy/worker -n task-api`; check the liveness probe and `solid-queue` process title |
 

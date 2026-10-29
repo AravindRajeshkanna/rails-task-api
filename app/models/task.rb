@@ -32,8 +32,10 @@ class Task < ApplicationRecord
   validate :attachments_are_acceptable
 
   before_save :track_completion
-  after_create { queue_event("created") }
-  after_update :queue_update_events
+  # after_save, declared below has_many_attached: Active Storage saves attachments in its own after_save, and the
+  # event (whose envelope is built now, for the outbox) must see them. after_create/after_update run earlier.
+  after_save :queue_events
+  after_save :record_assignment, if: :new_assignee_to_notify?
   after_commit :notify_new_assignee, on: %i[create update]
   after_commit :schedule_embedding, on: %i[create update]
 
@@ -94,9 +96,17 @@ class Task < ApplicationRecord
       end
     end
 
+    # Assigning yourself needs no notification.
+    def new_assignee_to_notify? = saved_change_to_assignee_id? && assignee_id.present? && assignee_id != Current.user&.id
+
+    # For the other services, in the transaction of the assignment (see EventEmitting)...
+    def record_assignment
+      Events::Outbox.record("task.assigned", subject: self, project_id: project_id, actor_id: Current.user&.id)
+    end
+
+    # ... and for this app's own subscribers (and the local email), once it has committed.
     def notify_new_assignee
-      return unless saved_change_to_assignee_id? && assignee_id.present?
-      return if assignee_id == Current.user&.id # assigning yourself needs no email
+      return unless new_assignee_to_notify?
 
       Rails.event.notify("task.assigned", subject: to_global_id.to_s, project_id: project_id, actor_id: Current.user&.id)
       TaskMailer.assigned(self).deliver_later if Rails.configuration.x.notifications.mode == "local"
@@ -107,6 +117,10 @@ class Task < ApplicationRecord
       return unless previously_new_record? || saved_change_to_title? || saved_change_to_description?
 
       EmbedTaskJob.perform_later(self)
+    end
+
+    def queue_events
+      saved_change_to_id? ? queue_event("created") : queue_update_events
     end
 
     def queue_update_events

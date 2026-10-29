@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_30_110000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_30_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -155,6 +155,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_30_110000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.check_constraint "char_length(btrim(name::text)) > 0", name: "organizations_name_present"
+  end
+
+  create_table "outbox_events", force: :cascade do |t|
+    t.string "event_id", null: false
+    t.string "event_type", null: false
+    t.jsonb "payload", null: false
+    t.datetime "available_at", default: -> { "CURRENT_TIMESTAMP" }, null: false
+    t.datetime "locked_until"
+    t.integer "attempts", default: 0, null: false
+    t.text "last_error"
+    t.datetime "published_at"
+    t.datetime "created_at", null: false
+    t.index ["available_at", "id"], name: "index_outbox_events_pending", where: "(published_at IS NULL)"
+    t.index ["event_id"], name: "index_outbox_events_on_event_id", unique: true
+    t.index ["published_at"], name: "index_outbox_events_published", where: "(published_at IS NOT NULL)"
   end
 
   create_table "project_teams", force: :cascade do |t|

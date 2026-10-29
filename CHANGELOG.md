@@ -18,6 +18,10 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - `cursor` on `GET /api/v1/projects/{id}/tasks`: keyset pagination (`?cursor=` first page, then `meta.next_cursor`; `meta` is `{limit, next_cursor, has_more}` with no
   total). Same cost at any depth, stable while tasks are added or removed. For sorts by `created_at`, `updated_at` or `title`; relevance, `priority`, `status` and
   `due_on` stay with `page=`. An invalid cursor is `400`. `page=` is unchanged.
+- Events for other services (the SNS topic) are now written to a transactional outbox in the same transaction as the change and published by a relay: they can
+  no longer be lost to a crash after commit or to an SNS outage, and are still delivered at least once (deduplicate on `id`). `data` is a snapshot at the time of
+  the change. Not an API change, but consumers of the topic should note delivery can be late and out of order during an outage. (Listed here because it is
+  a guarantee these consumers can now rely on.)
 - **In-app inbox.** `GET /api/v1/notifications` (newest first; `unread=true`, `project_id`, `kind`; `meta.unread_count`), `PATCH /api/v1/notifications/{id}`
   with `{"read": true|false}`, `DELETE /api/v1/notifications/{id}` and `POST /api/v1/notifications/read_all` (optionally `project_id`). You are told when a
   task is assigned to you by someone else (`task.assigned`), when one of yours is due tomorrow (`task.due_soon`), when someone else completes a task you created

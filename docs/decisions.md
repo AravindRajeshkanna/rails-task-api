@@ -233,7 +233,7 @@ Services publish CloudEvents 1.0 to one SNS topic; each consumer owns a queue (w
 a filter on the event type. Delivery is at-least-once, so consumers deduplicate on the event id in the same transaction
 as their work. Notification events carry everything a message needs, so the consumer never calls back. Publishing
 goes through a background job with retries (not inside the request transaction); a transactional outbox is the next
-step if an event must never be lost across a database commit and an SNS outage.
+step if an event must never be lost across a database commit and an SNS outage (done: [ADR 41](decisions.md)).
 
 ## 24. EKS Pod Identity, not IRSA
 
@@ -456,3 +456,26 @@ never interpolated, so a forged cursor can only move the window inside rows the 
 (`400`, saying why): sorts by relevance (an expression), `priority` and `status` (enums, which Pagy would compare as labels against integer columns) and
 `due_on` (nullable). Cursors are not signed and not tied to the query that issued them; using one with other filters gives that other query's page from that
 point, which is the client's choice, not an exposure. The other list endpoints keep offset only, because none can get long enough to matter yet.
+
+## 41. A transactional outbox for the events other services consume
+
+Until now an event was published after commit by enqueuing a job. Two ways to lose one: the process dies between the commit and the enqueue, and an SNS
+outage outlasts the job's retries (it then sits in the failed jobs, which nobody reads). The fix is the standard one: write the event to a table **in the
+same transaction as the change** and publish from the table afterwards. The event then exists if and only if the change committed, and a publisher that
+fails simply tries again later.
+
+How it works: `EventEmitting#queue_event` (and the assignment and reminder paths) call `Events::Outbox.record`, which builds the CloudEvents envelope **at
+that moment** and inserts it into `outbox_events`. A snapshot, because an event that is sent an hour later during an outage should say what happened, not
+how the task looks then (the assignee's email in `task.assigned`, for instance). That forces a rule: the envelope must see everything the save wrote, so
+`Task` queues its events in `after_save` below `has_many_attached` (Active Storage saves attachments in its own `after_save`, after `after_create`), and a spec
+fails if tags or attachments are missing from the snapshot. `OutboxRelayJob` is woken after the commit and swept every minute; it leases a batch of rows
+(`FOR UPDATE SKIP LOCKED` plus a `locked_until`), sends them, and marks them published. A failure keeps the row with its error and backs off exponentially to
+15 minutes; one bad row never holds up the others; a relay that dies loses only its lease. The reminder's id is derived from the task and due date, so re-running
+the daily job is a no-op. Published rows are deleted after a week; pending ones never are.
+
+What it does not do: **order**. SNS standard topics do not order, and the relay's batches and retries reorder further, so consumers use the envelope's `time` and
+the current state, and deduplicate on `id` (the Notification service already did, which is why at-least-once was safe before and still is). **Exactly once**
+is not available over SNS. Webhooks, Action Cable and the inbox stay on the in-process path, because they are local, fast and tolerate a lost message
+(a client reloads); only the cross-service stream earned a table. Cost: one insert and an envelope build per event inside the write transaction, about 2.8 ms
+(the build used to happen right after the commit, so request time is about the same, but row locks are held a little longer). The signal to watch is the age of the
+oldest unpublished event (`taskapi_outbox_oldest_pending_event_age_seconds`, alarm at 5 minutes), because a growing count with a young oldest event is just load.

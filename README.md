@@ -308,7 +308,7 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
   Kubernetes/CRD schema checks) and the services were exercised together locally with an AWS mock. The Compose stack, the `kind` script and
   the Terraform have **not been run against Docker or AWS**. Expect a round of small fixes on first contact.
 - Tasks and Projects stay in the monolith on purpose ([decision 21](docs/decisions.md)). Webhooks stay there too.
-- Events are published after commit through a job, not a transactional outbox: an SNS outage longer than the job's retries loses an event.
+- Events for the other services go through a transactional outbox ([ADR 41](docs/decisions.md)): delivery is at-least-once and never lossy, but not ordered, and can be late during an SNS outage (alarm: oldest unpublished event over 5 minutes; [runbook](docs/runbooks/event-outbox.md)). Webhooks and Action Cable are separate and are not retried from the outbox.
 - Access tokens from the Auth service live up to 15 minutes after logout.
 
 ## Documentation

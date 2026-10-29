@@ -77,9 +77,15 @@ Envelope (published by the monolith to the SNS topic, `source: "task-api"`):
 
 SNS message attributes (for subscription filters): `type`, `source`, `project_id` (number).
 
+**Delivery guarantees.** Events are written to a transactional outbox in the transaction of the change they describe and published afterwards, so:
+an event exists if and only if its change committed; it is delivered **at least once** (a crash can resend it: deduplicate on `id`); delivery is **not ordered**
+(use `time` and the current state, not arrival order); and during an SNS outage events are late, never lost. `data` is a snapshot taken at the moment of the
+change, not re-read at publish time. The daily `task.due_soon` has a deterministic `id` per task and due date, so a re-run of the job repeats the same event.
+See [the outbox runbook](../runbooks/event-outbox.md).
+
 | Type | When | `data` |
 |---|---|---|
-| `task.created`, `task.updated`, `task.completed`, `task.discarded`, `task.restored` | the task changes (after commit) | the task, as the API serializes it |
+| `task.created`, `task.updated`, `task.completed`, `task.discarded`, `task.restored` | the task changes | the task, as the API serializes it |
 | `project.created`, `project.updated`, `project.discarded`, `project.restored` | likewise | the project |
 | `comment.created`, `comment.updated` | likewise | the comment |
 | **`task.assigned`** | someone other than the assignee assigns the task | `task`, `project {id,name}`, `recipient {id,name,email_address}`, `actor {id,name}`, `url` |

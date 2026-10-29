@@ -41,6 +41,10 @@ module Observability
     QUEUE_SCHEDULED = gauge(:taskapi_queue_scheduled_jobs, "Jobs scheduled for later (retries, delays)")
     QUEUE_FAILED = gauge(:taskapi_queue_failed_jobs, "Jobs that exhausted their retries and need attention")
     QUEUE_WORKERS = gauge(:taskapi_queue_workers, "Live Solid Queue worker processes")
+
+    OUTBOX_PENDING = gauge(:taskapi_outbox_pending_events, "Events written to the outbox and not yet published to SNS")
+    OUTBOX_OLDEST_AGE = gauge(:taskapi_outbox_oldest_pending_event_age_seconds, "Age of the oldest unpublished event (delivery delay)")
+    OUTBOX_FAILING = gauge(:taskapi_outbox_failing_events, "Unpublished events that have been tried and failed at least once")
     COLLECTOR_ERRORS = counter(:taskapi_collector_errors_total, "Scrape-time collection failures", %i[collector])
 
     DB_POOL = gauge(:taskapi_db_pool_connections, "Active Record connection pool", %i[state])
