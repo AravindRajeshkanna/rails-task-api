@@ -53,8 +53,8 @@ These are the tests worth knowing about, because they turn a convention into a c
 
 | | Now | Floor |
 | --- | ---: | ---: |
-| Line | 92.8% | 91% |
-| Branch | 82.1% | 79% |
+| Line | 94.3% | 92% |
+| Branch | 84.1% | 81% |
 
 The floor sits just under the current value, so it catches a drop (code arriving without specs), not a goal to chase.
 Override per run with `COVERAGE_MIN_LINE` / `COVERAGE_MIN_BRANCH`. The report is `coverage/index.html`; CI uploads it

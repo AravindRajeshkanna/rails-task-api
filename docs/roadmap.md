@@ -76,7 +76,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | FactoryBot + Faker + Shoulda | ✅ | In place since #1 |
 | Integration tests for auth flows | ✅ | `authentication_spec` (pieces) and `authentication_journey_spec` (sign up → work → reset password → signed out everywhere) |
 | VCR or WebMock | 🟡 | WebMock ✅. VCR deliberately not added: outbound calls are webhooks and AWS SDK calls, which stub cleanly without cassettes that record real responses ([testing.md](testing.md#decisions)) |
-| SimpleCov with a CI floor | ✅ | `COVERAGE=1`; floor 91% line / 79% branch in `spec/spec_helper.rb`; CI uploads the report and prints it in the job summary |
+| SimpleCov with a CI floor | ✅ | `COVERAGE=1`; floor 92% line / 81% branch (raised from 91 / 79 as the suite grew) in `spec/spec_helper.rb`; CI uploads the report and prints it in the job summary |
 | Parallel testing if the suite grows | ⏭ | 1,036 examples run in ~20 s; parallelism would add cost for no gain. Trigger: suite past ~2 minutes ([testing.md](testing.md#decisions)) |
 | *Found on the way* | ✅ | `rspec <file>` ran the whole suite because of a `--pattern` in `.rspec`; the gem and Lambda specs had hidden dependencies on the booted Rails app. Both fixed; every way of running the specs now works |
 
