@@ -59,7 +59,7 @@ jobs:
           restore-keys: |
             rubocop-${{ runner.os }}-${{ env.DEPENDENCIES_HASH }}-
 
-      - name: Lint code for consistent style (the whole repo: app, gems, services, Lambda)
+      - name: Lint code for consistent style (the whole repo, including gems, services and Lambda)
         run: bin/rubocop -f github
 
   test:
