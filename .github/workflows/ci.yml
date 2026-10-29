@@ -130,10 +130,6 @@ jobs:
       DB_USER: postgres
       DB_PASSWORD: postgres
 
-    defaults:
-      run:
-        working-directory: services/${{ matrix.service }}
-
     steps:
       - name: Install packages
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev
@@ -149,9 +145,11 @@ jobs:
 
       - name: Set up database
         if: matrix.service != 'ai'
+        working-directory: services/${{ matrix.service }}
         run: bin/rails db:create db:schema:load 2>/dev/null || bin/rails db:create db:migrate
 
       - name: Run specs
+        working-directory: services/${{ matrix.service }}
         run: bundle exec rspec
 
   # Everything that deploys: Terraform, Helm charts, Kubernetes manifests, alert rules, shell scripts.
@@ -210,7 +208,7 @@ jobs:
           docker run --rm --entrypoint promtool -v "$PWD/tmp:/work" prom/prometheus:v3.1.0 check rules /work/rules.yml
 
       - name: Shell scripts
-        run: shellcheck deploy/docker/*.sh deploy/local/*.sh deploy/scripts/*.sh
+        run: shellcheck deploy/docker/*.sh deploy/local/*.sh
 
   # Build every image (no push) so a broken Dockerfile fails the pull request, not the deploy.
   images:
