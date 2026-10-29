@@ -11,7 +11,11 @@ module Pagination
   private
     def paginate(relation)
       pagy, records = pagy(:offset, relation, limit: DEFAULT_LIMIT, client_limit: MAX_LIMIT)
-      response.headers.merge!(pagy.headers_hash)
+      headers = pagy.headers_hash
+      # Keep any Link already on the response (e.g. ApiVersioning's successor-version).
+      existing_link = response.headers["Link"].presence
+      headers["link"] = [ existing_link, headers["link"] ].compact_blank.join(", ") if existing_link
+      response.headers.merge!(headers)
 
       [ records, {
         page: pagy.page,

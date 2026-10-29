@@ -7,6 +7,10 @@
 #   Sunset: Fri, 01 Jan 2027 00:00:00 GMT          (RFC 8594: when it stops working)
 #   Link: <https://docs.example.com/v2>; rel="successor-version"
 #
+# The headers are set before anything else runs (prepend_before_action), not after the action:
+# Rails skips after-callbacks when an action raises, and the error responses (401, 404, 422)
+# are exactly where a client most needs to know which version it is talking to.
+#
 # A version's BaseController declares itself once; docs/api-versioning.md walks through
 # adding v2 and retiring v1.
 #
@@ -23,7 +27,7 @@ module ApiVersioning
   included do
     class_attribute :api_version_name, instance_writer: false
     class_attribute :api_deprecation, instance_writer: false
-    after_action :set_api_version_headers
+    prepend_before_action :set_api_version_headers
   end
 
   class_methods do
@@ -47,7 +51,7 @@ module ApiVersioning
       end
     end
 
-    # Pagination already sets Link; both have to survive.
+    # Pagination adds its own Link relations later (Pagination#paginate appends); both have to survive.
     def append_link(link)
       response.headers["Link"] = [ response.headers["Link"].presence, link ].compact.join(", ")
     end

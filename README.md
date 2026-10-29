@@ -36,7 +36,7 @@ observability with anomaly alarms and an AIOps loop, and Terraform + Helm + Argo
 | Observability | Structured events as JSON logs, Prometheus `/metrics`, OpenTelemetry → X-Ray, CloudWatch anomaly alarms, SNS → PagerDuty/Slack ([docs](docs/architecture/observability-and-aiops.md)) |
 | Services | Auth (JWT, rotating refresh tokens), AI, Notifications (SQS consumer), events as CloudEvents on SNS/SQS ([docs](docs/architecture/microservices.md)) |
 | Platform | Docker Compose, `kind`, one Helm chart, Terraform (EKS, Karpenter, Aurora, SNS/SQS, WAF), Argo CD + Rollouts, KEDA, AIOps Lambdas ([deploy/](deploy/README.md)) |
-| Quality | RSpec (736 across the app, shared gems and Lambdas, with a line/branch coverage floor; 72 more in the services), Bullet raising on N+1, RuboCop with the Lint/Rails/Performance cops, Brakeman, bundler-audit, `strong_migrations`, `terraform validate`, Kubernetes schema checks ([docs/testing.md](docs/testing.md)) |
+| Quality | RSpec (741 across the app, shared gems and Lambdas, with a line/branch coverage floor; 72 more in the services), Bullet raising on N+1, RuboCop with the Lint/Rails/Performance cops, Brakeman, bundler-audit, `strong_migrations`, `terraform validate`, Kubernetes schema checks ([docs/testing.md](docs/testing.md)) |
 | Performance | Measured, not guessed: `EXPLAIN` on 149k tasks, k6 load tests, one evidence-based index ([docs/performance.md](docs/performance.md)) |
 | Delivery | Dockerfile, Kamal 2 config (single host), EKS via GitOps (below), GitHub Actions, JSON logs, `/up` health check, optional Sentry |
 
@@ -241,7 +241,7 @@ Schedules live in [config/recurring.yml](config/recurring.yml).
 
 ```bash
 bundle exec rspec                                   # the app, ~8 s; accepts any file or directory
-bundle exec rspec spec gems deploy/lambda           # 736 (app + gems + Lambdas), what CI runs
+bundle exec rspec spec gems deploy/lambda           # 741 (app + gems + Lambdas), what CI runs
 for s in ai auth notifications; do (cd services/$s && bundle exec rspec); done   # the services
 bin/rails ai:eval                                   # score the configured model against the golden sets
 bin/ci                                              # rubocop + bundler-audit + brakeman + rspec with the coverage floor (as GitHub Actions)

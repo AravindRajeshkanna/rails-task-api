@@ -344,6 +344,6 @@ comments, tags, webhooks, Action Cable and the AI tools followed without changes
 Rules that keep the boundary meaningful: a project's organization is fixed at creation (moving it would drag its members and data across a
 tenant line); a project of an organization only accepts members of that organization (a model validation, so only a bulk insert that skips
 validations gets past it); removing someone from the organization removes their project memberships there and is refused while they still
-own one of its projects; the organization keeps at least one owner and cannot be deleted while it has projects; only owners delete and
+own one of its projects; the organization keeps at least one owner (changes to owners take a row lock on the organization, so two owners cannot leave at the same moment) and cannot be deleted while it has projects; only owners delete and
 restore its projects and grant roles above `member`. **Teams** (sub-groups inside an organization) are not built; they would be a
 second kind of principal on projects and are the next step if per-team access is needed ([roadmap](roadmap.md)).

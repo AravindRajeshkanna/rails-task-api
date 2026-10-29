@@ -54,3 +54,22 @@ RSpec.describe "HTTP caching" do
     expect(response.headers["Cache-Control"]).to eq("private, no-store")
   end
 end
+
+RSpec.describe "API version header" do
+  it "is on successes and on every kind of error" do
+    user = create(:user)
+
+    api :get, "/api/v1/me", as: user
+    expect(response.headers["API-Version"]).to eq("v1")
+
+    api :get, "/api/v1/me" # 401
+    expect(response.headers["API-Version"]).to eq("v1")
+
+    api :get, "/api/v1/projects/0", as: user # 404
+    expect(response.headers["API-Version"]).to eq("v1")
+
+    api :post, "/api/v1/projects", { name: "" }, as: user # 422
+    expect(response).to have_http_status(:unprocessable_content)
+    expect(response.headers["API-Version"]).to eq("v1")
+  end
+end

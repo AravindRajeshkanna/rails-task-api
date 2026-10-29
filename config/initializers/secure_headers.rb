@@ -7,10 +7,11 @@
 # Authorization). Cookies are not used, so the cookie flags are opted out.
 #
 # HSTS is left to Rails: config.force_ssl (production.rb) already sends it.
-# CSP source keywords include their own quotes, which %w[] would mangle.
-NONE = [ "'none'" ].freeze
-SELF = "'self'".freeze
-UNSAFE_INLINE = "'unsafe-inline'".freeze
+# CSP source keywords include their own quotes, which %w[] would mangle. Locals, not constants:
+# an initializer's top level is Object, and NONE / SELF should not leak into every namespace.
+none = [ "'none'" ].freeze
+self_origin = "'self'"
+unsafe_inline = "'unsafe-inline'"
 
 SecureHeaders::Configuration.default do |config|
   config.cookies = SecureHeaders::OPT_OUT
@@ -25,12 +26,12 @@ SecureHeaders::Configuration.default do |config|
 
   # Directives that do not fall back to default-src have to be listed (the gem insists on script_src).
   config.csp = {
-    default_src: NONE,
-    script_src: NONE,
-    object_src: NONE,
-    base_uri: NONE,
-    form_action: NONE,
-    frame_ancestors: NONE
+    default_src: none,
+    script_src: none,
+    object_src: none,
+    base_uri: none,
+    form_action: none,
+    frame_ancestors: none
   }
 end
 
@@ -38,14 +39,14 @@ end
 # itself, which the gem would otherwise replace with the deny-all one above.
 SecureHeaders::Configuration.override(:swagger_ui) do |config|
   config.csp = {
-    default_src: [ SELF ],
-    img_src: [ SELF, "data:", "https://validator.swagger.io" ],
-    font_src: [ SELF, "https://fonts.gstatic.com" ],
-    style_src: [ SELF, UNSAFE_INLINE, "https://fonts.googleapis.com" ],
-    script_src: [ SELF, UNSAFE_INLINE ],
-    base_uri: NONE,
-    form_action: NONE,
-    frame_ancestors: NONE
+    default_src: [ self_origin ],
+    img_src: [ self_origin, "data:", "https://validator.swagger.io" ],
+    font_src: [ self_origin, "https://fonts.gstatic.com" ],
+    style_src: [ self_origin, unsafe_inline, "https://fonts.googleapis.com" ],
+    script_src: [ self_origin, unsafe_inline ],
+    base_uri: none,
+    form_action: none,
+    frame_ancestors: none
   }
 end
 

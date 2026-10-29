@@ -14,7 +14,9 @@ module Organizations
       organization = @membership.organization
       user = @membership.user
 
-      OrganizationMembership.transaction do
+      # Locking the organization serializes this with other owner changes, so two owners
+      # leaving at the same moment cannot both pass the "last owner" check.
+      organization.with_lock do
         if organization.projects.exists?(owner_id: user.id)
           @membership.errors.add(:base, "#{user.name} still owns projects in this organization; transfer or delete them first")
           raise ActiveRecord::RecordInvalid, @membership

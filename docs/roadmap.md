@@ -76,7 +76,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | Integration tests for auth flows | ✅ | `authentication_spec` (pieces) and `authentication_journey_spec` (sign up → work → reset password → signed out everywhere) |
 | VCR or WebMock | 🟡 | WebMock ✅. VCR deliberately not added: outbound calls are webhooks and AWS SDK calls, which stub cleanly without cassettes that record real responses ([testing.md](testing.md#decisions)) |
 | SimpleCov with a CI floor | ✅ | `COVERAGE=1`; floor 91% line / 79% branch in `spec/spec_helper.rb`; CI uploads the report and prints it in the job summary |
-| Parallel testing if the suite grows | ⏭ | 736 examples run in ~10 s; parallelism would add cost for no gain. Trigger: suite past ~2 minutes ([testing.md](testing.md#decisions)) |
+| Parallel testing if the suite grows | ⏭ | 741 examples run in ~10 s; parallelism would add cost for no gain. Trigger: suite past ~2 minutes ([testing.md](testing.md#decisions)) |
 | *Found on the way* | ✅ | `rspec <file>` ran the whole suite because of a `--pattern` in `.rspec`; the gem and Lambda specs had hidden dependencies on the booted Rails app. Both fixed; every way of running the specs now works |
 
 ### Phase 3: Performance and scalability
@@ -175,7 +175,7 @@ Ordered by what a real user would hit first. None is started.
 
 | Claim | Evidence |
 | --- | --- |
-| The application behaves as documented | 736 examples across the app, shared gems and Lambdas (+72 in the three services), run with branch coverage in CI |
+| The application behaves as documented | 741 examples across the app, shared gems and Lambdas (+72 in the three services), run with branch coverage in CI |
 | Queries are fast and the index matters | `EXPLAIN (ANALYZE)` and k6 on a 149,000-task database, production mode ([performance.md](performance.md)) |
 | Backups restore | `pg_dump` → `pg_restore` of the same database; row counts, constraints and the `vector` extension checked |
 | Migrations are safe | `strong_migrations` accepted all six new migrations without `safety_assured` |

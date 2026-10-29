@@ -23,7 +23,7 @@ module Api
 
       def update
         authorize @membership
-        @membership.update!(role: params.require(:role))
+        @organization.with_lock { @membership.update!(role: params.require(:role)) } # see Organizations::RemoveMember
         render_resource OrganizationMemberResource, @membership
       end
 

@@ -18,5 +18,6 @@ RSpec.describe Organization do
 
     expect(organization.destroy).to be(false)
     expect(organization.errors[:base]).to be_present
+    expect(organization.reload.organization_memberships.count).to eq(1) # the refused delete rolled back entirely
   end
 end
