@@ -1,0 +1,12 @@
+# The controller runs on the small on-demand system node group (tolerating its taint) and provisions the rest.
+replicas: 2
+serviceAccount:
+  name: karpenter
+tolerations:
+  - { key: CriticalAddonsOnly, operator: Exists }
+nodeSelector:
+  node-role: system
+controller:
+  resources:
+    requests: { cpu: 500m, memory: 512Mi }
+    limits: { memory: 1Gi }

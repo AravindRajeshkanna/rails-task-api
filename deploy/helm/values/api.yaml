@@ -1,0 +1,64 @@
+# The Task API: the façade. Stateless web pods; background jobs run in the worker release.
+fullnameOverride: api
+port: 3000
+replicaCount: 2
+
+env:
+  RAILS_ENV: production
+  RAILS_LOG_LEVEL: info
+  LOG_FORMAT: json
+  RAILS_MAX_THREADS: "5"
+  SKIP_DB_PREPARE: "true"           # migrations run in the migration Job
+  ASSUME_SSL: "true"                # TLS ends at the ALB
+  FORCE_SSL: "true"
+  # The extracted services are switched on:
+  AUTH_MODE: jwt
+  AUTH_AUDIENCE: task-api
+  NOTIFICATIONS_MODE: remote
+  AI_GATEWAY: remote
+  AI_SERVICE_URL: http://ai
+  # Telemetry
+  OTEL_SERVICE_NAME: task-api
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+  METRICS_EMF: "true"
+  ACTIVE_STORAGE_SERVICE: amazon
+
+secrets:
+  enabled: true
+  data:
+    - { secretKey: RAILS_MASTER_KEY, key: api, property: rails_master_key }
+    - { secretKey: TASK_API_DATABASE_PASSWORD, key: api, property: database_password }
+    - { secretKey: AI_SERVICE_TOKEN, key: ai-service-token }
+    - { secretKey: METRICS_TOKEN, key: api, property: metrics_token }
+
+migration:
+  enabled: true
+
+writablePaths: [ /rails/tmp, /rails/log, /rails/storage ]
+
+resources:
+  requests: { cpu: 500m, memory: 768Mi }
+  limits: { memory: 1536Mi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+
+ingress:
+  enabled: true
+  className: alb
+  groupName: task-api
+  paths:
+    - { path: /api, pathType: Prefix }
+    - { path: /api-docs, pathType: Prefix }
+    - { path: /cable, pathType: Prefix }
+  annotations:
+    alb.ingress.kubernetes.io/group.order: "50"
+    alb.ingress.kubernetes.io/healthcheck-path: /up
+
+networkPolicy:
+  ingressFromPods: [ ]
+  egressToPods:
+    - { labels: { app.kubernetes.io/name: ai }, ports: [ 3000 ] }
+    - { labels: { app.kubernetes.io/name: auth }, ports: [ 3000 ] }

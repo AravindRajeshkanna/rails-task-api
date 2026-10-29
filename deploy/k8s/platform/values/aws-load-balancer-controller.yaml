@@ -1,0 +1,8 @@
+# Turns Ingress objects into ALBs. Credentials: EKS Pod Identity (service account name must match terraform).
+replicaCount: 2
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+enableShield: false
+enableWaf: false
+enableWafv2: true              # the Ingress annotation alb.ingress.kubernetes.io/wafv2-acl-arn attaches our WAF

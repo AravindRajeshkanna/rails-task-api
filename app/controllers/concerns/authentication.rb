@@ -26,7 +26,7 @@ module Authentication
 
     def find_session_by_token
       token, _options = ActionController::HttpAuthentication::Token.token_and_options(request)
-      Session.authenticate(token)
+      ExternalAuth.enabled? ? ExternalAuth.authenticate(token) : Session.authenticate(token)
     end
 
     def request_authentication

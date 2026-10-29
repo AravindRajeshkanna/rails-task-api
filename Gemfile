@@ -55,6 +55,31 @@ gem "rswag-ui"
 gem "sentry-ruby"
 gem "sentry-rails"
 
+# AI: provider-agnostic inference (Bedrock, plus an offline fake). Lives in gems/ai_core so it can also
+# run behind the extracted AI service (services/ai).
+gem "ai_core", path: "gems/ai_core"
+
+# AWS: SNS publishes domain events for the other services; S3 stores Active Storage files on Kubernetes
+gem "aws-sdk-sns"
+gem "aws-sdk-s3", require: false
+
+# Verifies JWTs issued by the Auth service. require: false keeps the kit's Railtie (logging, metrics,
+# tracing for the extracted services) out of the monolith, which has its own; see config/initializers.
+gem "service_kit", path: "gems/service_kit", require: false
+
+# pgvector support for Active Record (embeddings and nearest-neighbor search)
+gem "neighbor"
+
+# Observability: Prometheus metrics, and OpenTelemetry traces exported over OTLP (to AWS X-Ray via the ADOT collector)
+gem "prometheus-client"
+gem "opentelemetry-sdk"
+gem "opentelemetry-exporter-otlp"
+gem "opentelemetry-propagator-xray"
+gem "opentelemetry-instrumentation-rails"
+gem "opentelemetry-instrumentation-pg"
+gem "opentelemetry-instrumentation-net_http"
+gem "opentelemetry-instrumentation-aws_sdk"
+
 group :development, :test do
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
@@ -78,6 +103,12 @@ group :development, :test do
 
   # Generate OpenAPI documents from request specs
   gem "rswag-specs"
+
+  # The AIOps Lambdas (deploy/lambda/aiops) run on the Lambda runtime, which bundles the AWS SDK; these are for their specs
+  gem "aws-sdk-cloudwatch"
+  gem "aws-sdk-cloudwatchlogs"
+  gem "aws-sdk-eks"
+  gem "aws-sdk-xray"
 
   # Detect N+1 queries and unused eager loading (raises in test)
   gem "bullet"

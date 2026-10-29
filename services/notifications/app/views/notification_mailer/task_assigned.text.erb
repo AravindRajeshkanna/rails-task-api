@@ -1,0 +1,9 @@
+Hi,
+
+<%= @actor ? @actor["name"] : "Someone" %> assigned you a task in <%= @project["name"] %>:
+
+  <%= @task["title"] %>
+<% if @task["due_on"] %>
+Due: <%= @task["due_on"] %>
+<% end %>
+Open it: <%= @url %>

@@ -29,6 +29,31 @@ module ErrorHandling
     rescue_from Pundit::NotAuthorizedError do
       render_error :forbidden, "forbidden", "You are not allowed to perform this action"
     end
+    # AI failures: declared before the specific ones, because the last matching rescue_from wins.
+    rescue_from Ai::Error do |error|
+      render_error :bad_gateway, "ai_error", error.message
+    end
+    rescue_from Ai::InvalidResponse do
+      render_error :bad_gateway, "ai_invalid_response", "The AI model returned an unusable answer. Try again."
+    end
+    rescue_from Ai::Unavailable do
+      response.headers["Retry-After"] = "5"
+      render_error :service_unavailable, "ai_unavailable", "The AI provider is busy or unreachable. Try again shortly."
+    end
+    rescue_from Ai::Disabled do
+      render_error :service_unavailable, "ai_not_configured", "AI features are not configured on this server"
+    end
+    rescue_from Ai::BudgetExceeded do |error|
+      response.headers["Retry-After"] = error.retry_after.to_s
+      render_error :too_many_requests, "ai_budget_exceeded", "The daily AI budget has been used up. It resets at 00:00 UTC."
+    end
+    rescue_from ExternalAuth::AccountConflict do
+      render_error :conflict, "account_conflict", "Another account already uses this email address. Contact support to link them."
+    end
+    rescue_from ExternalAuth::Unavailable do
+      response.headers["Retry-After"] = "5"
+      render_error :service_unavailable, "auth_unavailable", "The authentication service is unreachable. Try again shortly."
+    end
     rescue_from Authentication::NotAuthenticated do
       render_error :unauthorized, "unauthenticated", "Authentication is required"
     end

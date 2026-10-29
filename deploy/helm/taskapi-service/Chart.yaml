@@ -1,0 +1,6 @@
+apiVersion: v2
+name: taskapi-service
+description: One chart for every Task API workload (web, jobs worker, auth, ai, notifications). Behaviour comes from values.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

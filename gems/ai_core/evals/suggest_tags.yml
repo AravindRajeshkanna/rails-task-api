@@ -1,0 +1,23 @@
+- name: crash
+  input: { task: { title: "Fix crash when uploading an avatar" }, existing_tags: [ bug, docs, design, devops, frontend, backend, testing ], allow_new: false, today: "2026-10-29" }
+  expected: { tags: [ bug ] }
+
+- name: api docs
+  input: { task: { title: "Update API documentation for webhooks" }, existing_tags: [ bug, docs, design, devops, frontend, backend, testing ], allow_new: false, today: "2026-10-29" }
+  expected: { tags: [ docs, backend ] }
+
+- name: specs
+  input: { task: { title: "Write specs for the payments service" }, existing_tags: [ bug, docs, design, devops, frontend, backend, testing ], allow_new: false, today: "2026-10-29" }
+  expected: { tags: [ testing ] }
+
+- name: deploy
+  input: { task: { title: "Deploy the new Docker image to staging" }, existing_tags: [ bug, docs, design, devops, frontend, backend, testing ], allow_new: false, today: "2026-10-29" }
+  expected: { tags: [ devops ] }
+
+- name: redesign
+  input: { task: { title: "Redesign the login page mockups" }, existing_tags: [ bug, docs, design, devops, frontend, backend, testing ], allow_new: false, today: "2026-10-29" }
+  expected: { tags: [ design, frontend ] }
+
+- name: database
+  input: { task: { title: "Add a database index for tasks" }, existing_tags: [ bug, docs, design, devops, frontend, backend, testing ], allow_new: false, today: "2026-10-29" }
+  expected: { tags: [ backend ] }

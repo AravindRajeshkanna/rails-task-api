@@ -1,0 +1,32 @@
+# Expected priorities are judgement calls; the metrics report exact agreement and agreement within one level.
+- name: outage
+  input: { task: { title: "Production database is down", description: "Customers cannot log in" }, today: "2026-10-29", signals: {} }
+  expected: { priority: urgent }
+
+- name: typo
+  input: { task: { title: "Fix typo in README" }, today: "2026-10-29", signals: {} }
+  expected: { priority: low }
+
+- name: due tomorrow
+  input: { task: { title: "Prepare quarterly report", due_on: "2026-10-30" }, today: "2026-10-29", signals: {} }
+  expected: { priority: urgent }
+
+- name: planned refactor
+  input: { task: { title: "Refactor billing module" }, today: "2026-10-29", signals: {} }
+  expected: { priority: medium }
+
+- name: security
+  input: { task: { title: "Critical security vulnerability in login", description: "Fix immediately" }, today: "2026-10-29", signals: {} }
+  expected: { priority: urgent }
+
+- name: nice to have
+  input: { task: { title: "Nice to have: dark mode" }, today: "2026-10-29", signals: {} }
+  expected: { priority: low }
+
+- name: due in three days
+  input: { task: { title: "Renew the SSL certificate", due_on: "2026-11-01" }, today: "2026-10-29", signals: {} }
+  expected: { priority: high }
+
+- name: routine
+  input: { task: { title: "Write weekly team sync notes" }, today: "2026-10-29", signals: {} }
+  expected: { priority: medium }

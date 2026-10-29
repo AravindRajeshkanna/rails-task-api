@@ -1,0 +1,39 @@
+# The Notification service: an SQS consumer (email, Slack) inside Puma, so one process answers the probes.
+fullnameOverride: notifications
+port: 3000
+replicaCount: 2
+
+env:
+  RAILS_ENV: production
+  RAILS_LOG_LEVEL: info
+  LOG_FORMAT: json
+  DB_USER: notifications
+  NOTIFICATIONS_CONSUMER: "true"
+  SMTP_PORT: "587"
+  OTEL_SERVICE_NAME: notifications-service
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+
+secrets:
+  enabled: true
+  data:
+    - { secretKey: SECRET_KEY_BASE, key: notifications, property: secret_key_base }
+    - { secretKey: DB_PASSWORD, key: notifications, property: database_password }
+    - { secretKey: SMTP_USERNAME, key: notifications, property: smtp_username }
+    - { secretKey: SMTP_PASSWORD, key: notifications, property: smtp_password }
+    - { secretKey: SLACK_WEBHOOK_URL, key: notifications, property: slack_webhook_url }
+
+migration:
+  enabled: true
+
+# /up says Puma is alive; /healthz also says the SQS consumer is still polling, so a stalled consumer gets restarted.
+probes:
+  path: /up
+  livenessPath: /healthz
+
+writablePaths: [ /app/services/notifications/tmp, /app/services/notifications/log ]
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { memory: 512Mi }
+
+networkPolicy:
+  egressToCIDRs: [ ]

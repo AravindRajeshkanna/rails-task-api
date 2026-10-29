@@ -21,6 +21,11 @@ RSpec.configure do |config|
           **Pagination.** List endpoints accept `page` and `limit` (default 25, max 100) and return
           `meta` plus `Link`, `Total-Count`, `Total-Pages`, `Current-Page` and `Page-Limit` headers.
 
+          **AI.** `/api/v1/ai/*` and `/api/v1/projects/{id}/summary` use language models. Calls are rate limited per
+          user (`429 rate_limited`) and metered against a daily token budget (`429 ai_budget_exceeded`, with
+          `Retry-After`). `503 ai_not_configured` means the server has no model provider; `503 ai_unavailable`
+          means the provider is busy.
+
           **Authorization.** Resources inside a project you do not belong to answer `404`, not `403`,
           so their existence is not disclosed.
         MD
@@ -28,7 +33,7 @@ RSpec.configure do |config|
       servers: [ { url: "http://localhost:3000", description: "Local development" } ],
       tags: [
         { name: "Authentication" }, { name: "Account" }, { name: "Projects" }, { name: "Tasks" },
-        { name: "Comments" }, { name: "Tags" }, { name: "Memberships" }, { name: "Webhooks" }, { name: "Audit log" }
+        { name: "AI" }, { name: "Comments" }, { name: "Tags" }, { name: "Memberships" }, { name: "Webhooks" }, { name: "Audit log" }
       ],
       components: {
         securitySchemes: { bearer_auth: { type: :http, scheme: :bearer, description: "Session token from sign-in or sign-up" } },

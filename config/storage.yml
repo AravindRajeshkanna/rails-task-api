@@ -25,3 +25,12 @@ local:
 #   service: Mirror
 #   primary: local
 #   mirrors: [ amazon, google, microsoft ]
+
+# Amazon S3 for Kubernetes, where pods are stateless. Credentials come from EKS Pod Identity (the default AWS
+# credential chain); the bucket is created by deploy/terraform. Select it with ACTIVE_STORAGE_SERVICE=amazon.
+amazon:
+  service: S3
+  region: <%= ENV["AWS_REGION"] %>
+  bucket: <%= ENV["AWS_S3_BUCKET"] %>
+  http_open_timeout: 3
+  http_read_timeout: 15

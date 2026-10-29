@@ -1,0 +1,22 @@
+clusterName: task-api-dev
+region: us-east-1
+namespace: task-api
+karpenterNodeRole: task-api-dev-karpenter-node   # terraform output karpenter_node_role_name
+
+secretStore:
+  name: aws-secrets-manager
+
+nodePools:
+  default:
+    capacityTypes: [ spot, on-demand ]   # Karpenter prefers Spot when it can; on-demand when Spot is unavailable
+    architectures: [ amd64 ]             # images are built for amd64; add arm64 when CI builds multi-arch (Graviton is ~20% cheaper)
+    cpuLimit: 100
+    consolidateAfter: 1m
+  critical:
+    enabled: true                        # on-demand only, for workloads that tolerate workload=critical (prod auth / api)
+    cpuLimit: 40
+
+aiops:
+  enabled: true
+fis:
+  enabled: false

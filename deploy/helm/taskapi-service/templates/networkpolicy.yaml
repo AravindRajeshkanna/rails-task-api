@@ -1,0 +1,43 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default deny, then only what this workload needs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "taskapi.fullname" . }}
+  labels: {{- include "taskapi.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{- include "taskapi.selectorLabels" . | nindent 6 }}
+  policyTypes: [ Ingress, Egress ]
+  ingress:
+    {{- if gt (int .Values.port) 0 }}
+    {{- range .Values.networkPolicy.ingressFromCIDRs }}
+    - from: [ { ipBlock: { cidr: {{ . }} } } ]
+      ports: [ { port: {{ $.Values.port }} } ]
+    {{- end }}
+    {{- range .Values.networkPolicy.ingressFromPods }}
+    - from: [ { podSelector: { matchLabels: {{ toJson . }} } } ]
+      ports: [ { port: {{ $.Values.port }} } ]
+    {{- end }}
+    {{- range .Values.networkPolicy.ingressFromNamespaces }}
+    - from: [ { namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ . }} } } } ]
+      ports: [ { port: {{ $.Values.port }} } ]
+    {{- end }}
+    {{- end }}
+  egress:
+    # DNS
+    - to: [ { namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } } } ]
+      ports: [ { port: 53, protocol: UDP }, { port: 53, protocol: TCP } ]
+    {{- range .Values.networkPolicy.egressToCIDRs }}
+    - to: [ { ipBlock: { cidr: {{ .cidr }} } } ]
+      ports: {{ toJson (include "taskapi.ports" .ports | fromYamlArray) }}
+    {{- end }}
+    {{- range .Values.networkPolicy.egressToPods }}
+    - to: [ { podSelector: { matchLabels: {{ toJson .labels }} } } ]
+      ports: {{ toJson (include "taskapi.ports" .ports | fromYamlArray) }}
+    {{- end }}
+    {{- if .Values.networkPolicy.allowInternetHTTPS }}
+    - to: [ { ipBlock: { cidr: 0.0.0.0/0, except: [ 169.254.169.254/32 ] } } ]
+      ports: [ { port: 443 }, { port: 587 } ]
+    {{- end }}
+{{- end }}

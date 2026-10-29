@@ -93,6 +93,95 @@ module OpenapiSchemas
       },
       required: %i[id project_id title status priority tags creator attachments]
     },
+    AiUsage: {
+      type: :object,
+      description: "What the call cost. Spend is metered against a daily token budget per user and per project.",
+      properties: {
+        input_tokens: { type: :integer }, output_tokens: { type: :integer },
+        model_id: { type: :string, nullable: true }, latency_ms: { type: :integer }
+      },
+      required: %i[input_tokens output_tokens]
+    },
+    PrioritySuggestion: {
+      type: :object,
+      properties: {
+        priority: { type: :string, enum: %w[low medium high urgent] },
+        rationale: { type: :string },
+        estimated_days: { type: :integer, nullable: true, description: "Calendar days until the task is likely done" },
+        predicted_due_on: { type: :string, format: :date, nullable: true, description: "Today plus estimated_days, computed by the API" },
+        at_risk: { type: :boolean, nullable: true, description: "True when predicted_due_on is after the task's due date" },
+        confidence: { type: :number },
+        similar_tasks: {
+          type: :array, description: "Finished tasks the estimate is based on",
+          items: {
+            type: :object,
+            properties: {
+              id: { type: :integer }, title: { type: :string }, priority: { type: :string }, days_to_complete: { type: :integer }
+            }
+          }
+        }
+      },
+      required: %i[priority rationale]
+    },
+    TagSuggestion: {
+      type: :object,
+      properties: { name: { type: :string }, confidence: { type: :number }, new: { type: :boolean, description: "Not yet a tag of this project" } },
+      required: %i[name confidence new]
+    },
+    AssigneeSuggestion: {
+      type: :object,
+      properties: {
+        user_id: { type: :integer }, name: { type: :string }, score: { type: :number },
+        reasons: { type: :array, items: { type: :string } }
+      },
+      required: %i[user_id name score reasons]
+    },
+    TaskDraft: {
+      type: :object, description: "What the model understood from the text (dry runs return this instead of a task).",
+      properties: {
+        title: { type: :string }, description: { type: :string, nullable: true }, due_on: { type: :string, format: :date, nullable: true },
+        priority: { type: :string, nullable: true }, assignee_id: { type: :integer, nullable: true },
+        tag_names: { type: :array, items: { type: :string } }
+      },
+      required: %i[title]
+    },
+    ChatReply: {
+      type: :object,
+      properties: {
+        reply: { type: :string },
+        actions: {
+          type: :array, description: "Every tool call the assistant made on the caller's behalf",
+          items: {
+            type: :object,
+            properties: {
+              tool: { type: :string }, input: { type: :object }, ok: { type: :boolean },
+              result: { type: :object, description: "Present for changes (created or updated records)" }, error: { type: :string }
+            },
+            required: %i[tool ok]
+          }
+        }
+      },
+      required: %i[reply actions]
+    },
+    AiBudget: {
+      type: :object,
+      properties: {
+        day: { type: :string, format: :date }, tokens_used: { type: :integer }, daily_token_limit: { type: :integer },
+        tokens_remaining: { type: :integer }, calls: { type: :integer }, cost_usd: { type: :number },
+        resets_at: { type: :string, format: "date-time" }
+      },
+      required: %i[tokens_used daily_token_limit tokens_remaining resets_at]
+    },
+    ProjectSummary: {
+      type: :object,
+      properties: {
+        headline: { type: :string }, summary: { type: :string },
+        highlights: { type: :array, items: { type: :string } }, risks: { type: :array, items: { type: :string } },
+        next_steps: { type: :array, items: { type: :string } },
+        stats: { type: :object }, generated_at: { type: :string, format: "date-time" }
+      },
+      required: %i[headline summary]
+    },
     Comment: {
       type: :object,
       properties: {

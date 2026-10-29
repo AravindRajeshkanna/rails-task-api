@@ -1,0 +1,46 @@
+# Golden set for natural-language task creation. "today" is Thursday 2026-10-29 throughout.
+# Run against the configured provider with:  bin/rails ai:eval FEATURE=parse_task
+- name: next weekday
+  input: { text: "Remind me to review the PR next Tuesday", today: "2026-10-29", timezone: "UTC", members: [], tags: [] }
+  expected: { title: "Review the PR", due_on: "2026-11-03" }
+
+- name: tomorrow with urgency and an existing tag
+  input: { text: "Fix the broken signup form tomorrow, it's urgent", today: "2026-10-29", timezone: "UTC", members: [], tags: [ bug, frontend ] }
+  expected: { title: "Fix the broken signup form", due_on: "2026-10-30", priority: urgent, tag_names: [ bug ] }
+
+- name: relative days
+  input: { text: "Write the launch announcement in 3 days", today: "2026-10-29", timezone: "UTC", members: [], tags: [] }
+  expected: { title: "Write the launch announcement", due_on: "2026-11-01" }
+
+- name: assignee and weekday
+  input:
+    text: "Ask Taylor to set up CI by Friday"
+    today: "2026-10-29"
+    timezone: "UTC"
+    members: [ { id: 1, name: "Demo User" }, { id: 2, name: "Taylor Teammate" } ]
+    tags: [ devops ]
+  expected: { title: "Set up CI", due_on: "2026-10-30", assignee_id: 2, tag_names: [ devops ] }
+
+- name: no date at all
+  input: { text: "Update the onboarding docs", today: "2026-10-29", timezone: "UTC", members: [], tags: [ docs ] }
+  expected: { title: "Update the onboarding docs", tag_names: [ docs ] }
+
+- name: low priority
+  input: { text: "Whenever possible, clean up the old feature flags", today: "2026-10-29", timezone: "UTC", members: [], tags: [] }
+  expected: { title: "Clean up the old feature flags", priority: low }
+
+- name: explicit date
+  input: { text: "Submit the tax return by 2026-12-15", today: "2026-10-29", timezone: "UTC", members: [], tags: [] }
+  expected: { title: "Submit the tax return", due_on: "2026-12-15" }
+
+- name: next week
+  input: { text: "Plan the next sprint next week", today: "2026-10-29", timezone: "UTC", members: [], tags: [] }
+  expected: { title: "Plan the next sprint", due_on: "2026-11-05" }
+
+- name: today
+  input: { text: "Call the vendor today", today: "2026-10-29", timezone: "UTC", members: [], tags: [] }
+  expected: { title: "Call the vendor", due_on: "2026-10-29" }
+
+- name: same weekday means a week from now
+  input: { text: "Prepare the demo next Thursday", today: "2026-10-29", timezone: "UTC", members: [], tags: [] }
+  expected: { title: "Prepare the demo", due_on: "2026-11-05" }

@@ -1,0 +1,91 @@
+name: Deploy
+
+# After CI passes on main: build the four images, push them to Amazon ECR (OIDC, no stored keys), and record the
+# new tag in Git. Argo CD notices the commit and rolls the change out: dev automatically; staging and production
+# through promote.yml (a pull request) and a manual sync.
+
+on:
+  workflow_run:
+    workflows: [ CI ]
+    types: [ completed ]
+    branches: [ main ]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # OIDC token for AWS
+  contents: write   # commit the new image tag
+
+jobs:
+  build:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: dev   # the AWS role trusts this GitHub Environment (terraform/github.tf)
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TAG: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Checkout the commit that passed CI
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}   # terraform output github_deploy_role_arn
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/task-api/api:${{ env.TAG }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+          provenance: mode=max
+
+      - name: Build and push the services
+        run: |
+          for service in ai auth notifications; do
+            docker buildx build --file services/Dockerfile --build-arg "SERVICE=$service" \
+              --tag "${{ steps.ecr.outputs.registry }}/task-api/$service:$TAG" \
+              --cache-from "type=gha,scope=$service" --cache-to "type=gha,mode=max,scope=$service" \
+              --provenance=mode=max --push .
+          done
+
+  gitops:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      # GitOps_REPO lets the manifests live in a separate repository; by default they are in this one.
+      - name: Check out the GitOps repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ vars.GITOPS_REPO || github.repository }}
+          token: ${{ secrets.GITOPS_TOKEN || github.token }}
+          ref: main
+
+      - name: Point dev at the new images
+        env:
+          TAG: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          for file in deploy/gitops/envs/dev/*.yaml; do
+            sed -i -E "s|^(  tag: ).*|\1$TAG|" "$file"
+          done
+          git config user.name "deploy-bot"
+          git config user.email "deploy-bot@users.noreply.github.com"
+          git add deploy/gitops/envs/dev
+          git diff --cached --quiet && exit 0
+          git commit -m "deploy: dev -> ${TAG:0:7} [skip ci]"
+          git push

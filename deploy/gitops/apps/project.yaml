@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: task-api
+  namespace: argocd
+spec:
+  description: The Task API platform and services
+  sourceRepos:
+    - https://github.com/AravindRajeshkanna/rails-task-api
+    - https://helm.cilium.io/
+    - https://aws.github.io/eks-charts
+    - https://charts.external-secrets.io
+    - https://kedacore.github.io/charts
+    - https://prometheus-community.github.io/helm-charts
+    - https://argoproj.github.io/argo-helm
+    - public.ecr.aws/karpenter
+  destinations:
+    - { server: "*", namespace: "*" }
+  clusterResourceWhitelist:
+    - { group: "*", kind: "*" }
+  # Deploys to production only when someone presses sync, inside this window on weekdays.
+  syncWindows:
+    - { kind: allow, schedule: "0 8 * * 1-4", duration: 9h, applications: [ "*-prod-*" ], manualSync: true }

@@ -152,3 +152,122 @@ CI regenerates the OpenAPI file and fails if it differs from what is committed.
 
 **Why.** Contract tests found real bugs during development (non-ISO timestamps, an undeletable-attachment route) that behavioural tests alone had passed.
 Making Bullet strict keeps list endpoints honest as they grow.
+
+---
+
+# Evolving into an AI-powered, microservice platform on AWS
+
+Decisions 14 onward cover the second stage: AI features, observability, extracting services, and running on EKS.
+The big picture is in [architecture/overview.md](architecture/overview.md).
+
+## 14. Inference lives in a gem, behind a gateway
+
+The model-calling code (prompts, tool schemas, output validation, Bedrock, an offline fake, embeddings, the evaluation
+harness) is `gems/ai_core`: Rails-free, no database. The monolith talks to it through `Ai::Gateway`, which has two
+adapters: **local** (the gem in this process) and **remote** (HTTP to `services/ai`, which hosts the very same gem).
+
+**Why.** Extracting the AI service became a configuration change (`AI_GATEWAY=remote`) instead of a rewrite, rollback
+is the same switch, and the extracted service cannot drift from what was tested in the monolith. Retrieval,
+authorization, budgets and persistence stay with the data, in the monolith.
+
+**Cost.** One more moving part (a path gem) and a wire format to keep stable ([service-contracts](architecture/service-contracts.md)).
+
+## 15. The model's output is untrusted input
+
+Every AI feature is a forced tool call whose answer is re-validated before it is used: enums, dates, ids and lengths are
+re-checked, dates are computed by the app (never by the model), and an assignee the model invents is dropped. User text
+reaches the prompt as escaped JSON inside an `<input>` block that it cannot close. The chatbot's tools run as the
+signed-in user through Pundit, and there is no delete tool. See [architecture/ai.md](architecture/ai.md).
+
+## 16. Cost controls are part of the feature
+
+Per-user and per-project daily token budgets (from an append-only `ai_usages` ledger), a per-user request rate limit,
+input size caps, response caching for summaries, and a Prometheus counter of spend. Budgets are soft limits: two
+requests racing at the edge can overshoot by one call, which is cheaper than locking on the hot path.
+
+## 17. pgvector, not OpenSearch, for embeddings
+
+Task embeddings are a `vector(1024)` column with an HNSW index in the same PostgreSQL (Aurora supports pgvector).
+Similar-task search is always scoped to one project, so the tenant boundary is a `WHERE`, and there is no second
+datastore to run, secure and keep in sync. OpenSearch earns its place at much larger scale or for hybrid text search.
+
+## 18. Amazon Lookout for Metrics was replaced
+
+The roadmap names Lookout for Metrics for anomaly detection. AWS ended support in October 2025. The alarms use
+**CloudWatch anomaly detection** instead (`ANOMALY_DETECTION_BAND`) on latency, error rate and queue depth, with
+static alarms as a backstop. Custom models on SageMaker remain the option if CloudWatch's seasonal model is not enough.
+
+## 19. Observability is built on Rails 8.1 events, with a thin layer of standards
+
+Logs are the structured events (`Rails.event`) as JSON, carrying `request_id`, `user_id` and the OpenTelemetry
+`trace_id`. Metrics are Prometheus (`/metrics`, private) fed by the same events; queue depth is read from the database
+rather than counted in worker processes, so it is one consistent number. Traces are OpenTelemetry over OTLP to a
+collector that exports to X-Ray (X-Ray-compatible trace ids and propagation). CloudWatch gets only what alarms need,
+as Embedded Metric Format log lines, with no agent or API calls.
+
+## 20. Services share a small kit, not a framework
+
+`gems/service_kit` gives every extracted service the same JSON logs, `/metrics`, tracing setup and the JWT verifier.
+The monolith keeps its own richer copies and uses only the verifier. The duplication is deliberate for now: moving the
+monolith onto the kit is easy later and risky to do in the same change as the extraction.
+
+## 21. Strangler fig: Auth, then AI, then Notifications; Tasks and Projects stay
+
+The Task API remains the façade. Extraction order follows the roadmap: Auth (highest leverage), AI (isolates slow,
+costly calls), Notifications (a pure event consumer). Task and Project logic stay in the monolith: they share a
+transactional boundary (a task *is* in a project, with membership checks on every read), and splitting them now
+would buy a distributed transaction and a join over HTTP in exchange for nothing. The seams (policies, events, the
+`users` projection) are in place to do it later. [architecture/microservices.md](architecture/microservices.md).
+
+## 22. Auth: short-lived JWTs, rotating refresh tokens, a local projection of users
+
+The Auth service issues 15-minute RS256 access tokens (verified locally by every service from `/.well-known/jwks.json`)
+and single-use refresh tokens with reuse detection (a replayed token ends the whole sign-in). The monolith keeps a
+`users` row per identity, because foreign keys point at it. Pre-migration accounts link through a `legacy_id` claim, **never
+by email**: an unverified email must not be able to claim an existing account. Cost of stateless access tokens:
+logout takes effect after at most 15 minutes for tokens already issued.
+
+## 23. Events: CloudEvents on SNS, one SQS queue per consumer
+
+Services publish CloudEvents 1.0 to one SNS topic; each consumer owns a queue (with a dead-letter queue) subscribed with
+a filter on the event type. Delivery is at-least-once, so consumers deduplicate on the event id in the same transaction
+as their work. Notification events carry everything a message needs, so the consumer never calls back. Publishing
+goes through a background job with retries (not inside the request transaction); a transactional outbox is the next
+step if an event must never be lost across a database commit and an SNS outage.
+
+## 24. EKS Pod Identity, not IRSA
+
+Each workload's ServiceAccount maps to an IAM role through an EKS Pod Identity association: no OIDC provider per
+cluster, no annotations to keep in sync, and roles are reusable across clusters. IRSA stays available through
+`serviceAccount.annotations` in the chart.
+
+## 25. Karpenter, Spot by default, and a small on-demand system group
+
+Application pods run on nodes Karpenter provisions (Spot-preferred, consolidated, replaced monthly). A two-node
+on-demand group runs Karpenter itself and the cluster add-ons. Stateless services tolerate Spot interruptions through
+PodDisruptionBudgets, zone spreading and the interruption queue; a `critical` on-demand pool exists for prod.
+
+## 26. Argo CD, ApplicationSets, and Terraform that stops at the cluster edge
+
+Terraform creates AWS resources and the IAM that cluster add-ons need; it installs nothing inside Kubernetes. Argo CD
+installs the add-ons and services from Git: dev syncs automatically, staging after a promotion pull request, production
+only when a human syncs it, with a canary and automatic analysis. Non-secret values (ARNs, endpoints) are rendered
+from `terraform output` by `deploy/scripts/render_gitops.rb`; secrets only ever live in Secrets Manager.
+
+## 27. The AIOps loop recommends freely and acts rarely
+
+On an alarm the RCA Lambda gathers evidence (alarms, error groups from logs, recent deploys, slow traces) and asks the
+model for a validated analysis posted next to the alarm. The remediation Lambda has a two-entry playbook (raise the
+worker floor, restart workers), each action idempotent, cooled down, reversed when the alarm clears, limited by RBAC to
+two named objects, and a **dry run until explicitly enabled**. Neither can be triggered by the other's output.
+
+## 28. What was left out on purpose
+
+- **GraphQL**, a **public demo**, and an actual **deploy**: the roadmap's Phase 7 items were out of scope; deployment is
+  yours to run from the guide.
+- **Service mesh** (Istio/App Mesh): mTLS and traffic policy are not needed for five services behind NetworkPolicies and
+  signed tokens; App Mesh is also being retired by AWS. Revisit past ~10 services.
+- **CloudFront**: there are no public static assets; the API sits behind the ALB and WAF.
+- **Amazon MQ / Redis**: SNS/SQS cover messaging; Solid Cache/Queue cover caching and jobs.
+- **Moving webhooks into the Notification service**: webhook configuration is project data owned by the monolith; the
+  service handles email and Slack. The event stream makes that move mechanical when wanted.

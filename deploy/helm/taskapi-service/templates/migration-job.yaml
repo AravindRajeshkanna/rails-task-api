@@ -1,0 +1,45 @@
+{{- if .Values.migration.enabled }}
+# One Job per image tag, run before the workload rolls out (sync wave -1). The name carries the tag, so each
+# release gets a fresh Job and Argo CD prunes the old ones.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "taskapi.fullname" . }}-migrate-{{ .Values.image.tag | lower | trunc 12 | trimSuffix "-" }}
+  labels: {{- include "taskapi.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: {{ .Values.migration.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migration.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {{- include "taskapi.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "taskapi.serviceAccountName" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "taskapi.image" . }}
+          command: {{- toYaml .Values.migration.command | nindent 12 }}
+          env:
+            {{- range $key, $value := .Values.env }}
+            - { name: {{ $key }}, value: {{ $value | quote }} }
+            {{- end }}
+            - { name: SKIP_DB_PREPARE, value: "false" }
+          envFrom:
+            {{- if .Values.secrets.enabled }}
+            - secretRef: { name: {{ include "taskapi.fullname" . }} }
+            {{- end }}
+            {{- with .Values.envFrom }}{{ toYaml . | nindent 12 }}{{- end }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            {{- range $index, $path := .Values.writablePaths }}
+            - { name: scratch, mountPath: {{ $path }}, subPath: {{ $path | trimPrefix "/" | replace "/" "-" }} }
+            {{- end }}
+      volumes:
+        - name: scratch
+          emptyDir: {}
+{{- end }}

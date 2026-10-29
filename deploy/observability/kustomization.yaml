@@ -1,0 +1,16 @@
+# Observability objects that are not a Helm chart: alert rules, the OTLP collector, and the Grafana dashboard
+# (wrapped in a ConfigMap that Grafana's sidecar picks up by label).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: observability
+resources:
+  - prometheus/task-api-rules.yaml
+  - otel-collector/collector.yaml
+configMapGenerator:
+  - name: task-api-dashboard
+    files:
+      - grafana/task-api-dashboard.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"

@@ -1,0 +1,27 @@
+{{- if not .Values.rollout.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taskapi.fullname" . }}
+  labels: {{- include "taskapi.labels" . | nindent 4 }}
+spec:
+  {{- if not (or .Values.autoscaling.enabled .Values.keda.enabled) }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 25%, maxUnavailable: 0 }
+  selector:
+    matchLabels: {{- include "taskapi.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "taskapi.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{- end }}
+      annotations:
+        {{- if .Values.secrets.enabled }}
+        taskapi/secret-refresh: {{ .Values.secrets.refreshInterval | quote }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}{{ toYaml . | nindent 8 }}{{- end }}
+    spec: {{- include "taskapi.podSpec" . | nindent 6 }}
+{{- end }}

@@ -20,9 +20,21 @@ jobs:
 
       - name: Scan for common Rails security vulnerabilities using static analysis
         run: bin/brakeman --no-pager
-      
+
+      - name: Scan the extracted services too
+        run: |
+          for service in ai auth notifications; do
+            bin/brakeman --no-pager --quiet --exit-on-warn --path services/$service
+          done
+
       - name: Scan for known security vulnerabilities in gems used
         run: bin/bundler-audit
+
+      - name: Scan the services' gems
+        run: |
+          for service in ai auth notifications; do
+            bundle exec bundle-audit check --update --gemfile-lock services/$service/Gemfile.lock --config config/bundler-audit.yml
+          done
       
   lint:
     runs-on: ubuntu-latest
@@ -47,7 +59,7 @@ jobs:
           restore-keys: |
             rubocop-${{ runner.os }}-${{ env.DEPENDENCIES_HASH }}-
 
-      - name: Lint code for consistent style
+      - name: Lint code for consistent style (the whole repo: app, gems, services, Lambda)
         run: bin/rubocop -f github
 
   test:
@@ -55,7 +67,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:17
+        image: pgvector/pgvector:pg17 # PostgreSQL 17 with the pgvector extension (embeddings)
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -92,3 +104,137 @@ jobs:
         run: |
           bundle exec rake rswag:specs:swaggerize
           git diff --exit-code swagger/ || (echo "swagger/v1/swagger.yaml is stale: run 'RAILS_ENV=test bin/rake rswag:specs:swaggerize' and commit it" && exit 1)
+
+  # The extracted services, each with its own bundle and database.
+  services:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [ ai, auth, notifications ]
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    env:
+      RAILS_ENV: test
+      CI: true
+      DB_HOST: localhost
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
+
+    steps:
+      - name: Install packages
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+          working-directory: services/${{ matrix.service }}
+
+      - name: Set up database
+        if: matrix.service != 'ai'
+        run: bin/rails db:create db:schema:load 2>/dev/null || bin/rails db:create db:migrate
+
+      - name: Run specs
+        run: bundle exec rspec
+
+  # Everything that deploys: Terraform, Helm charts, Kubernetes manifests, alert rules, shell scripts.
+  infrastructure:
+    runs-on: ubuntu-latest
+    env:
+      KUBECONFORM_VERSION: v0.6.7
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform format and validate
+        working-directory: deploy/terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false
+          terraform validate
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Install kubeconform
+        run: |
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | sudo tar -xz -C /usr/local/bin kubeconform
+
+      - name: Render every release for every environment and validate against Kubernetes and CRD schemas
+        run: |
+          mkdir -p tmp/render
+          helm lint deploy/helm/taskapi-service --set image.repository=x --set image.tag=y
+          for env in dev staging prod; do
+            for service in api worker auth ai notifications; do
+              helm template "$service" deploy/helm/taskapi-service -n task-api \
+                -f "deploy/helm/values/$service.yaml" -f "deploy/gitops/envs/$env/$service.yaml" > "tmp/render/$env-$service.yaml"
+            done
+            helm template cluster-config deploy/k8s/platform/cluster-config -n kube-system \
+              -f "deploy/gitops/envs/$env/platform/cluster-config.yaml" --set fis.enabled=true > "tmp/render/$env-cluster-config.yaml"
+          done
+          kubectl kustomize deploy/observability > tmp/render/observability.yaml
+          cp deploy/gitops/apps/*.yaml deploy/gitops/bootstrap/*.yaml tmp/render/
+          kubeconform -strict -summary -kubernetes-version 1.32.0 \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            tmp/render/*.yaml
+
+      - name: Check the GitOps overlays are up to date with their templates
+        run: |
+          for env in dev staging prod; do ruby deploy/scripts/render_gitops.rb "$env" > /dev/null; done
+          git diff --exit-code deploy/gitops/envs || (echo "Run: ruby deploy/scripts/render_gitops.rb <env> and commit" && exit 1)
+
+      - name: Validate the Prometheus rules
+        run: |
+          ruby -ryaml -e 'File.write("tmp/rules.yml", { "groups" => YAML.load_file("deploy/observability/prometheus/task-api-rules.yaml")["spec"]["groups"] }.to_yaml)'
+          docker run --rm --entrypoint promtool -v "$PWD/tmp:/work" prom/prometheus:v3.1.0 check rules /work/rules.yml
+
+      - name: Shell scripts
+        run: shellcheck deploy/docker/*.sh deploy/local/*.sh deploy/scripts/*.sh
+
+  # Build every image (no push) so a broken Dockerfile fails the pull request, not the deploy.
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: api, file: Dockerfile, args: "" }
+          - { name: ai, file: services/Dockerfile, args: "SERVICE=ai" }
+          - { name: auth, file: services/Dockerfile, args: "SERVICE=auth" }
+          - { name: notifications, file: services/Dockerfile, args: "SERVICE=notifications" }
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          build-args: ${{ matrix.args }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

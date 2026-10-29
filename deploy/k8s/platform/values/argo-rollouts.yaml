@@ -1,0 +1,5 @@
+# Canary and blue/green delivery, with automatic analysis against Prometheus.
+controller:
+  replicas: 2
+dashboard:
+  enabled: true

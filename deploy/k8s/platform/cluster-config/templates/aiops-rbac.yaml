@@ -1,0 +1,48 @@
+{{- if .Values.aiops.enabled }}
+# What the AIOps Lambdas may do in the cluster. EKS access entries (terraform/aiops.tf) map each Lambda's IAM
+# role to one of these groups; this is the whole of their authority.
+#
+#   aiops-viewer      the RCA function: read workloads to see what was deployed recently. No secrets, no writes.
+#   aiops-remediator  the remediation function: read the worker, and patch only the worker's Deployment and
+#                     its KEDA ScaledObject. It cannot delete anything or touch any other workload.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aiops-viewer
+  namespace: {{ .Values.namespace }}
+rules:
+  - apiGroups: [ "", apps, argoproj.io ]
+    resources: [ pods, replicasets, deployments, rollouts ]
+    verbs: [ get, list ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aiops-viewer
+  namespace: {{ .Values.namespace }}
+subjects: [ { kind: Group, name: aiops-viewer, apiGroup: rbac.authorization.k8s.io } ]
+roleRef: { kind: Role, name: aiops-viewer, apiGroup: rbac.authorization.k8s.io }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aiops-remediator
+  namespace: {{ .Values.namespace }}
+rules:
+  - apiGroups: [ apps ]
+    resources: [ deployments ]
+    resourceNames: [ worker ]
+    verbs: [ get, patch ]
+  - apiGroups: [ keda.sh ]
+    resources: [ scaledobjects ]
+    resourceNames: [ worker ]
+    verbs: [ get, patch ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aiops-remediator
+  namespace: {{ .Values.namespace }}
+subjects: [ { kind: Group, name: aiops-remediator, apiGroup: rbac.authorization.k8s.io } ]
+roleRef: { kind: Role, name: aiops-remediator, apiGroup: rbac.authorization.k8s.io }
+{{- end }}

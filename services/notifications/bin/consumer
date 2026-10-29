@@ -1,0 +1,7 @@
+#!/usr/bin/env ruby
+# Runs the SQS consumer on its own (debugging, or a deployment that wants a worker with no web port).
+require_relative "../config/environment"
+
+consumer = Notifications::Consumer.new
+%w[INT TERM].each { |signal| trap(signal) { consumer.stop } }
+consumer.run

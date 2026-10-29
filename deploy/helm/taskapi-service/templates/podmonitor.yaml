@@ -1,0 +1,17 @@
+{{- if and .Values.metrics.enabled (gt (int .Values.port) 0) }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "taskapi.fullname" . }}
+  labels: {{- include "taskapi.labels" . | nindent 4 }}
+    {{- with .Values.metrics.labels }}{{ toYaml . | nindent 4 }}{{- end }}
+spec:
+  selector:
+    matchLabels: {{- include "taskapi.selectorLabels" . | nindent 6 }}
+  podMetricsEndpoints:
+    - port: http
+      path: {{ .Values.metrics.path }}
+      interval: {{ .Values.metrics.interval }}
+      relabelings:
+        - { sourceLabels: [ __meta_kubernetes_pod_name ], targetLabel: pod }
+{{- end }}

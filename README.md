@@ -8,6 +8,11 @@ It is also a worked example of "modern Rails": the Solid stack instead of Redis,
 and rate-limiting primitives, structured events, Active Job continuations, and Kamal 2 deploys.
 The reasoning behind each non-obvious choice is in [docs/decisions.md](docs/decisions.md).
 
+It has since grown into an **AI-powered, observable, microservice platform for AWS EKS**: natural-language task
+creation, AI summaries and suggestions, three extracted services (Auth, AI, Notifications), OpenTelemetry/Prometheus/CloudWatch
+observability with anomaly alarms and an AIOps loop, and Terraform + Helm + Argo CD to run it. Start with
+[docs/architecture/overview.md](docs/architecture/overview.md); to deploy, follow [docs/aws/setup-guide.md](docs/aws/setup-guide.md).
+
 - **Interactive docs:** run the server and open <http://localhost:3000/api-docs> (OpenAPI 3, generated from the specs)
 - **Spec:** [swagger/v1/swagger.yaml](swagger/v1/swagger.yaml)
 
@@ -26,8 +31,12 @@ The reasoning behind each non-obvious choice is in [docs/decisions.md](docs/deci
 | Caching | Solid Cache: per-project task statistics, invalidated by `touch` |
 | Rails 8.1 | `Rails.event` structured events, `ActiveJob::Continuable`, `bin/ci` local CI |
 | Data safety | Soft delete + restore, 30-day purge, append-only audit log |
-| Quality | RSpec (352 examples), Bullet raising on N+1, RuboCop, Brakeman, bundler-audit |
-| Delivery | Dockerfile, Kamal 2 config, GitHub Actions, JSON logs, `/up` health check, optional Sentry |
+| AI | Bedrock (Converse + Titan embeddings) or an offline fake: create tasks from sentences, priority and deadline prediction, tags, assignee suggestions, project summaries, a tool-using chatbot. Validated output, per-user token budgets, pgvector search, an evaluation harness ([docs/architecture/ai.md](docs/architecture/ai.md)) |
+| Observability | Structured events as JSON logs, Prometheus `/metrics`, OpenTelemetry → X-Ray, CloudWatch anomaly alarms, SNS → PagerDuty/Slack ([docs](docs/architecture/observability-and-aiops.md)) |
+| Services | Auth (JWT, rotating refresh tokens), AI, Notifications (SQS consumer), events as CloudEvents on SNS/SQS ([docs](docs/architecture/microservices.md)) |
+| Platform | Docker Compose, `kind`, one Helm chart, Terraform (EKS, Karpenter, Aurora, SNS/SQS, WAF), Argo CD + Rollouts, KEDA, AIOps Lambdas ([deploy/](deploy/README.md)) |
+| Quality | RSpec (595 across the app, shared gems, Lambdas), the services' own suites, Bullet raising on N+1, RuboCop, Brakeman, bundler-audit, `terraform validate`, Kubernetes schema checks |
+| Delivery | Dockerfile, Kamal 2 config (single host), EKS via GitOps (below), GitHub Actions, JSON logs, `/up` health check, optional Sentry |
 
 ## Quick start
 
@@ -158,6 +167,8 @@ Targets that resolve to private, loopback or link-local addresses are refused.
 
 ## Architecture
 
+The pieces and how they fit are in [docs/architecture/overview.md](docs/architecture/overview.md). The monolith's layout:
+
 ```
 app/
   controllers/api/v1/   thin controllers: authorize → query → serialize
@@ -167,9 +178,25 @@ app/
   queries/              TaskQuery: allow-listed filters and sorting
   models/               validations, scopes; concerns: Discardable, Auditable, EventEmitting
   subscribers/events/   react to domain events: log, broadcast (Cable), webhooks
-  services/             EventPayload, Webhooks::Deliverer, Webhooks::UrlGuard
+  services/             EventPayload, Webhooks::*, Ai::* (AI layer), Events::* (CloudEvents/SNS),
+                        Observability::*, ExternalAuth
   jobs/ mailers/ channels/
+gems/
+  ai_core/              provider-agnostic inference (shared with services/ai)
+  service_kit/          JWT verification, JSON logs, metrics, tracing for services
+services/               auth/ ai/ notifications/ (each its own Rails app, specs and Dockerfile target)
+deploy/                 terraform/ helm/ gitops/ k8s/ observability/ lambda/ docker/ local/
+docs/                   decisions.md, architecture/, aws/setup-guide.md, runbooks/
 ```
+
+### Ways to run it
+
+| Mode | Command |
+| --- | --- |
+| The monolith alone (auth local, AI offline) | `bin/rails s` |
+| The whole architecture on Docker | `cp .env.example .env`, set `RAILS_MASTER_KEY` and `AUTH_JWT_PRIVATE_KEY`, then `docker compose up --build` (gateway on :8080, mail on :8025) |
+| On a local Kubernetes cluster | `deploy/local/up.sh` (needs `kind`, `kubectl`, `helm`) |
+| AWS | [docs/aws/setup-guide.md](docs/aws/setup-guide.md) |
 
 A change flows like this:
 
@@ -204,7 +231,9 @@ Schedules live in [config/recurring.yml](config/recurring.yml).
 ## Testing & quality
 
 ```bash
-bundle exec rspec                                   # 352 examples, ~5 s
+bundle exec rspec                                   # 595 (app + gems + Lambdas), ~8 s
+for s in ai auth notifications; do (cd services/$s && bundle exec rspec); done   # the services
+bin/rails ai:eval                                   # score the configured model against the golden sets
 bin/ci                                              # rubocop + bundler-audit + brakeman + rspec (same as GitHub Actions)
 RAILS_ENV=test bin/rails rswag:specs:swaggerize     # regenerate swagger/v1/swagger.yaml after API changes
 ```
@@ -237,13 +266,28 @@ Copy [.env.example](.env.example) for the full list of environment variables.
 - **Backups are not automated.** Schedule `pg_dump` of all four production databases (and the storage volume) on the host, and rehearse a restore.
 - Migrations run automatically (`db:prepare`) when a container starts; keep them backward compatible with the previous release so rolling deploys stay safe.
 
+## Deploying to AWS (EKS)
+
+Terraform builds AWS, Argo CD installs the cluster add-ons and the services from Git, GitHub Actions builds the images
+and records the new tag. **Nothing has been applied to a real account**: the configuration validates (`terraform validate`, Helm
+rendered for every environment and checked against Kubernetes and CRD schemas), and you provide the credentials and run it.
+[docs/aws/setup-guide.md](docs/aws/setup-guide.md) lists every manual step in order (Bedrock access, SES, state bucket, secrets, database bootstrap, Argo CD,
+DNS), with a verification checklist. Runbooks for the alerts are in [docs/runbooks/](docs/runbooks/).
+
+The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE=local` and the monolith's own auth.
+
 ## Known limitations
 
 - Members are added by the email of an **existing** user; there is no invitation flow, and an admin can therefore probe whether an email is registered.
 - Offset pagination: fine for this data shape, but very deep pages on huge projects would want keyset pagination.
-- Active Storage uses local disk. Switch `config.active_storage.service` to S3/GCS for multi-server setups.
+- Active Storage defaults to local disk; on Kubernetes set `ACTIVE_STORAGE_SERVICE=amazon` (S3).
 - Image dimension analysis uses `libvips` when present (it is in the Docker image). Locally you will see a harmless boot warning unless you `brew install vips`; no image variants are generated.
 - No GraphQL endpoint (optional in the roadmap); no public demo deployment is bundled.
+- The platform code (Docker images, Compose, `kind` script, Terraform, Argo CD, Lambdas) is validated statically and by specs;
+  it has **not been run against Docker or AWS** in this repository's history. Expect a round of small fixes on first contact.
+- Tasks and Projects stay in the monolith on purpose ([decision 21](docs/decisions.md)). Webhooks stay there too.
+- Events are published after commit through a job, not a transactional outbox: an SNS outage longer than the job's retries loses an event.
+- Access tokens from the Auth service live up to 15 minutes after logout.
 
 ## License
 

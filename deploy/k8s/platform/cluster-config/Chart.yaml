@@ -1,0 +1,5 @@
+apiVersion: v2
+name: cluster-config
+description: "Cluster-level objects that need this cluster's names: secret store, Karpenter pools, RBAC for automation."
+type: application
+version: 0.1.0

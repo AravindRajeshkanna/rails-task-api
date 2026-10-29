@@ -1,0 +1,10 @@
+#!/usr/bin/env ruby
+require "fileutils"
+
+APP_ROOT = File.expand_path("..", __dir__)
+
+FileUtils.chdir APP_ROOT do
+  puts "== Installing dependencies =="
+  system("bundle check") || system("bundle install", exception: true)
+  puts "\n== Done. Start with: bin/rails server -p 3200 =="
+end

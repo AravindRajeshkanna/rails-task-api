@@ -1,0 +1,15 @@
+source "https://rubygems.org"
+
+gem "rails", "~> 8.1.4"
+gem "puma", ">= 5.0"
+gem "tzinfo-data", platforms: %i[ windows jruby ]
+
+# LLM inference (Bedrock, plus an offline fake) and what every service shares: JSON logs, /metrics, tracing.
+gem "ai_core", path: "../../gems/ai_core"
+gem "service_kit", path: "../../gems/service_kit"
+
+group :development, :test do
+  gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
+  gem "rspec-rails"
+  gem "webmock"
+end
