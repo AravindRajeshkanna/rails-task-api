@@ -40,6 +40,12 @@ module OpenapiSchemas
       },
       required: %i[page limit count pages]
     },
+    KeysetMeta: {
+      type: :object,
+      description: "Cursor pagination: no totals. Pass next_cursor as `cursor` to get the following page.",
+      properties: { limit: { type: :integer }, next_cursor: { type: :string, nullable: true }, has_more: { type: :boolean } },
+      required: %i[limit next_cursor has_more]
+    },
     UserSummary: USER_SUMMARY,
     User: {
       type: :object,

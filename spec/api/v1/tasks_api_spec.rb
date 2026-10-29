@@ -43,6 +43,11 @@ RSpec.describe "Tasks API", type: :request do
       parameter name: :sort, in: :query, type: :string, required: false,
                 description: "Comma-separated columns (created_at, updated_at, due_on, priority, status, title); prefix `-` for descending. Default `-created_at`"
       parameter name: :page, in: :query, type: :integer, required: false
+      parameter name: :cursor, in: :query, type: :string, required: false, allowEmptyValue: true,
+                description: "Switches to keyset pagination, which costs the same at any depth and does not skip or repeat tasks when others are " \
+                             "added meanwhile, but has no total. Send it empty for the first page, then `meta.next_cursor` of the previous response " \
+                             "(with the same filters and sort). Only for sorts by `created_at`, `updated_at` and `title` (not by relevance, " \
+                             "`priority`, `status` or `due_on`); an invalid cursor is a 400. Replaces `page`."
       parameter name: :limit, in: :query, type: :integer, required: false
 
       response "200", "A page of tasks" do
@@ -53,7 +58,13 @@ RSpec.describe "Tasks API", type: :request do
         run_test! { expect(data.pluck("id")).to eq([ task.id ]) }
       end
 
-      response "400", "Invalid filter or sort value" do
+      response "200", "A page of tasks by cursor (`meta` has `next_cursor` and `has_more`, no total)" do
+        schema type: :object, properties: { data: { type: :array, items: ref.call("Task") }, meta: ref.call("KeysetMeta") }, required: %i[data meta]
+        let(:cursor) { "" }
+        run_test! { expect(meta).to include("has_more" => false, "next_cursor" => nil) }
+      end
+
+      response "400", "Invalid filter, sort or cursor value" do
         schema ref.call("Error")
         let(:status) { "someday" }
         run_test!

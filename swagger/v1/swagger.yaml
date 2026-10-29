@@ -99,6 +99,22 @@ components:
       - limit
       - count
       - pages
+    KeysetMeta:
+      type: object
+      description: 'Cursor pagination: no totals. Pass next_cursor as `cursor` to
+        get the following page.'
+      properties:
+        limit:
+          type: integer
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+      required:
+      - limit
+      - next_cursor
+      - has_more
     UserSummary:
       type: object
       properties:
@@ -3053,6 +3069,18 @@ paths:
         required: false
         schema:
           type: integer
+      - name: cursor
+        in: query
+        required: false
+        allowEmptyValue: true
+        description: Switches to keyset pagination, which costs the same at any depth
+          and does not skip or repeat tasks when others are added meanwhile, but has
+          no total. Send it empty for the first page, then `meta.next_cursor` of the
+          previous response (with the same filters and sort). Only for sorts by `created_at`,
+          `updated_at` and `title` (not by relevance, `priority`, `status` or `due_on`);
+          an invalid cursor is a 400. Replaces `page`.
+        schema:
+          type: string
       - name: limit
         in: query
         required: false
@@ -3060,7 +3088,8 @@ paths:
           type: integer
       responses:
         '200':
-          description: A page of tasks
+          description: A page of tasks by cursor (`meta` has `next_cursor` and `has_more`,
+            no total)
           content:
             application/json:
               schema:
@@ -3071,11 +3100,12 @@ paths:
                     items:
                       "$ref": "#/components/schemas/Task"
                   meta:
-                    "$ref": "#/components/schemas/PaginationMeta"
+                    "$ref": "#/components/schemas/KeysetMeta"
                 required:
                 - data
+                - meta
         '400':
-          description: Invalid filter or sort value
+          description: Invalid filter, sort or cursor value
           content:
             application/json:
               schema:

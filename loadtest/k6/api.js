@@ -18,7 +18,7 @@ const seed = JSON.parse(open('../../tmp/loadtest/tokens.json'));
 const tokens = new SharedArray('tokens', () => seed.tokens);
 
 const ENDPOINTS = [
-  'projects_index', 'tasks_index', 'tasks_whale', 'tasks_filtered', 'tasks_search', 'tasks_fulltext', 'search', 'task_show', 'analytics', 'activity',
+  'projects_index', 'tasks_index', 'tasks_whale', 'tasks_cursor', 'tasks_filtered', 'tasks_search', 'tasks_fulltext', 'search', 'task_show', 'analytics', 'activity',
   'task_create', 'task_update', 'comment_create',
 ];
 
@@ -81,6 +81,11 @@ export default function () {
   const listName = useWhale ? 'tasks_whale' : 'tasks_index';
   const tasks = get(`/projects/${project.id}/tasks?limit=25`, headers, listName);
   ok(tasks, 'tasks');
+  if (tasks.status === 200 && Math.random() < 0.3) { // scrolling: the first page by cursor, then the next one
+    const first = get(`/projects/${project.id}/tasks?cursor=&limit=25`, headers, 'tasks_cursor');
+    const next = ok(first, 'cursor') ? first.json('meta.next_cursor') : null;
+    if (next) ok(get(`/projects/${project.id}/tasks?cursor=${encodeURIComponent(next)}&limit=25`, headers, 'tasks_cursor'), 'cursor next');
+  }
   sleep(Math.random() * 0.5);
 
   if (Math.random() < 0.85) { // browse

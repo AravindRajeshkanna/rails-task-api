@@ -14,6 +14,9 @@ class TaskQuery
   DEFAULT_SORT = "-created_at".freeze
   NULLS_LAST_COLUMNS = %w[due_on].freeze
 
+  # Sorts a cursor (keyset) page can follow: non-null columns, no ranking.
+  KEYSET_SORT_COLUMNS = %w[created_at updated_at title].freeze
+
   def initialize(scope, params, current_user:)
     @scope = scope
     @params = params
@@ -30,6 +33,15 @@ class TaskQuery
     relation = relation.where(due_on: ..date(:due_to)) if @params[:due_to].present?
     relation = relation.overdue if boolean(:overdue)
     sort(search(relation))
+  end
+
+  # Raises InvalidParameterError unless the requested order can be paged with a cursor.
+  def ensure_keyset_sort!
+    columns = list(:sort).map { |field| field.delete_prefix("-").delete_prefix("+") }
+    ranked = search_term && columns.empty?
+    return if !ranked && (columns - KEYSET_SORT_COLUMNS).empty?
+
+    raise InvalidParameterError.new("cursor", "cursor pagination can sort by #{KEYSET_SORT_COLUMNS.join(', ')} only (not by relevance, priority, status or due_on); use page= for that order")
   end
 
   private

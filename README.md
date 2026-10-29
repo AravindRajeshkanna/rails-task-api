@@ -104,6 +104,11 @@ Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it.
 `pages`, `next`, `previous`) and responses carry `Link` (RFC 8288), `Total-Count`, `Total-Pages`,
 `Current-Page` and `Page-Limit` headers.
 
+**Cursor pagination** (optional, for long task lists). `GET /projects/:id/tasks?cursor=` returns the first page, and `?cursor=<meta.next_cursor>`
+the following ones (`meta` is `{limit, next_cursor, has_more}`; `Link` has `rel="next"`; there is no total). Unlike `page=`, a page costs the same at any depth
+and no task is skipped or repeated when others are added meanwhile. It works with every filter, and with sorts by `created_at`, `updated_at` and `title`
+(not relevance, `priority`, `status` or `due_on`); use the cursor with the filters and sort that produced it.
+
 **Task filters** (`GET /api/v1/projects/:id/tasks`, all combinable):
 `status`, `priority` (comma lists), `assignee` (`me` / `unassigned` / id), `tag`, `due_from`, `due_to`,
 `overdue=true`, `q` (substring search of title and description), `search` (full-text: stemmed words, `"phrases"`, `or`, `-excluded`; best match first unless `sort` is given), `sort` (`-priority,due_on`; prefix `-` for descending).
@@ -294,7 +299,7 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 ## Known limitations
 
 - People join an organization by invitation, and the API never says whether an address is registered. Two narrow exceptions: an administrator is told when an address already belongs to a *member of their own organization*, and adding a user directly to a project that has **no** organization (`POST /projects/:id/memberships`) still answers 404 for an unknown address. Both are listed in [security.md](docs/security.md).
-- Offset pagination: fine for this data shape, but very deep pages on huge projects would want keyset pagination.
+- `page=` is offset pagination: fine for this data shape, but a deep page of a huge project costs more (14 ms at row 49,000 of 50,000). The task list offers `cursor=` (keyset) for that; the other lists do not need it.
 - Active Storage defaults to local disk; on Kubernetes set `ACTIVE_STORAGE_SERVICE=amazon` (S3).
 - Image dimension analysis needs `libvips` at runtime (it is in the Docker image; locally `brew install vips`). Without it uploads still work, their dimensions are just not recorded. No image variants are generated.
 - The inbox has no per-person settings (every notification kind is on) and no digest; see "Next" in [docs/roadmap.md](docs/roadmap.md). Teams grant project access but are flat (no team roles, no nested teams), and a person with an administrator's implicit access to a project, or access only through a team, is not in `GET /projects/:id/memberships`: that lists direct members; `GET /projects/:id/teams` lists the teams.

@@ -108,6 +108,22 @@ the most recent N matches for broad queries; it is not built because nothing nee
 The migration that adds the column rewrites `tasks` under a lock: 3.7 s here ([runbook](runbooks/zero-downtime-migrations.md)). The GIN
 index is 2.9 MB for 149,000 tasks and is built concurrently.
 
+## Deep pages: offset against cursor
+
+`?page=N` is `OFFSET`: the database walks and discards every row before the page, so a deep page costs more the deeper it is. On the
+50,000-task project, newest first, first page of 25 after skipping N rows (`EXPLAIN (ANALYZE)`, execution time):
+
+| Rows skipped | `page=` (offset) | `cursor=` (keyset) |
+| ---: | ---: | ---: |
+| 0 | 0.07 ms | 0.08 ms |
+| 1,000 | 1.0 ms | 0.07 ms |
+| 10,000 | 4.2 ms | 0.07 ms |
+| 49,000 | **13.8 ms** | 0.08 ms |
+
+The keyset query is `WHERE (created_at, id) < (cutoff)` on the same partial index, so it starts where the last page ended. Offset paging also
+runs a `COUNT(*)` for the total, which keyset paging skips (that is why a cursor page has no total). Offset stays the default because
+nothing is wrong with it at these sizes and a total is useful in a UI; the cursor is for feeds, exports and infinite scroll.
+
 ## Other performance guards that run in CI
 
 - **Bullet** raises on N+1 queries and on unused eager loading in every request spec.
