@@ -22,6 +22,10 @@ and in [docs/roadmap.md](docs/roadmap.md).
   no longer be lost to a crash after commit or to an SNS outage, and are still delivered at least once (deduplicate on `id`). `data` is a snapshot at the time of
   the change. Not an API change, but consumers of the topic should note delivery can be late and out of order during an outage. (Listed here because it is
   a guarantee these consumers can now rely on.)
+- **GraphQL (read-only).** `POST /api/v1/graphql` with `{ query, variables, operationName }`: `me`, `projects`, `project`, `task`, `search`, `notifications`, with
+  connections, the REST task filters, and the same access rules as REST (a record you cannot see is `null`). At most 20 KB, 8 levels deep, 1,500 complexity points,
+  100 per page, one operation per request. The schema is `docs/graphql/schema.graphql`. Writes remain REST.
+- Responses from a public-demo instance carry `X-Demo-Mode: true`, and the demo refuses (`403 demo_mode`) sign-up, uploads, webhooks, invitations and AI.
 - **In-app inbox.** `GET /api/v1/notifications` (newest first; `unread=true`, `project_id`, `kind`; `meta.unread_count`), `PATCH /api/v1/notifications/{id}`
   with `{"read": true|false}`, `DELETE /api/v1/notifications/{id}` and `POST /api/v1/notifications/read_all` (optionally `project_id`). You are told when a
   task is assigned to you by someone else (`task.assigned`), when one of yours is due tomorrow (`task.due_soon`), when someone else completes a task you created

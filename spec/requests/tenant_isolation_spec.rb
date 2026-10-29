@@ -42,7 +42,8 @@ RSpec.describe "Tenant isolation" do
       [ "POST", "/api/v1/invitations/accept" ], # needs a token addressed to the caller; see organization_invitations_spec
       [ "GET", "/api/v1/search" ], # scoped to the caller's projects; see search_spec
       [ "GET", "/api/v1/notifications" ], [ "PATCH", "/api/v1/notifications/:x" ], [ "DELETE", "/api/v1/notifications/:x" ],
-      [ "POST", "/api/v1/notifications/read_all" ] # the caller's own inbox; see notifications_spec
+      [ "POST", "/api/v1/notifications/read_all" ], # the caller's own inbox; see notifications_spec
+      [ "POST", "/api/v1/graphql" ] # every field is scoped by the policies; see graphql_spec ("who can see what")
     ]
   end
 

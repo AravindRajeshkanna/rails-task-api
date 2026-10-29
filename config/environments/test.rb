@@ -59,6 +59,15 @@ Rails.application.configure do
     Bullet.enable = true
     Bullet.bullet_logger = true
     Bullet.raise = true
+
+    # GraphQL's dataloader preloads exactly the associations a query selects and reads them from the association
+    # target directly, which Bullet's reader hooks do not see, so it reports them as unused. They are not: the
+    # query asked for each one. N+1 detection stays on for GraphQL, so a field that loads per row still fails.
+    {
+      "Task" => %i[creator assignee tags project], "Project" => %i[owner], "Comment" => %i[user], "Notification" => %i[actor]
+    }.each do |class_name, associations|
+      associations.each { |association| Bullet.add_safelist type: :unused_eager_loading, class_name: class_name, association: association }
+    end
   end
 
   # Throwaway keys for Active Record Encryption (CI has no credentials key).

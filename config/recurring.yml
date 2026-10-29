@@ -26,6 +26,11 @@ production:
     class: PurgeNotificationsJob
     schedule: every day at 3:30am
 
+  # No-op unless DEMO_MODE=true (the public demo): wipes and reloads its data.
+  reset_demo:
+    class: ResetDemoJob
+    schedule: every day at 5am
+
   prune_expired_sessions:
     command: "Session.expired.delete_all"
     schedule: every day at 4am

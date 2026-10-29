@@ -25,6 +25,9 @@ Rails.application.routes.draw do
         get :usage
       end
 
+      # Read-only GraphQL (POST { query, variables, operationName }); writes stay on REST.
+      post "graphql", to: "graphql#create"
+
       # The caller's in-app inbox (kept current over NotificationsChannel).
       resources :notifications, only: %i[index update destroy] do
         post :read_all, on: :collection

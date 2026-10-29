@@ -53,6 +53,9 @@ gem "alba"
 # Lightweight pagination [https://github.com/ddnexus/pagy]
 gem "pagy"
 
+# GraphQL endpoint (read-only; see app/graphql and docs/decisions.md)
+gem "graphql", "~> 2.6"
+
 # Policy-based authorization [https://github.com/varvet/pundit]
 gem "pundit"
 
