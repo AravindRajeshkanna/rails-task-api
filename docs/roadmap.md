@@ -8,7 +8,7 @@ each section is a ledger, not a plan, so every line says what actually happened.
 | 1 | [Build an API-only Rails 8.1 backend](#roadmap-1-build-the-api) (phases 0-7) | [#1](https://github.com/AravindRajeshkanna/rails-task-api/pull/1) | The Task/Project Management API |
 | 2 | [AI-powered, AIOps-enabled microservices on AWS EKS](#roadmap-2-ai-aiops-and-microservices-on-eks) (phases 1-6) | [#5](https://github.com/AravindRajeshkanna/rails-task-api/pull/5) | AI features, observability, three extracted services, the platform to run it |
 | 3 | [Improve it further](#roadmap-3-improving-the-project-further) (phases 1-8) | [#6](https://github.com/AravindRajeshkanna/rails-task-api/pull/6) | Hardening, testing, performance, security, documentation, organizations, analytics |
-| 4 | [The "Next" list](#roadmap-4-the-next-list-of-roadmap-3) (ten items) | this branch's pull request | Invitations, organization audit, teams, full-text search, an inbox, keyset pagination, a transactional outbox, a nightly load test, GraphQL, a demo mode; multi-region as a design |
+| 4 | [The "Next" list](#roadmap-4-the-next-list-of-roadmap-3) (ten items) | [#7](https://github.com/AravindRajeshkanna/rails-task-api/pull/7) | Invitations, organization audit, teams, full-text search, an inbox, keyset pagination, a transactional outbox, a nightly load test, GraphQL, a demo mode; multi-region as a design |
 
 **Status key.** ✅ done and verified as described · 🟡 done in part, or done differently on purpose (the note says how) · ⏭ deliberately not done (the note says why, and what would trigger it).
 
@@ -158,7 +158,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 
 ## Roadmap 4: the "Next" list of roadmap 3
 
-*Goal: work through the ten items the previous roadmap ended with, in that order. Delivered as one pull request, one commit per item.*
+*Goal: work through the ten items the previous roadmap ended with, in that order. Delivered in [#7](https://github.com/AravindRajeshkanna/rails-task-api/pull/7), one commit per item.*
 
 | # | Item | Status | Implemented as |
 | --- | --- | --- | --- |
