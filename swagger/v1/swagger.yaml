@@ -698,6 +698,9 @@ components:
           - update
           - discard
           - restore
+          - destroy
+          - accept
+          - revoke
         auditable_type:
           type: string
           enum:
@@ -1793,6 +1796,70 @@ paths:
                 - data
         '404':
           description: Not found, or not a member
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/v1/organizations/{organization_id}/audit_events":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: The organization's history
+      tags:
+      - Organizations
+      description: 'Renames, members joining, changing role and leaving, and invitations
+        sent, accepted and withdrawn, newest first. Owners only: invitation changes
+        carry the invited email address.'
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: auditable_type
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - Organization
+          - OrganizationMembership
+          - OrganizationInvitation
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of audit events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/AuditEvent"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '400':
+          description: Unknown auditable_type
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '403':
+          description: Not an owner
           content:
             application/json:
               schema:

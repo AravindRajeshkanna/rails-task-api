@@ -54,6 +54,5 @@ trust it, and the response headers say so.
 - Invitation tokens are bearer secrets in an email: whoever reads the mailbox and can sign in as that address can join. The address must match the
   signed-in user, so a forwarded link does nothing for anyone else, but the API does not verify email ownership at sign-up (the Auth service does,
   in JWT mode, through its `email` claim).
-- No audit log for organization membership changes yet (project and task changes are audited).
 - Access tokens from the Auth service remain valid up to 15 minutes after sign-out.
 - No automated secret scanning in CI (e.g. gitleaks); add it before the repository takes outside contributions.

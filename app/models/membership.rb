@@ -13,6 +13,7 @@ class Membership < ApplicationRecord
   validate :user_belongs_to_organization, on: :create
 
   before_destroy :prevent_removing_owner, prepend: true
+  audit_destruction
 
   def audit_project_id = project_id
 

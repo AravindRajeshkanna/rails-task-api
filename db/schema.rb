@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_29_214500) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_29_221010) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -70,8 +70,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_214500) do
     t.string "action", null: false
     t.jsonb "audit_changes", default: {}, null: false
     t.datetime "created_at", null: false
+    t.bigint "organization_id"
     t.index ["actor_id"], name: "index_audit_events_on_actor_id"
     t.index ["auditable_type", "auditable_id"], name: "index_audit_events_on_auditable"
+    t.index ["organization_id", "created_at"], name: "index_audit_events_on_organization_id_and_created_at", where: "(organization_id IS NOT NULL)"
     t.index ["project_id", "created_at"], name: "index_audit_events_on_project_id_and_created_at"
     t.index ["project_id"], name: "index_audit_events_on_project_id"
   end
@@ -259,6 +261,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_214500) do
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "ai_usages", "projects"
   add_foreign_key "ai_usages", "users"
+  add_foreign_key "audit_events", "organizations"
   add_foreign_key "audit_events", "projects"
   add_foreign_key "audit_events", "users", column: "actor_id"
   add_foreign_key "comments", "tasks"

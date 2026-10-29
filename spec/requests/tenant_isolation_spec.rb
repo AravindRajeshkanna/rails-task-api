@@ -93,7 +93,10 @@ RSpec.describe "Tenant isolation" do
       # they can see, 404 by id (like webhooks).
       [ "GET",    "/api/v1/organizations/:id/invitations", organization.id, 403 ],
       [ "POST",   "/api/v1/organizations/:id/invitations", organization.id, 403, { email_address: "someone@example.com" } ],
-      [ "DELETE", "/api/v1/organizations/:id/invitations/:id", [ organization.id, invitation.id ], 404 ]
+      [ "DELETE", "/api/v1/organizations/:id/invitations/:id", [ organization.id, invitation.id ], 404 ],
+
+      # The organization's history is for its owners.
+      [ "GET",    "/api/v1/organizations/:id/audit_events", organization.id, 403 ]
     ]
   end
 

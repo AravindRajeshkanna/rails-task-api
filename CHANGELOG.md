@@ -15,6 +15,8 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - **Organizations.** `GET|POST /api/v1/organizations`, `GET|PATCH|DELETE /api/v1/organizations/{id}` and
   `GET /api/v1/organizations/{id}/members`, `PATCH|DELETE /api/v1/organizations/{id}/members/{member_id}`.
   Roles `owner`, `admin`, `member`. Owners and admins administer every project of the organization.
+- `GET /api/v1/organizations/{id}/audit_events` (owners; filter `auditable_type`): the organization's history, newest first: renames, invitations
+  sent, accepted and withdrawn, members joining, changing role and leaving, each with who did it and what changed.
 - **Invitations.** People join an organization by invitation, not by being added:
   `POST /api/v1/organizations/{id}/invitations` (email address, role; mails a link, valid 7 days; sending again refreshes it),
   `GET` the open ones, `DELETE /api/v1/organizations/{id}/invitations/{id}` to withdraw one, and
@@ -29,6 +31,8 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - `API-Version`, `Deprecation` and `Sunset` are exposed to browsers through CORS.
 
 ### Changed
+- Removing someone from a project is now recorded in its audit log and activity feed (`action: "destroy"`, the member's attributes going to `null`);
+  previously only additions and role changes were. Audit event `action` can now also be `destroy`, `accept` and `revoke`.
 - Adding someone to a project **of an organization** by email now answers `422` ("must be a member of the project's organization") for an
   unknown address, the same as for a registered user outside the organization; it used to be `404` for an unknown address. Adding people
   is throttled (60 an hour per user). Projects without an organization are unchanged.

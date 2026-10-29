@@ -135,6 +135,39 @@ RSpec.describe "Organizations API", type: :request do
     end
   end
 
+  path "/api/v1/organizations/{organization_id}/audit_events" do
+    parameter name: :organization_id, in: :path, type: :integer
+    let(:organization_id) { organization.id }
+
+    get "The organization's history" do
+      tags "Organizations"
+      description "Renames, members joining, changing role and leaving, and invitations sent, accepted and withdrawn, newest first. " \
+                  "Owners only: invitation changes carry the invited email address."
+      security [ { bearer_auth: [] } ]
+      produces "application/json"
+      parameter name: :auditable_type, in: :query, required: false, schema: { type: :string, enum: %w[Organization OrganizationMembership OrganizationInvitation] }
+      parameter name: :page, in: :query, type: :integer, required: false
+      parameter name: :limit, in: :query, type: :integer, required: false
+
+      response "200", "A page of audit events" do
+        schema envelope.call(ref.call("AuditEvent"), list: true)
+        run_test! { expect(data.pluck("auditable_type")).to include("Organization", "OrganizationMembership") }
+      end
+
+      response "400", "Unknown auditable_type" do
+        schema ref.call("Error")
+        let(:auditable_type) { "Task" }
+        run_test!
+      end
+
+      response "403", "Not an owner" do
+        schema ref.call("Error")
+        let(:Authorization) { auth_headers(create(:organization_membership, :admin, organization: organization).user)["Authorization"] }
+        run_test!
+      end
+    end
+  end
+
   path "/api/v1/organizations/{organization_id}/invitations" do
     parameter name: :organization_id, in: :path, type: :integer
     let(:organization_id) { organization.id }

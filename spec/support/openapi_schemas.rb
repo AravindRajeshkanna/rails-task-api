@@ -259,7 +259,7 @@ module OpenapiSchemas
       type: :object,
       description: "An audit event as an item of the feed.",
       properties: {
-        id: { type: :integer }, project_id: { type: :integer }, action: { type: :string, enum: %w[create update discard restore] },
+        id: { type: :integer }, project_id: { type: :integer }, action: { type: :string, enum: %w[create update discard restore destroy accept revoke] },
         auditable_type: { type: :string, enum: %w[Project Task Membership] }, auditable_id: { type: :integer },
         changes: { type: :object, description: "attribute => [old, new]" },
         actor: { allOf: [ ref("UserSummary") ], nullable: true }, created_at: { type: :string, format: "date-time" }

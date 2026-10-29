@@ -366,3 +366,16 @@ throttled, because inviting is a way to make this server send mail to strangers,
 What was not done: the direct "add by email" to a *personal* project (no organization) is unchanged, because it is the original contract and
 inviting people to a personal project is a different feature; inside an organization's project the answer for an unknown address now equals
 the answer for a registered stranger. The remaining differences are listed under "Known gaps" in [security.md](security.md).
+
+## 36. Organization history lives in the audit log, with its own key
+
+Project and task changes already went to `audit_events`, found by `project_id`. Organization changes (a rename, an invitation, someone joining,
+a role change, a removal) belong to no project, so the table gets a second optional key, `organization_id`, rather than a second table: the
+append-only guarantee, the actor, the `[old, new]` change format and the pagination are all reused, and `Auditable` only learned two things
+(`audit_organization_id`, and an opt-in `audit_destruction`). A member leaving is the event this history exists for, so deletions are
+recorded for organization memberships and, since it was the same gap, project memberships; a record destroyed *as part of* a cascade (an
+organization or a project being deleted, a user being deleted) writes nothing, because its trail is being unlinked in the same transaction and
+the rows would point at nothing. The history is for **owners**, not admins: it names who promoted whom and holds the invited addresses, and
+relaxing that later is a one-line policy change whereas tightening it is a breaking one. The activity feed is unaffected: it reads events through
+projects, and these have none. The migration is the zero-downtime shape from the migrations runbook (nullable column, `NOT VALID` key
+validated next, concurrent partial index, since nearly every row belongs to a project).

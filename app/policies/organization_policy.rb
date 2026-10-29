@@ -14,6 +14,8 @@ class OrganizationPolicy < ApplicationPolicy
   def show? = member?
   def update? = administrator?
   def destroy? = role == "owner"
+  # The organization's history (who joined, was promoted, invited, removed). Owners only.
+  def audit? = role == "owner"
 
   # Whether +record+ (an Organization) may have projects created in it by this user.
   def create_project? = member?

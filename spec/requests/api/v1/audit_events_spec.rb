@@ -21,6 +21,18 @@ RSpec.describe "Audit events" do
     expect(task_events[1]["changes"]).to include("title" => %w[Draft Final], "status" => %w[todo done])
   end
 
+  it "records a member being removed, and the project being deleted does not need it" do
+    membership = create(:membership, project: project)
+
+    api :delete, "/api/v1/memberships/#{membership.id}", as: owner
+    api :get, path, { auditable_type: "Membership" }, as: owner
+
+    expect(data.first).to include("action" => "destroy", "actor" => { "id" => owner.id, "name" => owner.name })
+    expect(data.first["changes"]).to include("user_id" => [ membership.user_id, nil ], "role" => [ "member", nil ])
+
+    expect { project.destroy! }.not_to raise_error # the cascade over its memberships writes no audit rows
+  end
+
   it "filters by record type" do
     create(:task, project:)
 

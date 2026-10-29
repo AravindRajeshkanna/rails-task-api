@@ -5,6 +5,8 @@
 # address. The token is signed and expires with the invitation; it changes meaning (becomes
 # invalid) the moment the invitation is accepted or revoked. Nothing secret is stored.
 class OrganizationInvitation < ApplicationRecord
+  include Auditable
+
   VALID_FOR = 7.days
 
   belongs_to :organization
@@ -34,7 +36,16 @@ class OrganizationInvitation < ApplicationRecord
 
   def revoke! = update!(revoked_at: Time.current)
 
+  def audit_organization_id = organization_id
+
   private
+    def audit_action_for_update
+      if saved_change_to_accepted_at? then "accept"
+      elsif saved_change_to_revoked_at? then "revoke"
+      else "update"
+      end
+    end
+
     def not_already_a_member
       return unless organization && email_address.present?
 

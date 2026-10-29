@@ -6,6 +6,8 @@
 #
 # The organization always keeps at least one owner.
 class OrganizationMembership < ApplicationRecord
+  include Auditable
+
   belongs_to :organization
   belongs_to :user
 
@@ -15,9 +17,12 @@ class OrganizationMembership < ApplicationRecord
   validate :organization_keeps_an_owner, on: :update
 
   before_destroy :prevent_removing_last_owner, prepend: true
+  audit_destruction
 
   # Owners and admins; the roles that administer the organization's projects.
   scope :administrators, -> { where(role: %w[owner admin]) }
+
+  def audit_organization_id = organization_id
 
   private
     def organization_keeps_an_owner
