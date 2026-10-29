@@ -13,8 +13,14 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - `GET /api/v1/activity`: what happened across all the caller's projects (projects, tasks, memberships), newest first.
   Filters: `project_id`, `type`.
 - **Organizations.** `GET|POST /api/v1/organizations`, `GET|PATCH|DELETE /api/v1/organizations/{id}` and
-  `GET|POST /api/v1/organizations/{id}/members`, `PATCH|DELETE /api/v1/organizations/{id}/members/{member_id}`.
+  `GET /api/v1/organizations/{id}/members`, `PATCH|DELETE /api/v1/organizations/{id}/members/{member_id}`.
   Roles `owner`, `admin`, `member`. Owners and admins administer every project of the organization.
+- **Invitations.** People join an organization by invitation, not by being added:
+  `POST /api/v1/organizations/{id}/invitations` (email address, role; mails a link, valid 7 days; sending again refreshes it),
+  `GET` the open ones, `DELETE /api/v1/organizations/{id}/invitations/{id}` to withdraw one, and
+  `POST /api/v1/invitations/accept` with the emailed `token`, signed in as the invited address. The answers are the same whether or
+  not the address belongs to a registered user, and the token is only in the email. (There is no `POST .../members`: it would have told
+  administrators which addresses are registered. It was never in a tagged release.)
 - `organization_id` on projects. `POST /api/v1/projects` accepts it to create a project inside an organization you belong to; it
   cannot be changed later. A project in an organization only accepts members of that organization (`422` otherwise).
 - `API-Version` header on every response. A version on its way out will also send `Deprecation`, `Sunset` and a
@@ -23,6 +29,9 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - `API-Version`, `Deprecation` and `Sunset` are exposed to browsers through CORS.
 
 ### Changed
+- Adding someone to a project **of an organization** by email now answers `422` ("must be a member of the project's organization") for an
+  unknown address, the same as for a registered user outside the organization; it used to be `404` for an unknown address. Adding people
+  is throttled (60 an hour per user). Projects without an organization are unchanged.
 - Responses now say how they may be cached: `Cache-Control: no-cache, private` and `Vary: Authorization, Accept` (clients may keep a
   copy and revalidate with `If-None-Match`; `304` is answered), and `Cache-Control: private, no-store` on sign-in and sign-up.
 - Every response carries security headers (`Content-Security-Policy: default-src 'none'`, `X-Frame-Options: DENY`,

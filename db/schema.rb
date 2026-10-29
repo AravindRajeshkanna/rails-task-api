@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_29_214500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -96,7 +96,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
     t.index ["project_id", "user_id"], name: "index_memberships_on_project_id_and_user_id", unique: true
     t.index ["project_id"], name: "index_memberships_on_project_id"
     t.index ["user_id"], name: "index_memberships_on_user_id"
-    t.check_constraint "role::text = ANY (ARRAY['member'::character varying, 'admin'::character varying]::text[])", name: "memberships_role_valid"
+    t.check_constraint "role::text = ANY (ARRAY['member'::character varying::text, 'admin'::character varying::text])", name: "memberships_role_valid"
+  end
+
+  create_table "organization_invitations", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.bigint "invited_by_id"
+    t.string "email_address", null: false
+    t.string "role", default: "member", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "accepted_at"
+    t.datetime "revoked_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["email_address"], name: "index_organization_invitations_on_email_address"
+    t.index ["invited_by_id"], name: "index_organization_invitations_on_invited_by_id"
+    t.index ["organization_id", "email_address"], name: "index_organization_invitations_pending", unique: true, where: "((accepted_at IS NULL) AND (revoked_at IS NULL))"
+    t.index ["organization_id"], name: "index_organization_invitations_on_organization_id"
+    t.check_constraint "char_length(btrim(email_address::text)) > 0", name: "organization_invitations_email_present"
+    t.check_constraint "role::text = ANY (ARRAY['member'::character varying, 'admin'::character varying, 'owner'::character varying]::text[])", name: "organization_invitations_role_valid"
   end
 
   create_table "organization_memberships", force: :cascade do |t|
@@ -108,7 +126,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
     t.index ["organization_id", "user_id"], name: "index_organization_memberships_on_organization_id_and_user_id", unique: true
     t.index ["organization_id"], name: "index_organization_memberships_on_organization_id"
     t.index ["user_id"], name: "index_organization_memberships_on_user_id"
-    t.check_constraint "role::text = ANY (ARRAY['member'::character varying, 'admin'::character varying, 'owner'::character varying]::text[])", name: "organization_memberships_role_valid"
+    t.check_constraint "role::text = ANY (ARRAY['member'::character varying::text, 'admin'::character varying::text, 'owner'::character varying::text])", name: "organization_memberships_role_valid"
   end
 
   create_table "organizations", force: :cascade do |t|
@@ -247,6 +265,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
   add_foreign_key "comments", "users"
   add_foreign_key "memberships", "projects"
   add_foreign_key "memberships", "users"
+  add_foreign_key "organization_invitations", "organizations"
+  add_foreign_key "organization_invitations", "users", column: "invited_by_id", on_delete: :nullify
   add_foreign_key "organization_memberships", "organizations"
   add_foreign_key "organization_memberships", "users"
   add_foreign_key "projects", "organizations"

@@ -1,0 +1,9 @@
+Hello,
+
+<%= @inviter ? @inviter.name : "An administrator" %> invited you to join "<%= @organization.name %>" as <%= @invitation.role == "admin" ? "an admin" : "a #{@invitation.role}" %>.
+
+To accept, sign in (or create an account) with this email address, <%= @invitation.email_address %>, then open:
+
+<%= @accept_url %>
+
+The invitation expires on <%= @expires_on %>. If you weren't expecting it, you can ignore this email: nothing happens unless you accept.

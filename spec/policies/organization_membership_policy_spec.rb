@@ -11,25 +11,6 @@ RSpec.describe OrganizationMembershipPolicy do
   let!(:owner_role) { OrganizationMembership.find_by!(organization: organization, user: owner) }
 
   def policy(user, membership) = described_class.new(user, membership)
-  def granting(role) = organization.organization_memberships.build(role: role)
-
-  describe "adding people" do
-    it "lets owners grant any role" do
-      expect(policy(owner, granting("owner"))).to permit_action(:create)
-      expect(policy(owner, granting("admin"))).to permit_action(:create)
-    end
-
-    it "lets admins add plain members only" do
-      expect(policy(admin, granting("member"))).to permit_action(:create)
-      expect(policy(admin, granting("admin"))).to forbid_action(:create)
-      expect(policy(admin, granting("owner"))).to forbid_action(:create)
-    end
-
-    it "does not let plain members or strangers add anyone" do
-      expect(policy(member, granting("member"))).to forbid_action(:create)
-      expect(policy(stranger, granting("member"))).to forbid_action(:create)
-    end
-  end
 
   describe "changing roles" do
     it "is for owners only" do

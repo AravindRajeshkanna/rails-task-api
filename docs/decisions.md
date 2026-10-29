@@ -347,3 +347,22 @@ validations gets past it); removing someone from the organization removes their 
 own one of its projects; the organization keeps at least one owner (changes to owners take a row lock on the organization, so two owners cannot leave at the same moment) and cannot be deleted while it has projects; only owners delete and
 restore its projects and grant roles above `member`. **Teams** (sub-groups inside an organization) are not built; they would be a
 second kind of principal on projects and are the next step if per-team access is needed ([roadmap](roadmap.md)).
+
+## 35. Joining an organization by invitation, with a signed token and no stored secret
+
+Adding a member by typing the email of an existing user tells the administrator whether that address is registered: `404` for an unknown
+one, `201` or `422` for a known one. The fix is to stop answering the question. An *invitation* is addressed to an email address, not to a
+user: the administrator gets the same `201` whichever it is, the address receives a link, and the only way to become a member is to present
+that link while signed in as that address.
+
+Mechanics that were chosen: the token is Rails' `generates_token_for` (signed, expires with the invitation, and bound to the row's accepted
+and revoked state), so there is no token column to leak, no digest to compare, and the job queue never holds a secret: the mailer renders the
+token when it runs, and a resend simply renders a fresh one. Redeeming requires the token *and* that the signed-in user's address matches the
+invitation, because an unverified sign-up can claim any address and a forwarded mail should not be a way in; every failure (unknown, expired,
+used, revoked, someone else's) is one `404`, so the endpoint reveals nothing about which invitations exist. One open invitation per address and
+organization is a partial unique index; inviting again refreshes it, which makes "resend" and "change the role" the same call. Both ends are
+throttled, because inviting is a way to make this server send mail to strangers, and redeeming is a way to guess tokens.
+
+What was not done: the direct "add by email" to a *personal* project (no organization) is unchanged, because it is the original contract and
+inviting people to a personal project is a different feature; inside an organization's project the answer for an unknown address now equals
+the answer for a registered stranger. The remaining differences are listed under "Known gaps" in [security.md](security.md).

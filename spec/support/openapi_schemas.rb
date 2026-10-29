@@ -243,6 +243,18 @@ module OpenapiSchemas
       },
       required: %i[id role user]
     },
+    OrganizationInvitation: {
+      type: :object,
+      description: "An offer to join an organization, addressed to an email address. The token is only ever in the email.",
+      properties: {
+        id: { type: :integer }, email_address: { type: :string, format: :email },
+        role: { type: :string, enum: %w[member admin owner] },
+        status: { type: :string, enum: %w[pending accepted revoked expired] },
+        expires_at: { type: :string, format: "date-time" }, created_at: { type: :string, format: "date-time" },
+        invited_by: { **ref("UserSummary"), nullable: true }
+      },
+      required: %i[id email_address role status expires_at]
+    },
     Activity: {
       type: :object,
       description: "An audit event as an item of the feed.",

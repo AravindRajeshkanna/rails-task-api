@@ -34,8 +34,11 @@ Rails.application.routes.draw do
 
       # People and the projects they share; members are addressed under their organization.
       resources :organizations do
-        resources :members, controller: "organization_memberships", only: %i[index create update destroy]
+        resources :members, controller: "organization_memberships", only: %i[index update destroy]
+        resources :invitations, controller: "organization_invitations", only: %i[index create destroy]
       end
+      # Joining happens by redeeming an invitation (there is no "add by email"): the emailed token, as the invited address.
+      post "invitations/accept", to: "invitation_acceptances#create"
 
       # Shallow nesting: collections hang off their parent
       # (/projects/1/tasks), members stand alone (/tasks/7).

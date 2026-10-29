@@ -645,6 +645,44 @@ components:
       - id
       - role
       - user
+    OrganizationInvitation:
+      type: object
+      description: An offer to join an organization, addressed to an email address.
+        The token is only ever in the email.
+      properties:
+        id:
+          type: integer
+        email_address:
+          type: string
+          format: email
+        role:
+          type: string
+          enum:
+          - member
+          - admin
+          - owner
+        status:
+          type: string
+          enum:
+          - pending
+          - accepted
+          - revoked
+          - expired
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        invited_by:
+          "$ref": "#/components/schemas/UserSummary"
+          nullable: true
+      required:
+      - id
+      - email_address
+      - role
+      - status
+      - expires_at
     Activity:
       type: object
       description: An audit event as an item of the feed.
@@ -1759,41 +1797,86 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-    post:
-      summary: Add a member
+  "/api/v1/organizations/{organization_id}/invitations":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List open invitations
       tags:
       - Organizations
-      description: Adds an existing user by email address. Owners may grant any role;
-        admins may add plain members.
+      description: 'Invitations that can still be accepted. Owners and admins only:
+        they carry email addresses.'
       security:
       - bearer_auth: []
-      parameters: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
       responses:
-        '201':
-          description: Added
+        '200':
+          description: A page of invitations
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   data:
-                    "$ref": "#/components/schemas/OrganizationMember"
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/OrganizationInvitation"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
                 required:
                 - data
         '403':
-          description: Not allowed to grant that role
+          description: Plain members cannot list invitations
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-        '404':
-          description: No user with that email address
+    post:
+      summary: Invite someone
+      tags:
+      - Organizations
+      description: Invites an email address and mails it a link; the response is the
+        same whether or not the address belongs to a registered user, and never contains
+        the token. Inviting an address that already has an open invitation refreshes
+        it and mails the link again. Owners may offer any role; admins may offer `member`.
+        Valid for 7 days.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Invited
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/OrganizationInvitation"
+                required:
+                - data
+        '403':
+          description: Not allowed to offer that role
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
         '422':
-          description: Already a member
+          description: Invalid address, or already a member
           content:
             application/json:
               schema:
@@ -1806,6 +1889,7 @@ paths:
               properties:
                 email_address:
                   type: string
+                  format: email
                 role:
                   type: string
                   enum:
@@ -1815,6 +1899,78 @@ paths:
                   default: member
               required:
               - email_address
+  "/api/v1/organizations/{organization_id}/invitations/{id}":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    delete:
+      summary: Withdraw an invitation
+      tags:
+      - Organizations
+      description: The emailed link stops working. Owners, and admins for invitations
+        to plain membership.
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Withdrawn
+        '404':
+          description: Not found, or no longer open
+  "/api/v1/invitations/accept":
+    post:
+      summary: Accept an invitation
+      tags:
+      - Organizations
+      description: Redeems the token from an invitation email, as the signed-in user
+        whose email address was invited. An unknown, expired, used or withdrawn token,
+        or one addressed to someone else, is the same `404`.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Joined; the body is the organization with the caller's new
+            role
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Organization"
+                required:
+                - data
+        '404':
+          description: Invalid, expired, used, withdrawn, or not addressed to the
+            caller
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '422':
+          description: The caller is already a member
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+              required:
+              - token
   "/api/v1/organizations/{organization_id}/members/{id}":
     parameters:
     - name: organization_id

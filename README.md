@@ -119,7 +119,7 @@ purged for good after 30 days.
 | --- | --- |
 | Auth | `POST /registrations` · `POST /session` · `DELETE /session` · `POST /passwords` · `PATCH /passwords/:token` |
 | Account | `GET` `PATCH /me` · `PUT` `DELETE /me/avatar` |
-| Organizations | `GET` `POST /organizations` · `GET` `PATCH` `DELETE /organizations/:id` · `GET` `POST /organizations/:id/members` · `PATCH` `DELETE /organizations/:id/members/:member_id` |
+| Organizations | `GET` `POST /organizations` · `GET` `PATCH` `DELETE /organizations/:id` · `GET /organizations/:id/members` · `PATCH` `DELETE /organizations/:id/members/:member_id` · `GET` `POST /organizations/:id/invitations` · `DELETE /organizations/:id/invitations/:id` · `POST /invitations/accept` |
 | Projects | `GET` `POST /projects` (`organization_id` creates one inside an organization) · `GET` `PATCH` `DELETE /projects/:id` · `POST /projects/:id/restore` |
 | Members | `GET` `POST /projects/:id/memberships` · `PATCH` `DELETE /memberships/:id` |
 | Tasks | `GET` `POST /projects/:id/tasks` · `GET` `PATCH` `DELETE /tasks/:id` · `POST /tasks/:id/restore` |
@@ -290,7 +290,7 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 
 ## Known limitations
 
-- Members are added by the email of an **existing** user; there is no invitation flow, and an admin can therefore probe whether an email is registered.
+- People join an organization by invitation, and the API never says whether an address is registered. Two narrow exceptions: an administrator is told when an address already belongs to a *member of their own organization*, and adding a user directly to a project that has **no** organization (`POST /projects/:id/memberships`) still answers 404 for an unknown address. Both are listed in [security.md](docs/security.md).
 - Offset pagination: fine for this data shape, but very deep pages on huge projects would want keyset pagination.
 - Active Storage defaults to local disk; on Kubernetes set `ACTIVE_STORAGE_SERVICE=amazon` (S3).
 - Image dimension analysis needs `libvips` at runtime (it is in the Docker image; locally `brew install vips`). Without it uploads still work, their dimensions are just not recorded. No image variants are generated.

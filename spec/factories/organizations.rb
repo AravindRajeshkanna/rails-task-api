@@ -9,6 +9,18 @@ FactoryBot.define do
     end
   end
 
+  factory :organization_invitation do
+    organization
+    invited_by { association :user }
+    sequence(:email_address) { |n| "invitee#{n}@example.com" }
+    role { "member" }
+    expires_at { OrganizationInvitation::VALID_FOR.from_now }
+
+    trait(:expired) { expires_at { 1.day.ago } }
+    trait(:accepted) { accepted_at { 1.hour.ago } }
+    trait(:revoked) { revoked_at { 1.hour.ago } }
+  end
+
   factory :organization_membership do
     organization
     user

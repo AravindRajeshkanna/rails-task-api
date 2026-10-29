@@ -20,6 +20,7 @@ RSpec.describe "Tenant isolation" do
   let!(:webhook) { create(:webhook, project: project) }
   let!(:organization) { create(:organization, owner: owner) }
   let!(:org_member_role) { create(:organization_membership, organization: organization, user: member) }
+  let!(:invitation) { create(:organization_invitation, organization: organization, invited_by: owner) }
   let!(:attachment) do
     task.attachments.attach(io: StringIO.new("hello"), filename: "note.txt", content_type: "text/plain")
     task.attachments.first
@@ -32,7 +33,8 @@ RSpec.describe "Tenant isolation" do
       [ "POST", "/api/v1/passwords" ], [ "PATCH", "/api/v1/passwords/:x" ],
       [ "GET", "/api/v1/me" ], [ "PATCH", "/api/v1/me" ], [ "PATCH", "/api/v1/me/avatar" ], [ "DELETE", "/api/v1/me/avatar" ],
       [ "GET", "/api/v1/projects" ], [ "POST", "/api/v1/projects" ], [ "GET", "/api/v1/organizations" ], [ "POST", "/api/v1/organizations" ],
-      [ "GET", "/api/v1/ai/usage" ], [ "GET", "/api/v1/activity" ] # the feed is scoped to the caller's projects; see activity_spec
+      [ "GET", "/api/v1/ai/usage" ], [ "GET", "/api/v1/activity" ], # the feed is scoped to the caller's projects; see activity_spec
+      [ "POST", "/api/v1/invitations/accept" ] # needs a token addressed to the caller; see organization_invitations_spec
     ]
   end
 
@@ -84,9 +86,14 @@ RSpec.describe "Tenant isolation" do
       [ "PATCH",  "/api/v1/organizations/:id", organization.id, 403, { name: "Hijacked" } ],
       [ "DELETE", "/api/v1/organizations/:id", organization.id, 403 ],
       [ "GET",    "/api/v1/organizations/:id/members", organization.id, nil ],
-      [ "POST",   "/api/v1/organizations/:id/members", organization.id, 403, { email_address: "someone@example.com" } ],
       [ "PATCH",  "/api/v1/organizations/:id/members/:id", [ organization.id, org_member_role.id ], 403, { role: "owner" } ],
-      [ "DELETE", "/api/v1/organizations/:id/members/:id", [ organization.id, organization.organization_memberships.find_by!(user: owner).id ], 403 ]
+      [ "DELETE", "/api/v1/organizations/:id/members/:id", [ organization.id, organization.organization_memberships.find_by!(user: owner).id ], 403 ],
+
+      # Invitations carry email addresses, so a plain member sees none of it: 403 under the organization
+      # they can see, 404 by id (like webhooks).
+      [ "GET",    "/api/v1/organizations/:id/invitations", organization.id, 403 ],
+      [ "POST",   "/api/v1/organizations/:id/invitations", organization.id, 403, { email_address: "someone@example.com" } ],
+      [ "DELETE", "/api/v1/organizations/:id/invitations/:id", [ organization.id, invitation.id ], 404 ]
     ]
   end
 
@@ -97,7 +104,7 @@ RSpec.describe "Tenant isolation" do
   end
 
   def snapshot
-    [ Organization.pluck(:id, :name), OrganizationMembership.pluck(:id, :role), Project.pluck(:id, :name, :discarded_at), Task.pluck(:id, :title, :discarded_at), Comment.pluck(:id, :body),
+    [ Organization.pluck(:id, :name), OrganizationMembership.pluck(:id, :role), OrganizationInvitation.pluck(:id, :role, :revoked_at, :accepted_at), Project.pluck(:id, :name, :discarded_at), Task.pluck(:id, :title, :discarded_at), Comment.pluck(:id, :body),
       Tag.pluck(:id), Membership.pluck(:id, :role), Webhook.pluck(:id, :active), ActiveStorage::Attachment.count ]
   end
 

@@ -4,6 +4,8 @@ class Membership < ApplicationRecord
   belongs_to :project
   belongs_to :user
 
+  NOT_IN_ORGANIZATION = "must be a member of the project's organization".freeze
+
   enum :role, { member: "member", admin: "admin" }, default: :member, validate: true
 
   validates :user_id, uniqueness: { scope: :project_id, message: "is already a member of this project" }
@@ -22,7 +24,7 @@ class Membership < ApplicationRecord
       return unless project&.organization_id && user
 
       unless OrganizationMembership.exists?(organization_id: project.organization_id, user_id: user_id)
-        errors.add(:user, "must be a member of the project's organization")
+        errors.add(:user, NOT_IN_ORGANIZATION)
       end
     end
 
