@@ -68,8 +68,14 @@ jobs:
       - name: Set up k6
         uses: grafana/setup-k6-action@v1
 
+      # A shared runner is sometimes ten times slower than it was last night (seen: every endpoint, including the trivial ones).
+      # So a breach is checked once more on a fresh environment; two in a row are a finding, one is probably the runner.
       - name: Seed, boot, load test
-        run: loadtest/ci.sh
+        run: |
+          loadtest/ci.sh || {
+            echo "::warning::The load test breached a threshold; running it once more to rule out a noisy runner."
+            loadtest/ci.sh
+          }
 
       - name: Upload the results
         if: always()

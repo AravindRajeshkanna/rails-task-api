@@ -44,8 +44,9 @@ export const options = {
     ...perEndpoint,
     http_req_failed: ['rate<0.01'],
     checks: ['rate>0.99'],
-    // Visitors turned away because the server could not keep up are a failure too, not a quiet success.
-    dropped_iterations: ['count<1'],
+    // Visitors turned away because the server could not keep up are a failure too, not a quiet success. More than 2% of
+    // arrivals; a shared CI runner that stalls for a moment drops one or two, and a run that cannot keep up drops far more.
+    dropped_iterations: [`rate<${RATE * 0.02}`],
     'http_req_duration{kind:read}': ['p(95)<400', 'p(99)<1000'],
     'http_req_duration{kind:write}': ['p(95)<600'],
     // The expensive endpoints get their own line, so a regression there is not averaged away.

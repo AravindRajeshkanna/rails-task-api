@@ -15,8 +15,8 @@ whether or not the server keeps up, which is how real traffic behaves). A visit 
   thousand rows and slow at fifty thousand are the ones worth finding.
 
 Thresholds fail the run (exit code 99) if reads go over p95 400 ms / p99 1 s, writes over p95 600 ms, a few named
-endpoints go over their own limits (the 50,000-task list, analytics, search), more than 1% of requests fail, or any
-visitor is turned away (`dropped_iterations`).
+endpoints go over their own limits (the 50,000-task list, analytics, search), more than 1% of requests fail, or more than 2% of
+visitors are turned away (`dropped_iterations`: the server could not keep up).
 
 ## In CI: nightly
 
@@ -36,8 +36,10 @@ LOADTEST_CONFIRM=yes USERS=100 PROJECTS=20 TASKS_PER_PROJECT=300 WHALE_TASKS=500
 
 **Reading a CI result.** A runner shares two or more cores between k6, the app and PostgreSQL, so absolute numbers are not comparable with the table in
 [performance.md](../docs/performance.md) (measured on a laptop) and vary run to run. What the nightly run guards is the *thresholds*, set about ten
-times above normal, so that a breach means something changed (a query lost its index, an N+1 appeared), not that the runner had a bad night. A single
-breach is worth a re-run; two in a row is a regression: bisect the commits since the last green run.
+times above normal, so that a breach means something changed (a query lost its index, an N+1 appeared), not that the runner had a bad night. The
+workflow therefore re-runs a breach once on a fresh environment, and only two in a row fail the job. (Observed: the same code, one night with a 7 ms median for
+the activity feed and another, on a slower runner, with 75 ms, a tenfold swing, with every threshold still holding except a strict dropped-visitors one, which is why it is now 2% and not zero.)
+Two failed nightly runs in a row is a regression: bisect the commits since the last green run.
 
 ## Run it by hand
 

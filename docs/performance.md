@@ -133,7 +133,7 @@ nothing is wrong with it at these sizes and a total is useful in a UI; the curso
 Numbers on this page are from one laptop and go stale; the guard that does not is the nightly run: `.github/workflows/loadtest.yml` builds the same data set
 on a CI runner, drives the same k6 script at 15 visits a second for 90 seconds and fails if any threshold in `loadtest/k6/api.js` is breached
 ([loadtest/README.md](../loadtest/README.md#in-ci-nightly)). Thresholds, not measurements, are what it enforces, because a shared runner's absolute latency
-moves by a factor of two between runs. A failed nightly run opens an issue.
+swings by up to ten times between runs (seen on this repository's first two runs), and a breach is repeated once on a fresh environment before the job fails. A failed nightly run opens an issue.
 
 ## Other performance guards that run in CI
 
