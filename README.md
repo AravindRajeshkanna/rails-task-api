@@ -283,8 +283,9 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 - Active Storage defaults to local disk; on Kubernetes set `ACTIVE_STORAGE_SERVICE=amazon` (S3).
 - Image dimension analysis uses `libvips` when present (it is in the Docker image). Locally you will see a harmless boot warning unless you `brew install vips`; no image variants are generated.
 - No GraphQL endpoint (optional in the roadmap); no public demo deployment is bundled.
-- The platform code (Docker images, Compose, `kind` script, Terraform, Argo CD, Lambdas) is validated statically and by specs;
-  it has **not been run against Docker or AWS** in this repository's history. Expect a round of small fixes on first contact.
+- The platform code is validated statically and by CI (the four images build, Terraform validates, every Helm release renders and passes
+  Kubernetes/CRD schema checks) and the services were exercised together locally with an AWS mock. The Compose stack, the `kind` script and
+  the Terraform have **not been run against Docker or AWS**. Expect a round of small fixes on first contact.
 - Tasks and Projects stay in the monolith on purpose ([decision 21](docs/decisions.md)). Webhooks stay there too.
 - Events are published after commit through a job, not a transactional outbox: an SNS outage longer than the job's retries loses an event.
 - Access tokens from the Auth service live up to 15 minutes after logout.
