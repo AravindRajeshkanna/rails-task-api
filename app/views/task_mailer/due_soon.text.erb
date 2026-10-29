@@ -1,0 +1,7 @@
+Hi <%= @task.assignee.name %>,
+
+This task in "<%= @task.project.name %>" is due tomorrow (<%= @task.due_on.to_fs(:long) %>) and isn't done yet:
+
+  <%= @task.title %>
+
+Open it: <%= @url %>

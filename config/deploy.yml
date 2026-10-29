@@ -1,0 +1,78 @@
+# Kamal 2 deployment: https://kamal-deploy.org
+#
+# Before the first deploy:
+#   1. Replace every "CHANGE_ME" below (server IP, domain, registry user).
+#   2. Export KAMAL_REGISTRY_PASSWORD and TASK_API_DATABASE_PASSWORD in your shell (see .kamal/secrets).
+#   3. bin/kamal setup        # installs Docker, boots the database accessory, deploys the app
+#   Afterwards:  bin/kamal deploy   (zero-downtime: the new container must pass /up before traffic moves)
+
+service: task_api
+image: CHANGE_ME/task_api
+
+servers:
+  web:
+    - CHANGE_ME_SERVER_IP
+
+# kamal-proxy terminates TLS (automatic Let's Encrypt certificate) and only routes
+# to a new container once GET /up returns 200.
+proxy:
+  ssl: true
+  host: CHANGE_ME_API_DOMAIN # e.g. api.example.com
+  healthcheck:
+    path: /up
+    interval: 3
+    timeout: 5
+
+registry:
+  server: ghcr.io
+  username: CHANGE_ME
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+builder:
+  arch: amd64
+
+env:
+  secret:
+    - RAILS_MASTER_KEY # decrypts config/credentials.yml.enc (secret_key_base, encryption keys, SMTP)
+    - TASK_API_DATABASE_PASSWORD
+    # - SENTRY_DSN
+  clear:
+    # Run Solid Queue's supervisor inside Puma: one container serves requests and background jobs.
+    # Split into a dedicated `job` role (cmd: bin/jobs) when traffic grows.
+    SOLID_QUEUE_IN_PUMA: true
+    DB_HOST: task_api-db
+    APP_BASE_URL: https://CHANGE_ME_API_DOMAIN
+    ALLOWED_HOSTS: CHANGE_ME_API_DOMAIN
+    FRONTEND_URL: https://CHANGE_ME_APP_DOMAIN
+    CORS_ORIGINS: https://CHANGE_ME_APP_DOMAIN
+    MAIL_FROM: Task API <no-reply@CHANGE_ME_API_DOMAIN>
+    # SMTP_ADDRESS: smtp.example.com  (credentials: bin/rails credentials:edit -> smtp.user_name / smtp.password)
+    # SENTRY_ENVIRONMENT: production
+
+# Uploaded files (Active Storage :local service) live on a persistent volume.
+volumes:
+  - "task_api_storage:/rails/storage"
+
+# One Postgres hosts the app database plus the three Solid databases (cache, queue, cable).
+accessories:
+  db:
+    image: postgres:17
+    host: CHANGE_ME_SERVER_IP
+    port: "127.0.0.1:5432:5432" # reachable from the host only, never the internet
+    env:
+      clear:
+        POSTGRES_USER: task_api
+        POSTGRES_DB: task_api_production
+      secret:
+        - POSTGRES_PASSWORD
+    files:
+      - config/deploy/create-solid-databases.sh:/docker-entrypoint-initdb.d/create-solid-databases.sh
+    directories:
+      - data:/var/lib/postgresql/data
+
+aliases:
+  console: app exec --interactive --reuse "bin/rails console"
+  shell: app exec --interactive --reuse "bash"
+  logs: app logs -f
+  dbc: app exec --interactive --reuse "bin/rails dbconsole --include-password"
