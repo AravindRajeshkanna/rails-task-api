@@ -15,6 +15,11 @@ info:
     **Pagination.** List endpoints accept `page` and `limit` (default 25, max 100) and return
     `meta` plus `Link`, `Total-Count`, `Total-Pages`, `Current-Page` and `Page-Limit` headers.
 
+    **AI.** `/api/v1/ai/*` and `/api/v1/projects/{id}/summary` use language models. Calls are rate limited per
+    user (`429 rate_limited`) and metered against a daily token budget (`429 ai_budget_exceeded`, with
+    `Retry-After`). `503 ai_not_configured` means the server has no model provider; `503 ai_unavailable`
+    means the provider is busy.
+
     **Authorization.** Resources inside a project you do not belong to answer `404`, not `403`,
     so their existence is not disclosed.
 servers:
@@ -25,6 +30,7 @@ tags:
 - name: Account
 - name: Projects
 - name: Tasks
+- name: AI
 - name: Comments
 - name: Tags
 - name: Memberships
@@ -257,6 +263,204 @@ components:
       - tags
       - creator
       - attachments
+    AiUsage:
+      type: object
+      description: What the call cost. Spend is metered against a daily token budget
+        per user and per project.
+      properties:
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        model_id:
+          type: string
+          nullable: true
+        latency_ms:
+          type: integer
+      required:
+      - input_tokens
+      - output_tokens
+    PrioritySuggestion:
+      type: object
+      properties:
+        priority:
+          type: string
+          enum:
+          - low
+          - medium
+          - high
+          - urgent
+        rationale:
+          type: string
+        estimated_days:
+          type: integer
+          nullable: true
+          description: Calendar days until the task is likely done
+        predicted_due_on:
+          type: string
+          format: date
+          nullable: true
+          description: Today plus estimated_days, computed by the API
+        at_risk:
+          type: boolean
+          nullable: true
+          description: True when predicted_due_on is after the task's due date
+        confidence:
+          type: number
+        similar_tasks:
+          type: array
+          description: Finished tasks the estimate is based on
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              title:
+                type: string
+              priority:
+                type: string
+              days_to_complete:
+                type: integer
+      required:
+      - priority
+      - rationale
+    TagSuggestion:
+      type: object
+      properties:
+        name:
+          type: string
+        confidence:
+          type: number
+        new:
+          type: boolean
+          description: Not yet a tag of this project
+      required:
+      - name
+      - confidence
+      - new
+    AssigneeSuggestion:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        name:
+          type: string
+        score:
+          type: number
+        reasons:
+          type: array
+          items:
+            type: string
+      required:
+      - user_id
+      - name
+      - score
+      - reasons
+    TaskDraft:
+      type: object
+      description: What the model understood from the text (dry runs return this instead
+        of a task).
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        due_on:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: string
+          nullable: true
+        assignee_id:
+          type: integer
+          nullable: true
+        tag_names:
+          type: array
+          items:
+            type: string
+      required:
+      - title
+    ChatReply:
+      type: object
+      properties:
+        reply:
+          type: string
+        actions:
+          type: array
+          description: Every tool call the assistant made on the caller's behalf
+          items:
+            type: object
+            properties:
+              tool:
+                type: string
+              input:
+                type: object
+              ok:
+                type: boolean
+              result:
+                type: object
+                description: Present for changes (created or updated records)
+              error:
+                type: string
+            required:
+            - tool
+            - ok
+      required:
+      - reply
+      - actions
+    AiBudget:
+      type: object
+      properties:
+        day:
+          type: string
+          format: date
+        tokens_used:
+          type: integer
+        daily_token_limit:
+          type: integer
+        tokens_remaining:
+          type: integer
+        calls:
+          type: integer
+        cost_usd:
+          type: number
+        resets_at:
+          type: string
+          format: date-time
+      required:
+      - tokens_used
+      - daily_token_limit
+      - tokens_remaining
+      - resets_at
+    ProjectSummary:
+      type: object
+      properties:
+        headline:
+          type: string
+        summary:
+          type: string
+        highlights:
+          type: array
+          items:
+            type: string
+        risks:
+          type: array
+          items:
+            type: string
+        next_steps:
+          type: array
+          items:
+            type: string
+        stats:
+          type: object
+        generated_at:
+          type: string
+          format: date-time
+      required:
+      - headline
+      - summary
     Comment:
       type: object
       properties:
@@ -669,6 +873,364 @@ paths:
       responses:
         '204':
           description: Removed
+  "/api/v1/ai/suggest_priority":
+    post:
+      summary: Suggest a priority and deadline
+      tags:
+      - AI
+      description: Recommends a priority and estimates completion time. Pass `task_id`,
+        or `project_id` with `title`. The estimate is grounded in similar finished
+        tasks of the same project (embedding search).
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: A suggestion
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/PrioritySuggestion"
+                  meta:
+                    type: object
+                    properties:
+                      usage:
+                        "$ref": "#/components/schemas/AiUsage"
+                required:
+                - data
+        '404':
+          description: Project or task not found, or not a member
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '400':
+          description: title or project_id missing
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '429':
+          description: Rate limited, or the daily token budget is used up (see error.code;
+            Retry-After says when to retry)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                task_id:
+                  type: integer
+                project_id:
+                  type: integer
+                title:
+                  type: string
+                description:
+                  type: string
+                due_on:
+                  type: string
+                  format: date
+                timezone:
+                  type: string
+                  example: Europe/Berlin
+                  description: IANA zone used to decide what 'today' is
+  "/api/v1/ai/suggest_tags":
+    post:
+      summary: Suggest tags
+      tags:
+      - AI
+      description: 'Chooses up to five tags, preferring the project''s existing ones.
+        `allow_new: false` restricts the answer to existing tags.'
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Tag suggestions, strongest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/TagSuggestion"
+                  meta:
+                    type: object
+                    properties:
+                      usage:
+                        "$ref": "#/components/schemas/AiUsage"
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                task_id:
+                  type: integer
+                project_id:
+                  type: integer
+                title:
+                  type: string
+                description:
+                  type: string
+                allow_new:
+                  type: boolean
+  "/api/v1/ai/suggest_assignee":
+    post:
+      summary: Suggest an assignee
+      tags:
+      - AI
+      description: 'Ranks project members by who finished similar tasks before, adjusted
+        for current workload. Explainable and cheap: it uses embeddings, not text
+        generation.'
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Up to three candidates, best first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/AssigneeSuggestion"
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                task_id:
+                  type: integer
+                project_id:
+                  type: integer
+                title:
+                  type: string
+                description:
+                  type: string
+  "/api/v1/ai/create_from_text":
+    post:
+      summary: Create a task from a sentence
+      tags:
+      - AI
+      description: '"Remind me to review the PR next Tuesday" becomes a task with
+        a title and due date. Use `dry_run: true` to preview what the model understood
+        without saving.'
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Task created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Task"
+                  meta:
+                    type: object
+                    properties:
+                      usage:
+                        "$ref": "#/components/schemas/AiUsage"
+                      interpreted:
+                        "$ref": "#/components/schemas/TaskDraft"
+                required:
+                - data
+        '200':
+          description: 'Dry run: nothing saved'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/TaskDraft"
+                  meta:
+                    type: object
+                    properties:
+                      usage:
+                        "$ref": "#/components/schemas/AiUsage"
+                      interpreted:
+                        "$ref": "#/components/schemas/TaskDraft"
+                required:
+                - data
+        '502':
+          description: The model's answer was unusable
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '503':
+          description: AI is not configured on this server, or the provider is busy
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id:
+                  type: integer
+                text:
+                  type: string
+                  maxLength: 1000
+                dry_run:
+                  type: boolean
+                timezone:
+                  type: string
+                  example: America/New_York
+              required:
+              - project_id
+              - text
+  "/api/v1/ai/chat":
+    post:
+      summary: Chat with the task assistant
+      tags:
+      - AI
+      description: 'A tool-using assistant that can list projects and tasks, create
+        tasks and change task status as the caller, within the caller''s permissions.
+        Stateless: send earlier turns as plain text in `history` (at most 10 are used).
+        Every change it makes is reported in `actions`. It cannot delete anything.'
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: The assistant's reply
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/ChatReply"
+                  meta:
+                    type: object
+                    properties:
+                      usage:
+                        "$ref": "#/components/schemas/AiUsage"
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  maxLength: 2000
+                project_id:
+                  type: integer
+                  description: 'Optional: the project being viewed'
+                history:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      role:
+                        type: string
+                        enum:
+                        - user
+                        - assistant
+                      text:
+                        type: string
+              required:
+              - message
+  "/api/v1/ai/usage":
+    get:
+      summary: My AI usage today
+      tags:
+      - AI
+      description: Tokens used and remaining against today's (UTC) budget. Never rate
+        limited.
+      security:
+      - bearer_auth: []
+      responses:
+        '200':
+          description: Today's usage
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/AiBudget"
+                required:
+                - data
+  "/api/v1/projects/{project_id}/summary":
+    get:
+      summary: Summarize project progress
+      tags:
+      - AI
+      description: An AI-written status report built from task counts and recent activity.
+        Cached per project version for ten minutes (`meta.cached`); `refresh=true`
+        forces a new one and counts against your budget.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: refresh
+        in: query
+        required: false
+        schema:
+          type: boolean
+      - name: timezone
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/ProjectSummary"
+                  meta:
+                    type: object
+                    properties:
+                      cached:
+                        type: boolean
+                      usage:
+                        "$ref": "#/components/schemas/AiUsage"
+                required:
+                - data
+        '404':
+          description: Not found, or not a member
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
   "/api/v1/projects":
     get:
       summary: List my projects

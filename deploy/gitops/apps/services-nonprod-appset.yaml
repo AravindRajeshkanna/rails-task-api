@@ -1,0 +1,52 @@
+# The Task API services: one Application per (cluster, service), all rendered from the same chart. dev and staging deploy automatically on every merge to main.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: services-nonprod
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: [ "missingkey=error" ]
+  generators:
+    - matrix:
+        generators:
+          - clusters:
+              selector:
+                matchLabels: { taskapi/managed: "true" }
+                matchExpressions:
+                  - { key: env, operator: In, values: [ dev, staging ] }
+          - list:
+              elements:
+                - { service: api }
+                - { service: worker }
+                - { service: auth }
+                - { service: ai }
+                - { service: notifications }
+  template:
+    metadata:
+      name: '{{index .metadata.labels "env"}}-{{.service}}'
+    spec:
+      project: task-api
+      sources:
+        - repoURL: https://github.com/AravindRajeshkanna/rails-task-api
+          targetRevision: main
+          path: deploy/helm/taskapi-service
+          helm:
+            releaseName: '{{.service}}'
+            valueFiles:
+              - '$values/deploy/helm/values/{{.service}}.yaml'
+              - '$values/deploy/gitops/envs/{{index .metadata.labels "env"}}/{{.service}}.yaml'
+        - repoURL: https://github.com/AravindRajeshkanna/rails-task-api
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{.server}}'
+        namespace: task-api
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [ CreateNamespace=true, ServerSideApply=true ]
+        retry: { limit: 5, backoff: { duration: 30s, factor: 2, maxDuration: 5m } }
+      # The autoscalers own replica counts; do not fight them.
+      ignoreDifferences:
+        - { group: apps, kind: Deployment, jsonPointers: [ /spec/replicas ] }
+        - { group: argoproj.io, kind: Rollout, jsonPointers: [ /spec/replicas ] }

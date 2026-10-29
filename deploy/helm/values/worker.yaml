@@ -1,0 +1,59 @@
+# Solid Queue workers: the same image as the API, running ./bin/jobs. No HTTP port; scaled by KEDA on the
+# backlog, which is the first auto-remediation: more workers when jobs pile up.
+fullnameOverride: worker
+port: 0
+replicaCount: 1
+command: [ ./bin/jobs ]
+
+env:
+  RAILS_ENV: production
+  RAILS_LOG_LEVEL: info
+  LOG_FORMAT: json
+  JOB_CONCURRENCY: "1"
+  SKIP_DB_PREPARE: "true"
+  AUTH_MODE: jwt
+  NOTIFICATIONS_MODE: remote
+  AI_GATEWAY: remote
+  AI_SERVICE_URL: http://ai
+  OTEL_SERVICE_NAME: task-api-worker
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+  METRICS_EMF: "true"
+  ACTIVE_STORAGE_SERVICE: amazon
+
+secrets:
+  enabled: true
+  data:
+    - { secretKey: RAILS_MASTER_KEY, key: api, property: rails_master_key }
+    - { secretKey: TASK_API_DATABASE_PASSWORD, key: api, property: database_password }
+    - { secretKey: AI_SERVICE_TOKEN, key: ai-service-token }
+
+# No HTTP: liveness checks that the Solid Queue supervisor (which renames its process) is still running.
+probes:
+  mode: exec
+  livenessCommand: [ sh, -c, "grep -qa solid-queue /proc/1/cmdline" ]
+  liveness: { periodSeconds: 30, timeoutSeconds: 5, failureThreshold: 3, initialDelaySeconds: 40 }
+
+service: { enabled: false }
+metrics: { enabled: false }
+pdb: { enabled: false }
+writablePaths: [ /rails/tmp, /rails/log, /rails/storage ]
+
+keda:
+  enabled: true
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  pollingInterval: 15
+  cooldownPeriod: 180
+  triggers:
+    # One worker per 50 waiting jobs. The recording rule is in deploy/observability/prometheus.
+    - type: prometheus
+      metadata:
+        serverAddress: http://kube-prometheus-stack-prometheus.observability:9090
+        query: taskapi:queue_ready_jobs:total
+        threshold: "50"
+        activationThreshold: "1"
+
+networkPolicy:
+  ingressFromNamespaces: [ ]
+  egressToPods:
+    - { labels: { app.kubernetes.io/name: ai }, ports: [ 3000 ] }

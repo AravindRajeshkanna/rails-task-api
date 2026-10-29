@@ -1,0 +1,142 @@
+# Defaults for a stateless Rails service behind a ClusterIP Service. Per-service values live in
+# deploy/helm/values/<service>.yaml; per-environment values (image tag, hosts, ARNs) in deploy/gitops/envs/.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ""          # e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com/task-api/api
+  tag: ""                 # set by CI (the git SHA)
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+revisionHistoryLimit: 3
+
+# Container command/args override; leave empty to use the image's CMD. The jobs worker sets ["./bin/jobs"].
+command: []
+args: []
+
+port: 3000                # the container port; the probes and /metrics use it. 0 = the process serves no HTTP
+
+env: {}                   # plain environment variables
+envFrom: []               # [{ secretRef: { name: ... } }, { configMapRef: { name: ... } }]
+
+# Secrets from AWS Secrets Manager, synced by External Secrets Operator into a Kubernetes Secret named
+# <fullname>. Rendered before the migration job and the workload (Argo CD sync waves).
+secrets:
+  enabled: false
+  apiVersion: external-secrets.io/v1
+  storeRef: { name: aws-secrets-manager, kind: ClusterSecretStore }
+  refreshInterval: 1h
+  prefix: task-api/dev    # Secrets Manager name prefix, per environment (terraform creates <prefix>/<key>)
+  data: []                # [{ secretKey: RAILS_MASTER_KEY, key: api, property: rails_master_key }]
+
+serviceAccount:
+  create: true
+  name: ""                # EKS Pod Identity associates an IAM role with this name (see deploy/terraform)
+  annotations: {}         # IRSA alternative: eks.amazonaws.com/role-arn
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 80
+
+# Kubernetes probes. Rails answers /up. Workers without HTTP use exec probes (mode: exec).
+probes:
+  mode: http
+  path: /up
+  livenessPath: ""       # defaults to path; the Notification service uses /healthz (fails when its consumer stalls)
+  startup: { failureThreshold: 30, periodSeconds: 2 }
+  readiness: { periodSeconds: 5, timeoutSeconds: 2, failureThreshold: 3 }
+  liveness: { periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3, initialDelaySeconds: 10 }
+  livenessCommand: []     # mode: exec, e.g. ["pgrep", "-f", "solid-queue"]
+  readinessCommand: []
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { memory: 1Gi }       # memory limit only: CPU limits throttle Ruby needlessly
+
+# Writable paths for the read-only root filesystem
+writablePaths: [ /rails/tmp, /rails/log ]
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpread: true            # spread replicas across availability zones
+terminationGracePeriodSeconds: 30
+preStopSleepSeconds: 5          # let the load balancer deregister the pod before it stops accepting requests
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile: { type: RuntimeDefault }
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: { drop: [ ALL ] }
+
+autoscaling:                    # CPU-based HPA; use keda for queue-driven scaling instead
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+keda:                           # event-driven scaling (e.g. the jobs worker on queue depth)
+  enabled: false
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  pollingInterval: 15
+  cooldownPeriod: 120
+  triggers: []
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: alb
+  annotations: {}               # alb.ingress.kubernetes.io/*
+  host: ""
+  paths: []                     # [{ path: /api, pathType: Prefix }]
+  groupName: ""                 # share one ALB between services: alb.ingress.kubernetes.io/group.name
+
+networkPolicy:
+  enabled: true
+  ingressFromCIDRs: []          # the VPC CIDR: ALB (target-type ip) and kubelet probes arrive from there
+  ingressFromPods: []           # [{ app.kubernetes.io/name: api }] same-namespace callers
+  ingressFromNamespaces: [ observability ]   # Prometheus scrapes
+  egressToCIDRs: []             # extra destinations, e.g. the database subnets: [{ cidr: 10.0.0.0/16, ports: [5432] }]
+  egressToPods: []              # [{ labels: { app.kubernetes.io/name: ai }, ports: [3000] }]
+  allowInternetHTTPS: true      # AWS APIs, Bedrock, Slack, SMTP over TLS
+
+metrics:
+  enabled: true                 # PodMonitor for the Prometheus Operator
+  path: /metrics
+  interval: 30s
+  labels: { release: kube-prometheus-stack }
+
+# Runs before the new version rolls out (Argo CD sync wave), once per image tag.
+migration:
+  enabled: false
+  command: [ ./bin/rails, db:prepare ]
+  backoffLimit: 1
+  activeDeadlineSeconds: 600
+
+# Argo Rollouts canary instead of a plain Deployment.
+rollout:
+  enabled: false
+  steps:
+    - setWeight: 20
+    - pause: { duration: 2m }
+    - setWeight: 50
+    - pause: { duration: 5m }
+  analysis:
+    enabled: false
+    # PromQL success rate must stay above this during the canary
+    minSuccessRatio: 0.98
+    prometheusAddress: http://kube-prometheus-stack-prometheus.observability:9090

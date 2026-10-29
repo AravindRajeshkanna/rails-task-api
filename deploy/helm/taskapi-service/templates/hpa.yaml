@@ -1,0 +1,21 @@
+{{- if and .Values.autoscaling.enabled (not .Values.keda.enabled) }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "taskapi.fullname" . }}
+  labels: {{- include "taskapi.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: {{ ternary "argoproj.io/v1alpha1" "apps/v1" .Values.rollout.enabled }}
+    kind: {{ ternary "Rollout" "Deployment" .Values.rollout.enabled }}
+    name: {{ include "taskapi.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }} }
+  behavior:
+    scaleDown: { stabilizationWindowSeconds: 300 }
+{{- end }}

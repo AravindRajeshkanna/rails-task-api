@@ -1,0 +1,52 @@
+name: Promote
+
+# Promote the images running in one environment to the next by opening a pull request. Review it, merge it, then
+# press Sync in Argo CD (staging syncs automatically; production waits for a human).
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: Environment to copy the image tags from
+        type: choice
+        options: [ dev, staging ]
+        default: dev
+      to:
+        description: Environment to promote into
+        type: choice
+        options: [ staging, prod ]
+        default: staging
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Copy the image tags
+        run: |
+          [ "${{ inputs.from }}" != "${{ inputs.to }}" ] || { echo "from and to must differ"; exit 1; }
+          for file in deploy/gitops/envs/${{ inputs.from }}/*.yaml; do
+            service=$(basename "$file")
+            tag=$(grep -m1 -E '^  tag: ' "$file" | awk '{print $2}')
+            [ "$tag" != "bootstrap" ] || { echo "${{ inputs.from }} has never been deployed ($service)"; exit 1; }
+            sed -i -E "s|^(  tag: ).*|\1$tag|" "deploy/gitops/envs/${{ inputs.to }}/$service"
+          done
+
+      - name: Open the pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: promote/${{ inputs.from }}-to-${{ inputs.to }}
+          title: "Promote ${{ inputs.from }} to ${{ inputs.to }}"
+          commit-message: "deploy: promote ${{ inputs.from }} to ${{ inputs.to }}"
+          body: |
+            Copies the image tags running in **${{ inputs.from }}** into **${{ inputs.to }}**.
+
+            After merging, Argo CD shows the change as out of sync. Check the ${{ inputs.from }} dashboards first,
+            then sync. Production uses a canary with automatic analysis and rolls itself back if the success rate drops.
+          labels: deploy

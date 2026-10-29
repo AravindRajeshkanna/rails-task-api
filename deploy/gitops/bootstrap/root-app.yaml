@@ -1,0 +1,20 @@
+# The only object applied by hand (kubectl apply -f). It points Argo CD at deploy/gitops/apps, which defines
+# everything else: the project, the add-ons, and the services for each registered cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers: [ resources-finalizer.argocd.argoproj.io ]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AravindRajeshkanna/rails-task-api
+    targetRevision: main
+    path: deploy/gitops/apps
+    directory: { recurse: false }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }

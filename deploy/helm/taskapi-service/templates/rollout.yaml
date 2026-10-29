@@ -1,0 +1,69 @@
+{{- if .Values.rollout.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ include "taskapi.fullname" . }}
+  labels: {{- include "taskapi.labels" . | nindent 4 }}
+spec:
+  {{- if not (or .Values.autoscaling.enabled .Values.keda.enabled) }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels: {{- include "taskapi.selectorLabels" . | nindent 6 }}
+  strategy:
+    canary:
+      canaryService: {{ include "taskapi.fullname" . }}-canary
+      stableService: {{ include "taskapi.fullname" . }}
+      maxSurge: 25%
+      maxUnavailable: 0
+      {{- if .Values.rollout.analysis.enabled }}
+      analysis:
+        templates:
+          - templateName: {{ include "taskapi.fullname" . }}-success-rate
+        startingStep: 1
+      {{- end }}
+      steps: {{- toYaml .Values.rollout.steps | nindent 8 }}
+  template:
+    metadata:
+      labels: {{- include "taskapi.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec: {{- include "taskapi.podSpec" . | nindent 6 }}
+---
+# The canary Service: Argo Rollouts points it at the new ReplicaSet while the stable Service keeps the old one.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "taskapi.fullname" . }}-canary
+  labels: {{- include "taskapi.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "taskapi.selectorLabels" . | nindent 4 }}
+  ports:
+    - { name: http, port: {{ .Values.service.port }}, targetPort: http }
+{{- if .Values.rollout.analysis.enabled }}
+---
+# Abort and roll back the canary if the request success ratio drops: the progressive-delivery safety net.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ include "taskapi.fullname" . }}-success-rate
+spec:
+  metrics:
+    - name: success-ratio
+      interval: 1m
+      count: 5
+      failureLimit: 1
+      successCondition: result[0] >= {{ .Values.rollout.analysis.minSuccessRatio }}
+      provider:
+        prometheus:
+          address: {{ .Values.rollout.analysis.prometheusAddress }}
+          query: |
+            1 - (
+              sum(rate(taskapi_http_requests_total{status=~"5..", pod=~"{{ include "taskapi.fullname" . }}-.*"}[2m]))
+              / clamp_min(sum(rate(taskapi_http_requests_total{pod=~"{{ include "taskapi.fullname" . }}-.*"}[2m])), 1)
+            )
+{{- end }}
+{{- end }}

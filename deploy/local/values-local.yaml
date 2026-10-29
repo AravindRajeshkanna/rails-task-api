@@ -1,0 +1,20 @@
+# Overrides that turn the cloud values into a laptop setup: local images, plain HTTP, an nginx Ingress instead of
+# the ALB, no AWS-backed secrets, and tiny resources. Layered after deploy/helm/values/<service>.yaml.
+image:
+  pullPolicy: Never          # images are loaded into kind with `kind load docker-image`
+  tag: local
+replicaCount: 1
+autoscaling: { enabled: false }
+keda: { enabled: false }
+rollout: { enabled: false }
+secrets: { enabled: false }  # local secrets come from deploy/local/secrets.sh instead of External Secrets
+metrics: { enabled: false }  # no Prometheus Operator CRDs locally
+networkPolicy: { enabled: false }
+pdb: { enabled: false }
+resources:
+  requests: { cpu: 50m, memory: 192Mi }
+  limits: { memory: 768Mi }
+ingress:
+  className: nginx
+  annotations: {}
+  host: ""

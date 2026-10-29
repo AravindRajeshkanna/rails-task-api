@@ -1,0 +1,38 @@
+# Prometheus + Alertmanager + Grafana. The services publish PodMonitors and our PrometheusRule; select them all.
+fullnameOverride: kube-prometheus-stack
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ ReadWriteOnce ]
+          resources: { requests: { storage: 50Gi } }
+    resources:
+      requests: { cpu: 500m, memory: 2Gi }
+      limits: { memory: 4Gi }
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+  # Routes: severity=page pages a human; severity=ticket goes to chat. Receivers are set per environment in
+  # deploy/gitops/envs/<env>/platform/ (webhook URLs are secrets, so they come from Secrets Manager).
+  config:
+    route:
+      receiver: "null"
+      group_by: [ alertname, service ]
+      routes:
+        - { matchers: [ "severity = page" ], receiver: "null" }
+        - { matchers: [ "severity = ticket" ], receiver: "null" }
+    receivers:
+      - name: "null"
+grafana:
+  adminPassword: ""             # set from a secret; the chart generates one when empty
+  sidecar:
+    dashboards: { enabled: true, label: grafana_dashboard, labelValue: "1", searchNamespace: ALL }
+  defaultDashboardsEnabled: true
+kubeStateMetrics: { enabled: true }
+nodeExporter: { enabled: true }

@@ -1,0 +1,120 @@
+# Alerting and recording rules for the Task API services. Applied by Argo CD alongside kube-prometheus-stack
+# (the `release` label is how that chart's Prometheus selects PrometheusRule objects).
+#
+# Queue gauges are read from the database, so every web pod reports the same number: aggregate them with
+# max-by-queue before summing, or a scale-out would multiply the backlog.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: task-api
+  namespace: observability
+  labels:
+    release: kube-prometheus-stack
+    app.kubernetes.io/part-of: task-api
+spec:
+  groups:
+    - name: task-api.recording
+      interval: 30s
+      rules:
+        - record: taskapi:http_requests:rate5m
+          expr: sum(rate(taskapi_http_requests_total[5m]))
+        - record: taskapi:http_error_ratio:rate5m
+          expr: |
+            sum(rate(taskapi_http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(taskapi_http_requests_total[5m])), 1)
+        - record: taskapi:http_latency_seconds:p95
+          expr: histogram_quantile(0.95, sum by (le) (rate(taskapi_http_request_duration_seconds_bucket[5m])))
+        - record: taskapi:queue_ready_jobs:total
+          expr: sum(max by (queue) (taskapi_queue_ready_jobs))
+        - record: taskapi:queue_oldest_ready_age_seconds:max
+          expr: max(taskapi_queue_oldest_ready_job_age_seconds)
+        - record: taskapi:ai_cost_usd:increase1d
+          expr: sum(increase(taskapi_ai_cost_usd_total[1d]))
+
+    - name: task-api.alerts
+      rules:
+        - alert: TaskApiHighErrorRate
+          expr: taskapi:http_error_ratio:rate5m > 0.05 and taskapi:http_requests:rate5m > 0.2
+          for: 5m
+          labels: { severity: page }
+          annotations:
+            summary: "More than 5% of API requests are failing"
+            description: "5xx ratio is {{ $value | humanizePercentage }}. Start at the Task API dashboard, then the trace for a failing route."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-error-rate.md
+
+        - alert: TaskApiHighLatency
+          expr: taskapi:http_latency_seconds:p95 > 1
+          for: 10m
+          labels: { severity: ticket }
+          annotations:
+            summary: "p95 API latency is above 1s"
+            description: "p95 is {{ $value | humanizeDuration }}. Check slow endpoints, database load and AI calls on the request path."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-latency.md
+
+        - alert: TaskApiQueueBacklog
+          expr: taskapi:queue_ready_jobs:total > 500
+          for: 10m
+          labels: { severity: ticket }
+          annotations:
+            summary: "{{ $value }} background jobs are waiting"
+            description: "KEDA should be scaling workers out. If it is not, see the queue-backlog runbook."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/queue-backlog.md
+
+        - alert: TaskApiQueueLatency
+          expr: taskapi:queue_oldest_ready_age_seconds:max > 300
+          for: 5m
+          labels: { severity: page }
+          annotations:
+            summary: "The oldest waiting job is {{ $value | humanizeDuration }} old"
+            description: "Jobs (emails, webhooks, embeddings) are not being picked up."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/queue-backlog.md
+
+        - alert: TaskApiNoWorkers
+          expr: max(taskapi_queue_workers) == 0 and taskapi:queue_ready_jobs:total > 0
+          for: 5m
+          labels: { severity: page }
+          annotations:
+            summary: "Jobs are waiting but no worker process is alive"
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/queue-backlog.md
+
+        - alert: TaskApiFailedJobs
+          expr: max(taskapi_queue_failed_jobs) > 0
+          for: 30m
+          labels: { severity: ticket }
+          annotations:
+            summary: "{{ $value }} jobs have exhausted their retries"
+            description: "Inspect them with `bin/rails runner 'SolidQueue::FailedExecution.all'` and retry or discard."
+
+        - alert: TaskApiDatabasePoolSaturated
+          expr: |
+            max by (pod) (taskapi_db_pool_connections{state="busy"})
+            / max by (pod) (taskapi_db_pool_connections{state="size"}) > 0.9
+          for: 5m
+          labels: { severity: ticket }
+          annotations:
+            summary: "Pod {{ $labels.pod }} is using over 90% of its database connections"
+            description: "Requests will start waiting for a connection. Raise RAILS_MAX_THREADS/pool or add replicas."
+
+        - alert: TaskApiAiErrors
+          expr: |
+            sum(rate(taskapi_ai_requests_total{outcome="error"}[10m]))
+            / clamp_min(sum(rate(taskapi_ai_requests_total[10m])), 0.01) > 0.2
+          for: 10m
+          labels: { severity: ticket }
+          annotations:
+            summary: "More than 20% of model calls are failing"
+            description: "Usually provider throttling (check Bedrock quotas) or an expired model access grant."
+
+        - alert: TaskApiAiSpend
+          expr: taskapi:ai_cost_usd:increase1d > 50
+          labels: { severity: ticket }
+          annotations:
+            summary: "AI spend is ${{ $value | printf \"%.2f\" }} in the last 24h"
+            description: "Per-user and per-project budgets cap each tenant; this fires when the total is unexpectedly high."
+
+        - alert: TaskApiMetricsCollectorFailing
+          expr: increase(taskapi_collector_errors_total[15m]) > 0
+          for: 15m
+          labels: { severity: ticket }
+          annotations:
+            summary: "The {{ $labels.collector }} collector keeps failing; queue and pool metrics may be stale"

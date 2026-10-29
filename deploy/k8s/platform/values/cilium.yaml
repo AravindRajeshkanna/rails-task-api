@@ -1,0 +1,17 @@
+# Cilium in CNI-chaining mode on top of the AWS VPC CNI: the VPC CNI keeps assigning pod IPs from the VPC,
+# Cilium adds NetworkPolicy enforcement (the Helm chart's NetworkPolicy objects) and flow visibility.
+# https://docs.cilium.io/en/stable/installation/cni-chaining-aws-cni/
+cni:
+  chainingMode: aws-cni
+  exclusive: false
+enableIPv4Masquerade: false
+routingMode: native
+endpointRoutes:
+  enabled: true
+hubble:
+  enabled: true
+  relay: { enabled: true }
+operator:
+  replicas: 2
+tolerations:
+  - { operator: Exists }      # the agent must run on every node, tainted or not

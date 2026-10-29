@@ -42,3 +42,23 @@
 
 # Local mise overrides.
 mise.local.toml
+
+# Terraform
+/deploy/terraform/.terraform/
+/deploy/terraform/.build/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*.auto.tfvars
+
+# The extracted services are Rails apps too
+/services/*/log/*
+/services/*/tmp/*
+/services/*/storage/*
+/services/*/.bundle
+/services/*/config/master.key
+!/services/*/log/.keep
+!/services/*/tmp/.keep
+!/services/*/storage/.keep

@@ -1,0 +1,74 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+spec:
+  amiSelectorTerms:
+    - alias: al2023@latest
+  role: {{ .Values.karpenterNodeRole }}
+  subnetSelectorTerms:
+    - tags: { karpenter.sh/discovery: {{ .Values.clusterName }} }
+  securityGroupSelectorTerms:
+    - tags: { karpenter.sh/discovery: {{ .Values.clusterName }} }
+  metadataOptions:
+    httpEndpoint: enabled
+    httpTokens: required          # IMDSv2 only
+    httpPutResponseHopLimit: 1    # pods cannot reach the node's credentials
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs: { volumeSize: 40Gi, volumeType: gp3, encrypted: true, deleteOnTermination: true }
+  tags:
+    karpenter.sh/discovery: {{ .Values.clusterName }}
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: default
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  template:
+    spec:
+      nodeClassRef: { group: karpenter.k8s.aws, kind: EC2NodeClass, name: default }
+      requirements:
+        - { key: karpenter.sh/capacity-type, operator: In, values: {{ toJson .Values.nodePools.default.capacityTypes }} }
+        - { key: kubernetes.io/arch, operator: In, values: {{ toJson .Values.nodePools.default.architectures }} }
+        - { key: karpenter.k8s.aws/instance-category, operator: In, values: [ c, m, r ] }
+        - { key: karpenter.k8s.aws/instance-generation, operator: Gt, values: [ "4" ] }
+        - { key: karpenter.k8s.aws/instance-size, operator: NotIn, values: [ nano, micro, small, 24xlarge, 32xlarge, metal ] }
+      expireAfter: 720h           # nodes are replaced monthly: fresh AMIs, no long-lived drift
+  limits:
+    cpu: {{ .Values.nodePools.default.cpuLimit }}
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: {{ .Values.nodePools.default.consolidateAfter }}
+    budgets:
+      - nodes: "10%"
+{{- if .Values.nodePools.critical.enabled }}
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: critical
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  template:
+    spec:
+      nodeClassRef: { group: karpenter.k8s.aws, kind: EC2NodeClass, name: default }
+      taints:
+        - { key: workload, value: critical, effect: NoSchedule }
+      requirements:
+        - { key: karpenter.sh/capacity-type, operator: In, values: [ on-demand ] }
+        - { key: kubernetes.io/arch, operator: In, values: {{ toJson .Values.nodePools.default.architectures }} }
+        - { key: karpenter.k8s.aws/instance-category, operator: In, values: [ m, r ] }
+        - { key: karpenter.k8s.aws/instance-generation, operator: Gt, values: [ "5" ] }
+      expireAfter: 720h
+  limits:
+    cpu: {{ .Values.nodePools.critical.cpuLimit }}
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 5m
+{{- end }}

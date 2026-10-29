@@ -1,0 +1,33 @@
+# The AI service: stateless LLM inference. Internal only (no ingress): the API and worker call it.
+fullnameOverride: ai
+port: 3000
+replicaCount: 2
+
+env:
+  RAILS_ENV: production
+  RAILS_LOG_LEVEL: info
+  LOG_FORMAT: json
+  AI_PROVIDER: bedrock
+  OTEL_SERVICE_NAME: ai-service
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+
+secrets:
+  enabled: true
+  data:
+    - { secretKey: SECRET_KEY_BASE, key: ai, property: secret_key_base }
+    - { secretKey: AI_SERVICE_TOKEN, key: ai-service-token }
+
+writablePaths: [ /app/services/ai/tmp, /app/services/ai/log ]
+resources:
+  requests: { cpu: 250m, memory: 384Mi }
+  limits: { memory: 768Mi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+
+networkPolicy:
+  ingressFromPods:
+    - { app.kubernetes.io/name: api }
+    - { app.kubernetes.io/name: worker }

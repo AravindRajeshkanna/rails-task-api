@@ -1,0 +1,82 @@
+# Postgres (pgvector), a mock of AWS SNS/SQS, and a mail catcher for the local cluster. Not for production.
+apiVersion: v1
+kind: Namespace
+metadata: { name: task-api }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: postgres, namespace: task-api }
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector: { matchLabels: { app: postgres } }
+  template:
+    metadata: { labels: { app: postgres } }
+    spec:
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg17
+          env:
+            - { name: POSTGRES_PASSWORD, value: postgres }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports: [ { containerPort: 5432 } ]
+          readinessProbe: { exec: { command: [ pg_isready, -U, postgres ] }, periodSeconds: 5 }
+          volumeMounts:
+            - { name: init, mountPath: /docker-entrypoint-initdb.d }
+            - { name: data, mountPath: /var/lib/postgresql/data }
+      volumes:
+        - name: init
+          configMap: { name: postgres-init, defaultMode: 0755 }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec: { accessModes: [ ReadWriteOnce ], resources: { requests: { storage: 2Gi } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: postgres, namespace: task-api }
+spec:
+  selector: { app: postgres }
+  ports: [ { port: 5432 } ]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: aws, namespace: task-api }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: aws } }
+  template:
+    metadata: { labels: { app: aws } }
+    spec:
+      containers:
+        - name: moto
+          image: motoserver/moto:5.1.4
+          args: [ "-H", "0.0.0.0", "-p", "5000" ]
+          ports: [ { containerPort: 5000 } ]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: aws, namespace: task-api }
+spec:
+  selector: { app: aws }
+  ports: [ { port: 5000 } ]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: mailpit, namespace: task-api }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: mailpit } }
+  template:
+    metadata: { labels: { app: mailpit } }
+    spec:
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:v1.21
+          ports: [ { containerPort: 1025 }, { containerPort: 8025 } ]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: mailpit, namespace: task-api }
+spec:
+  selector: { app: mailpit }
+  ports: [ { name: smtp, port: 1025 }, { name: ui, port: 8025 } ]

@@ -1,0 +1,130 @@
+# OpenTelemetry Collector that receives OTLP from the services and exports traces to AWS X-Ray.
+# Services send to http://otel-collector.observability:4318 (OTEL_EXPORTER_OTLP_ENDPOINT). Credentials come from
+# EKS Pod Identity: the ServiceAccount below is associated with the IAM role created by deploy/terraform
+# (AWSXrayWriteOnlyAccess). The contrib distribution is used because it includes the awsxray exporter.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: observability
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector
+  namespace: observability
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc: { endpoint: 0.0.0.0:4317 }
+          http: { endpoint: 0.0.0.0:4318 }
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 20
+      resourcedetection:
+        detectors: [env, eks]
+        timeout: 2s
+      batch:
+        timeout: 5s
+        send_batch_size: 512
+
+    exporters:
+      awsxray:
+        region: ${env:AWS_REGION}
+        # Indexed attributes become searchable X-Ray annotations (filter expressions in the console).
+        indexed_attributes: [enduser.id, gen_ai.operation.name, gen_ai.request.model]
+      debug:
+        verbosity: basic
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, resourcedetection, batch]
+          exporters: [awsxray]
+      telemetry:
+        logs: { level: info }
+        metrics: { level: basic, address: 0.0.0.0:8888 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels: { app.kubernetes.io/name: otel-collector }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: otel-collector }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: otel-collector }
+    spec:
+      serviceAccountName: otel-collector
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.120.0
+          args: ["--config=/conf/config.yaml"]
+          env:
+            - name: AWS_REGION
+              value: us-east-1 # overridden per environment by the GitOps overlay
+          ports:
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: otlp-http, containerPort: 4318 }
+            - { name: metrics, containerPort: 8888 }
+          readinessProbe:
+            httpGet: { path: /, port: 13133 }
+          livenessProbe:
+            httpGet: { path: /, port: 13133 }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: config, mountPath: /conf, readOnly: true }
+      volumes:
+        - name: config
+          configMap: { name: otel-collector }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: observability
+spec:
+  selector: { app.kubernetes.io/name: otel-collector }
+  ports:
+    - { name: otlp-grpc, port: 4317, targetPort: otlp-grpc }
+    - { name: otlp-http, port: 4318, targetPort: otlp-http }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: otel-collector
+  namespace: observability
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: otel-collector }

@@ -16,3 +16,8 @@ production:
   prune_expired_sessions:
     command: "Session.expired.delete_all"
     schedule: every day at 4am
+
+  # CloudWatch EMF series for anomaly detection and alarms (no-op unless METRICS_EMF=true).
+  publish_queue_metrics:
+    class: PublishQueueMetricsJob
+    schedule: every minute

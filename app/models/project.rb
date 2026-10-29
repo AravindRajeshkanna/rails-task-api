@@ -11,6 +11,7 @@ class Project < ApplicationRecord
   has_many :tags, dependent: :destroy
   has_many :webhooks, dependent: :destroy
   has_many :audit_events, dependent: :nullify
+  has_many :ai_usages, dependent: :nullify
 
   validates :name, presence: true, length: { maximum: 120 }
   validates :description, length: { maximum: 5_000 }

@@ -55,5 +55,31 @@ module TaskApi
     config.x.discard_retention = 30.days
     # Outgoing webhooks refuse private/loopback addresses unless this is enabled (SSRF guard).
     config.x.webhooks.allow_private_networks = false
+
+    # Who authenticates users. local: this app issues and checks session tokens (the default).
+    # jwt: the Auth service (services/auth) does, and this app only verifies its JWTs.
+    config.x.auth.mode = ENV.fetch("AUTH_MODE", "local")
+    config.x.auth.issuer = ENV["AUTH_ISSUER"]
+    config.x.auth.audience = ENV.fetch("AUTH_AUDIENCE", "task-api")
+    config.x.auth.jwks_url = ENV["AUTH_JWKS_URL"]
+
+    # Who sends assignment and reminder emails. local: this app's mailers. remote: the Notification
+    # service, which consumes the task.assigned / task.due_soon events (set once it is deployed).
+    config.x.notifications.mode = ENV.fetch("NOTIFICATIONS_MODE", "local")
+
+    # Domain events published to SNS for the other services (unset = not published).
+    config.x.events.sns_topic_arn = ENV["EVENTS_SNS_TOPIC_ARN"]
+
+    # AI features (see app/services/ai and gems/ai_core). Provider and model come from AiCore's own
+    # environment (AI_PROVIDER, AI_MODEL_ID, ...); these are the app-side controls.
+    config.x.ai.gateway = ENV.fetch("AI_GATEWAY", "local") # local = in this process; remote = the AI service
+    config.x.ai.service_url = ENV["AI_SERVICE_URL"]
+    config.x.ai.service_token = ENV["AI_SERVICE_TOKEN"]
+    config.x.ai.daily_tokens_per_user = Integer(ENV.fetch("AI_DAILY_TOKENS_PER_USER", 200_000))
+    config.x.ai.daily_tokens_per_project = Integer(ENV.fetch("AI_DAILY_TOKENS_PER_PROJECT", 1_000_000))
+    config.x.ai.requests_per_minute = Integer(ENV.fetch("AI_REQUESTS_PER_MINUTE", 20))
+    config.x.ai.summary_ttl = 10.minutes
+    config.x.ai.similar_task_max_distance = 0.6 # cosine distance; smaller = more alike
+    config.x.ai.embeddings = ENV.fetch("AI_EMBEDDINGS", Rails.env.test? ? "false" : "true") == "true"
   end
 end

@@ -18,6 +18,9 @@ class Task < ApplicationRecord
   has_many :tags, through: :taggings
   has_many_attached :attachments
 
+  # pgvector column (see Ai::Embedder); powers similar-task search and assignee suggestions.
+  has_neighbors :embedding
+
   enum :status, { todo: 0, in_progress: 1, done: 2 }, default: :todo, validate: true
   enum :priority, { low: 0, medium: 1, high: 2, urgent: 3 }, default: :medium, validate: true
 
@@ -32,6 +35,7 @@ class Task < ApplicationRecord
   after_create { queue_event("created") }
   after_update :queue_update_events
   after_commit :notify_new_assignee, on: %i[create update]
+  after_commit :schedule_embedding, on: %i[create update]
 
   scope :overdue, -> { where.not(status: :done).where(due_on: ...Date.current) }
   scope :with_tag_names, ->(names) {
@@ -87,7 +91,15 @@ class Task < ApplicationRecord
       return unless saved_change_to_assignee_id? && assignee_id.present?
       return if assignee_id == Current.user&.id # assigning yourself needs no email
 
-      TaskMailer.assigned(self).deliver_later
+      Rails.event.notify("task.assigned", subject: to_global_id.to_s, project_id: project_id, actor_id: Current.user&.id)
+      TaskMailer.assigned(self).deliver_later if Rails.configuration.x.notifications.mode == "local"
+    end
+
+    def schedule_embedding
+      return unless Ai.embeddings?
+      return unless previously_new_record? || saved_change_to_title? || saved_change_to_description?
+
+      EmbedTaskJob.perform_later(self)
     end
 
     def queue_update_events

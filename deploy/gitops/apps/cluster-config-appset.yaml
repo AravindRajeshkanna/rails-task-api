@@ -1,0 +1,64 @@
+# Objects that live in this repo rather than in an upstream chart: the cluster-config chart (secret store, Karpenter
+# pools, RBAC) and the observability kustomization (alert rules, OTLP collector, dashboard).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cluster-config
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: [ "missingkey=error" ]
+  generators:
+    - clusters:
+        selector: { matchLabels: { taskapi/managed: "true" } }
+  template:
+    metadata:
+      name: '{{.name}}-cluster-config'
+    spec:
+      project: task-api
+      sources:
+        - repoURL: https://github.com/AravindRajeshkanna/rails-task-api
+          targetRevision: main
+          path: deploy/k8s/platform/cluster-config
+          helm:
+            releaseName: cluster-config
+            ignoreMissingValueFiles: true
+            valueFiles:
+              - '$values/deploy/gitops/envs/{{index .metadata.labels "env"}}/platform/cluster-config.yaml'
+        - repoURL: https://github.com/AravindRajeshkanna/rails-task-api
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{.server}}'
+        namespace: kube-system
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [ ServerSideApply=true, SkipDryRunOnMissingResource=true ]
+        retry: { limit: 10, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: observability
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - clusters:
+        selector: { matchLabels: { taskapi/managed: "true" } }
+  template:
+    metadata:
+      name: '{{.name}}-observability'
+    spec:
+      project: task-api
+      source:
+        repoURL: https://github.com/AravindRajeshkanna/rails-task-api
+        targetRevision: main
+        path: deploy/observability
+      destination:
+        server: '{{.server}}'
+        namespace: observability
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [ CreateNamespace=true, ServerSideApply=true, SkipDryRunOnMissingResource=true ]
+        retry: { limit: 10, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }

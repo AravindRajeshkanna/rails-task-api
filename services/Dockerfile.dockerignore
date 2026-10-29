@@ -1,0 +1,20 @@
+# Applies to services/Dockerfile (BuildKit looks for <Dockerfile>.dockerignore first), whose context is the
+# repository root. Only gems/ and services/<name>/ are copied, so everything else stays out of the context.
+.git
+.env*
+/app
+/bin
+/config
+/db
+/lib
+/spec
+/swagger
+/docs
+/deploy
+/storage
+/log
+/tmp
+**/log/*
+**/tmp/*
+**/.bundle
+**/spec

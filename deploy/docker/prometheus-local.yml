@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: task-api
+    static_configs: [{ targets: ["api:3000"], labels: { service: api } }]
+  - job_name: auth
+    static_configs: [{ targets: ["auth:3000"], labels: { service: auth } }]
+  - job_name: ai
+    static_configs: [{ targets: ["ai:3000"], labels: { service: ai } }]
+  - job_name: notifications
+    static_configs: [{ targets: ["notifications:3000"], labels: { service: notifications } }]

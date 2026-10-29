@@ -2,15 +2,28 @@ Rails.application.routes.draw do
   # Load balancer / Kamal health check.
   get "up" => "rails/health#show", as: :rails_health_check
 
+  # Prometheus scrape endpoint; reachable from inside the cluster only (see Observability::MetricsApp).
+  mount Observability::MetricsApp.new => "/metrics"
+
   # OpenAPI document (generated from the request specs) and Swagger UI.
   mount Rswag::Ui::Engine => "/api-docs"
   mount Rswag::Api::Engine => "/api-docs"
 
   namespace :api do
     namespace :v1 do
-      resources :registrations, only: :create
-      resource :session, only: %i[create destroy]
-      resources :passwords, only: %i[create update], param: :token
+      # Served by the Auth service when AUTH_MODE=jwt (the ingress routes these paths there);
+      # here they answer 404 so there is only ever one place that issues credentials.
+      constraints(->(_request) { !ExternalAuth.enabled? }) do
+        resources :registrations, only: :create
+        resource :session, only: %i[create destroy]
+        resources :passwords, only: %i[create update], param: :token
+      end
+
+      # AI helpers (see Api::V1::AiController): POST /ai/suggest_priority, /ai/create_from_text, ...
+      resource :ai, controller: "ai", only: [] do
+        %i[suggest_priority suggest_tags suggest_assignee create_from_text chat].each { |action| post action }
+        get :usage
+      end
 
       resource :me, controller: "me", only: %i[show update] do
         resource :avatar, only: %i[update destroy]
@@ -26,6 +39,7 @@ Rails.application.routes.draw do
           resources :comments, only: %i[index create update destroy]
           resources :attachments, only: %i[create destroy]
         end
+        resource :summary, only: :show, controller: "project_summaries"
         resources :memberships, only: %i[index create update destroy]
         resources :tags, only: %i[index create destroy]
         resources :webhooks do

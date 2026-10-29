@@ -1,0 +1,50 @@
+# The Auth service: credentials, JWT issuing, JWKS. The ALB sends /api/v1/{registrations,session,passwords} here.
+fullnameOverride: auth
+port: 3000
+replicaCount: 2
+
+env:
+  RAILS_ENV: production
+  RAILS_LOG_LEVEL: info
+  LOG_FORMAT: json
+  DB_USER: auth
+  AUTH_AUDIENCE: task-api
+  OTEL_SERVICE_NAME: auth-service
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
+
+secrets:
+  enabled: true
+  data:
+    - { secretKey: SECRET_KEY_BASE, key: auth, property: secret_key_base }
+    - { secretKey: DB_PASSWORD, key: auth, property: database_password }
+    - { secretKey: AUTH_JWT_PRIVATE_KEY, key: auth, property: jwt_private_key }
+
+migration:
+  enabled: true
+
+writablePaths: [ /app/services/auth/tmp, /app/services/auth/log ]
+resources:
+  requests: { cpu: 250m, memory: 384Mi }
+  limits: { memory: 768Mi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+
+ingress:
+  enabled: true
+  className: alb
+  groupName: task-api
+  paths:
+    - { path: /api/v1/registrations, pathType: Prefix }
+    - { path: /api/v1/session, pathType: Prefix }
+    - { path: /api/v1/passwords, pathType: Prefix }
+  annotations:
+    alb.ingress.kubernetes.io/group.order: "10"      # before the API's /api, so these paths win
+    alb.ingress.kubernetes.io/healthcheck-path: /up
+
+networkPolicy:
+  ingressFromPods:
+    - { app.kubernetes.io/name: api }
+    - { app.kubernetes.io/name: worker }

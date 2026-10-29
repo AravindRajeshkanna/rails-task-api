@@ -1,0 +1,52 @@
+# Cluster add-ons from their upstream Helm charts: one Application per (cluster, add-on). Values come from this
+# repo in two layers: deploy/k8s/platform/values/<addon>.yaml (same everywhere) and, when present,
+# deploy/gitops/envs/<env>/platform/<addon>.yaml (rendered from terraform outputs: cluster name, queue, VPC).
+# Pin versions exactly once the first sync works (ranges track the latest release in each major).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: [ "missingkey=error" ]
+  generators:
+    - matrix:
+        generators:
+          - clusters:
+              selector: { matchLabels: { taskapi/managed: "true" } }
+          - list:
+              elements:
+                - { addon: cilium, namespace: kube-system, repo: "https://helm.cilium.io/", chart: cilium, version: "1.*" }
+                - { addon: aws-load-balancer-controller, namespace: kube-system, repo: "https://aws.github.io/eks-charts", chart: aws-load-balancer-controller, version: "1.*" }
+                - { addon: external-secrets, namespace: external-secrets, repo: "https://charts.external-secrets.io", chart: external-secrets, version: "1.*" }
+                - { addon: karpenter, namespace: kube-system, repo: "public.ecr.aws/karpenter", chart: karpenter, version: "1.*" }
+                - { addon: keda, namespace: keda, repo: "https://kedacore.github.io/charts", chart: keda, version: "2.*" }
+                - { addon: kube-prometheus-stack, namespace: observability, repo: "https://prometheus-community.github.io/helm-charts", chart: kube-prometheus-stack, version: ">=70.0.0 <100.0.0" }
+                - { addon: argo-rollouts, namespace: argo-rollouts, repo: "https://argoproj.github.io/argo-helm", chart: argo-rollouts, version: "2.*" }
+  template:
+    metadata:
+      name: '{{.name}}-{{.addon}}'
+    spec:
+      project: task-api
+      sources:
+        - repoURL: '{{.repo}}'
+          chart: '{{.chart}}'
+          targetRevision: '{{.version}}'
+          helm:
+            releaseName: '{{.addon}}'
+            ignoreMissingValueFiles: true
+            valueFiles:
+              - '$values/deploy/k8s/platform/values/{{.addon}}.yaml'
+              - '$values/deploy/gitops/envs/{{index .metadata.labels "env"}}/platform/{{.addon}}.yaml'
+        - repoURL: https://github.com/AravindRajeshkanna/rails-task-api
+          targetRevision: main
+          ref: values
+      destination:
+        server: '{{.server}}'
+        namespace: '{{.namespace}}'
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [ CreateNamespace=true, ServerSideApply=true, SkipDryRunOnMissingResource=true ]
+        # Add-ons depend on each other's CRDs; retry until the dependency is up instead of ordering by hand.
+        retry: { limit: 10, backoff: { duration: 30s, factor: 2, maxDuration: 10m } }

@@ -1,0 +1,10 @@
+# Event-driven autoscaling: the jobs worker on queue depth (Prometheus), the notification consumers on SQS length.
+operator:
+  replicaCount: 2
+serviceAccount:
+  operator:
+    create: true
+    name: keda-operator        # Pod Identity association (terraform/pod_identity.tf) uses this name
+podIdentity:
+  aws:
+    irsa: { enabled: false }

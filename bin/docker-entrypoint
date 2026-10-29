@@ -1,7 +1,8 @@
 #!/bin/bash -e
 
-# If running the rails server then create or migrate existing database
-if [ "${@: -2:1}" == "./bin/rails" ] && [ "${@: -1:1}" == "server" ]; then
+# Create or migrate the database when starting a standalone server. On Kubernetes migrations run once, as a
+# Job before the rollout (see deploy/helm), so every pod starts with SKIP_DB_PREPARE=true.
+if [ "${SKIP_DB_PREPARE:-false}" != "true" ] && [ "${@: -2:1}" == "./bin/rails" ] && [ "${@: -1:1}" == "server" ]; then
   ./bin/rails db:prepare
 fi
 

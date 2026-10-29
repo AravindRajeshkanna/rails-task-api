@@ -1,0 +1,208 @@
+# The whole architecture on one machine: the Task API (façade), its worker, and the Auth, AI and Notification
+# services, with Postgres (pgvector), an AWS mock (SNS/SQS), a mail catcher and a path-routing gateway that
+# plays the part of the load balancer.
+#
+#   cp .env.example .env     # then set RAILS_MASTER_KEY=$(cat config/master.key)
+#   docker compose up --build
+#   open http://localhost:8080/api-docs        # the API       http://localhost:8025   # caught emails
+#   docker compose --profile observability up  # + Prometheus :9090, Grafana :3001, Jaeger :16686
+#
+# For day-to-day Rails work you do not need this: `bin/rails s` runs the monolith alone (AUTH_MODE=local, offline AI).
+
+name: task-api
+
+x-rails-env: &rails-env
+  RAILS_ENV: production
+  FORCE_SSL: "false"
+  ASSUME_SSL: "false"
+  RAILS_LOG_LEVEL: ${RAILS_LOG_LEVEL:-info}
+  LOG_FORMAT: json
+  AWS_REGION: us-east-1
+  AWS_ENDPOINT_URL: http://aws:5000
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  OTEL_TRACES_SAMPLER: always_on
+
+x-task-api: &task-api
+  build: { context: ., dockerfile: Dockerfile }
+  image: task-api/api:local
+  environment: &task-api-env
+    <<: *rails-env
+    RAILS_MASTER_KEY: "${RAILS_MASTER_KEY:?set RAILS_MASTER_KEY in .env (cat config/master.key)}"
+    DB_HOST: postgres
+    TASK_API_DATABASE_PASSWORD: ${TASK_API_DATABASE_PASSWORD:-task_api}
+    SKIP_DB_PREPARE: "true"
+    APP_BASE_URL: http://localhost:8080
+    ALLOWED_HOSTS: localhost,api
+    CORS_ORIGINS: http://localhost:5173
+    # The extracted services, switched on:
+    AUTH_MODE: jwt
+    AUTH_ISSUER: http://localhost:3100
+    AUTH_AUDIENCE: task-api
+    AUTH_JWKS_URL: http://auth:3000/.well-known/jwks.json
+    NOTIFICATIONS_MODE: remote
+    EVENTS_SNS_TOPIC_ARN: arn:aws:sns:us-east-1:123456789012:task-api-events
+    AI_PROVIDER: ${AI_PROVIDER:-}            # empty here: the monolith defers to the AI service
+    AI_GATEWAY: remote
+    AI_SERVICE_URL: http://ai:3000
+    AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-local-dev-service-token}
+    METRICS_EMF: "false"
+    OTEL_SERVICE_NAME: task-api
+  depends_on:
+    migrate: { condition: service_completed_successfully }
+    aws-init: { condition: service_completed_successfully }
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_PASSWORD: postgres
+      TASK_API_DATABASE_PASSWORD: ${TASK_API_DATABASE_PASSWORD:-task_api}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    ports: ["5433:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  aws:
+    image: motoserver/moto:5.1.4
+    command: ["-H", "0.0.0.0", "-p", "5000"]
+    ports: ["5000:5000"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5000/moto-api/"]
+      interval: 5s
+      retries: 20
+
+  aws-init:
+    image: amazon/aws-cli:2.22.0
+    entrypoint: ["/bin/sh", "/init.sh"]
+    environment:
+      AWS_ENDPOINT_URL: http://aws:5000
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    volumes: ["./deploy/docker/aws-init.sh:/init.sh:ro"]
+    depends_on: { aws: { condition: service_healthy } }
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports: ["8025:8025"]
+
+  migrate:
+    <<: *task-api
+    depends_on: { postgres: { condition: service_healthy } }
+    command: ["./bin/rails", "db:prepare"]
+    environment:
+      <<: *task-api-env
+      SKIP_DB_PREPARE: "false"
+
+  api:
+    <<: *task-api
+    command: ["./bin/rails", "server", "-b", "0.0.0.0", "-p", "3000"]
+    expose: ["3000"]
+
+  worker:
+    <<: *task-api
+    command: ["./bin/jobs"]
+
+  auth:
+    build: { context: ., dockerfile: services/Dockerfile, args: { SERVICE: auth } }
+    image: task-api/auth:local
+    environment:
+      <<: *rails-env
+      SECRET_KEY_BASE: local-development-only-secret-key-base-for-auth-service-0123456789abcdef
+      DB_HOST: postgres
+      DB_USER: auth
+      DB_PASSWORD: ${AUTH_DATABASE_PASSWORD:-auth}
+      AUTH_ISSUER: http://localhost:3100
+      AUTH_AUDIENCE: task-api
+      FRONTEND_URL: http://localhost:5173
+      EVENTS_SNS_TOPIC_ARN: arn:aws:sns:us-east-1:123456789012:task-api-events
+      OTEL_SERVICE_NAME: auth-service
+      # AUTH_JWT_PRIVATE_KEY is unset: production refuses to boot without it, so set one for the stack:
+      AUTH_JWT_PRIVATE_KEY: "${AUTH_JWT_PRIVATE_KEY:?generate one with: openssl genrsa 2048 | base64 | tr -d '\\n'}"
+      ALLOWED_HOSTS: localhost,auth
+    depends_on:
+      postgres: { condition: service_healthy }
+      aws-init: { condition: service_completed_successfully }
+    command: ["sh", "-c", "./bin/rails db:prepare && ./bin/rails server -b 0.0.0.0 -p 3000"]
+    ports: ["3100:3000"]
+
+  ai:
+    build: { context: ., dockerfile: services/Dockerfile, args: { SERVICE: ai } }
+    image: task-api/ai:local
+    environment:
+      <<: *rails-env
+      SECRET_KEY_BASE: local-development-only-secret-key-base-for-ai-service-0123456789abcdefghij
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-local-dev-service-token}
+      AI_PROVIDER: ${AI_PROVIDER:-fake}            # fake = offline; bedrock needs real AWS credentials (see docs/aws/setup-guide.md)
+      AI_MODEL_ID: ${AI_MODEL_ID:-}
+      OTEL_SERVICE_NAME: ai-service
+      ALLOWED_HOSTS: localhost,ai
+    expose: ["3000"]
+
+  notifications:
+    build: { context: ., dockerfile: services/Dockerfile, args: { SERVICE: notifications } }
+    image: task-api/notifications:local
+    environment:
+      <<: *rails-env
+      SECRET_KEY_BASE: local-development-only-secret-key-base-for-notifications-0123456789abcdef
+      DB_HOST: postgres
+      DB_USER: notifications
+      DB_PASSWORD: ${NOTIFICATIONS_DATABASE_PASSWORD:-notifications}
+      NOTIFICATIONS_CONSUMER: "true"
+      NOTIFICATIONS_QUEUE_URL: http://aws:5000/123456789012/notifications
+      SMTP_ADDRESS: mailpit
+      SMTP_PORT: "1025"
+      MAIL_FROM: Task API <no-reply@example.com>
+      OTEL_SERVICE_NAME: notifications-service
+      ALLOWED_HOSTS: localhost,notifications
+    depends_on:
+      postgres: { condition: service_healthy }
+      aws-init: { condition: service_completed_successfully }
+    command: ["sh", "-c", "./bin/rails db:prepare && ./bin/rails server -b 0.0.0.0 -p 3000"]
+    expose: ["3000"]
+
+  gateway:
+    image: nginx:1.27-alpine
+    volumes: ["./deploy/docker/nginx.conf:/etc/nginx/nginx.conf:ro"]
+    ports: ["8080:8080"]
+    depends_on: [api, auth]
+
+  # --- observability (docker compose --profile observability up) ---
+  otel-collector:
+    profiles: [observability]
+    image: otel/opentelemetry-collector-contrib:0.120.0
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes: ["./deploy/docker/otel-collector-local.yaml:/etc/otel/config.yaml:ro"]
+    ports: ["4318:4318"]
+
+  jaeger:
+    profiles: [observability]
+    image: jaegertracing/all-in-one:1.65.0
+    ports: ["16686:16686"]
+
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v3.1.0
+    volumes: ["./deploy/docker/prometheus-local.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9090:9090"]
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./deploy/docker/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./deploy/docker/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./deploy/observability/grafana:/var/lib/grafana/dashboards:ro
+    ports: ["3001:3000"]
+
+volumes:
+  pgdata:

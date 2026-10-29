@@ -43,3 +43,12 @@
 # Ignore Docker-related files
 /.dockerignore
 /Dockerfile*
+
+# The monolith image does not need the other services, infrastructure or docs.
+/services/
+/deploy/
+/docs/
+/spec/
+/gems/*/spec/
+/.github/
+/docker-compose*.yml

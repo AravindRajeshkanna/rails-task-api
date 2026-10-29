@@ -11,7 +11,11 @@ class EventPayload
   # +event+ is the hash a Rails.event subscriber receives. Returns nil when the
   # subject has been deleted since the event was emitted.
   def self.build(event)
-    subject = GlobalID::Locator.locate(event.dig(:payload, :subject))
+    subject = begin
+      GlobalID::Locator.locate(event.dig(:payload, :subject))
+    rescue ActiveRecord::RecordNotFound
+      nil
+    end
     return unless subject
 
     {
