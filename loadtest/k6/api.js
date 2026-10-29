@@ -26,6 +26,9 @@ const ENDPOINTS = [
 // every endpoint gets its own latency line in the summary (--summary-export) without gating on it.
 const perEndpoint = Object.fromEntries(ENDPOINTS.map((name) => [`http_req_duration{name:${name}}`, ['max>=0']]));
 
+// -e NO_THRESHOLDS=1 keeps the per-endpoint lines but gates nothing: for warming a freshly booted process.
+const gate = !__ENV.NO_THRESHOLDS;
+
 export const options = {
   scenarios: {
     visits: {
@@ -37,17 +40,19 @@ export const options = {
       maxVUs: Math.max(100, RATE * 6),
     },
   },
-  thresholds: {
+  thresholds: gate ? {
     ...perEndpoint,
     http_req_failed: ['rate<0.01'],
     checks: ['rate>0.99'],
+    // Visitors turned away because the server could not keep up are a failure too, not a quiet success.
+    dropped_iterations: ['count<1'],
     'http_req_duration{kind:read}': ['p(95)<400', 'p(99)<1000'],
     'http_req_duration{kind:write}': ['p(95)<600'],
     // The expensive endpoints get their own line, so a regression there is not averaged away.
     'http_req_duration{name:tasks_whale}': ['p(95)<500', 'max>=0'],
     'http_req_duration{name:search}': ['p(95)<600', 'max>=0'],
     'http_req_duration{name:analytics}': ['p(95)<800', 'max>=0'],
-  },
+  } : perEndpoint,
   summaryTrendStats: ['avg', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
 };
 

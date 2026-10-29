@@ -124,13 +124,21 @@ The keyset query is `WHERE (created_at, id) < (cutoff)` on the same partial inde
 runs a `COUNT(*)` for the total, which keyset paging skips (that is why a cursor page has no total). Offset stays the default because
 nothing is wrong with it at these sizes and a total is useful in a UI; the cursor is for feeds, exports and infinite scroll.
 
+## A load test every night
+
+Numbers on this page are from one laptop and go stale; the guard that does not is the nightly run: `.github/workflows/loadtest.yml` builds the same data set
+on a CI runner, drives the same k6 script at 15 visits a second for 90 seconds and fails if any threshold in `loadtest/k6/api.js` is breached
+([loadtest/README.md](../loadtest/README.md#in-ci-nightly)). Thresholds, not measurements, are what it enforces, because a shared runner's absolute latency
+moves by a factor of two between runs. A failed nightly run opens an issue.
+
 ## Other performance guards that run in CI
 
 - **Bullet** raises on N+1 queries and on unused eager loading in every request spec.
 - New endpoints assert their query count (`count_queries` in `spec/support/query_helpers.rb`), so a loop
   that issues a query per row fails the build.
-- Offset pagination at depth: page 400 of the whale project (offset 10,000) is 3.5 ms with the index. Past
-  roughly a million rows in one project, switch that endpoint to keyset pagination.
+- Deep pages: `page=` costs more the deeper it goes (4 ms at offset 10,000, 14 ms at 49,000); the task list offers
+  `cursor=` (keyset) for feeds and exports ([above](#deep-pages-offset-against-cursor)).
+- The nightly load test ([above](#a-load-test-every-night)).
 
 ## Known limits of these numbers
 
