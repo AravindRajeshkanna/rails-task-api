@@ -49,7 +49,7 @@ class User < ApplicationRecord
   def self.link_legacy_user(subject, legacy_id)
     return if legacy_id.blank?
 
-    where(id: legacy_id, auth_subject: nil).first&.tap { |user| user.update_columns(auth_subject: subject) }
+    where(id: legacy_id, auth_subject: nil).first&.tap { |user| user.update_columns(auth_subject: subject) } # rubocop:disable Rails/SkipsModelValidations -- a link, not an edit
   end
 
   def externally_authenticated? = auth_subject.present?

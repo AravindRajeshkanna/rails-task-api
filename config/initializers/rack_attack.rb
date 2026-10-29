@@ -40,10 +40,15 @@ class Rack::Attack
     match_data = request.env["rack.attack.match_data"]
     retry_after = (match_data[:period] - (match_data[:epoch_time] % match_data[:period])).to_i
 
-    body = { error: { status: 429, code: "rate_limited", message: "Too many requests. Retry in #{retry_after} seconds." } }
+    body = ErrorSerializer.new(
+      status: 429, code: "rate_limited", message: "Too many requests. Retry in #{retry_after} seconds.",
+      request_id: request.env["action_dispatch.request_id"]
+    )
     [ 429, { "content-type" => "application/json", "retry-after" => retry_after.to_s }, [ body.to_json ] ]
   end
 end
 
 # Off in the test suite (its cache is a null store); throttling specs switch it on explicitly.
-Rack::Attack.enabled = !Rails.env.test?
+# RACK_ATTACK_ENABLED=false is also the lever for a load test (loadtest/README.md), which would
+# otherwise measure 429s, and for switching throttling off in an emergency without a deploy.
+Rack::Attack.enabled = ENV.fetch("RACK_ATTACK_ENABLED", (!Rails.env.test?).to_s) == "true"

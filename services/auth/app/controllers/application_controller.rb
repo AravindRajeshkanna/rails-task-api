@@ -3,6 +3,9 @@
 class ApplicationController < ActionController::API
   wrap_parameters false
 
+  # Everything this service answers with is a credential (or a refusal to issue one).
+  before_action :prevent_storage
+
   rescue_from ActionController::ParameterMissing do |error|
     render_error :bad_request, "parameter_missing", error.message
   end
@@ -14,6 +17,8 @@ class ApplicationController < ActionController::API
   end
 
   private
+    def prevent_storage = response.cache_control.replace(no_store: true, private: true)
+
     def render_error(status, code, message, details = nil)
       error = { status: Rack::Utils.status_code(status), code: code, message: message }
       error[:details] = details if details.present?

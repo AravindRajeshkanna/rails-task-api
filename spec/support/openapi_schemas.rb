@@ -24,7 +24,8 @@ module OpenapiSchemas
             status: { type: :integer, example: 422 },
             code: { type: :string, example: "validation_failed" },
             message: { type: :string },
-            details: { type: :object, description: "Field errors (422) or the offending parameter (400)" }
+            details: { type: :object, description: "Field errors (422) or the offending parameter (400)" },
+            request_id: { type: :string, description: "Echoes the X-Request-Id response header; quote it in bug reports" }
           },
           required: %i[status code message]
         }
@@ -223,6 +224,55 @@ module OpenapiSchemas
         delivered_at: { type: :string, format: "date-time", nullable: true }, created_at: { type: :string, format: "date-time" }
       },
       required: %i[id event status]
+    },
+    Activity: {
+      type: :object,
+      description: "An audit event as an item of the feed.",
+      properties: {
+        id: { type: :integer }, project_id: { type: :integer }, action: { type: :string, enum: %w[create update discard restore] },
+        auditable_type: { type: :string, enum: %w[Project Task Membership] }, auditable_id: { type: :integer },
+        changes: { type: :object, description: "attribute => [old, new]" },
+        actor: { allOf: [ ref("UserSummary") ], nullable: true }, created_at: { type: :string, format: "date-time" }
+      },
+      required: %i[id project_id action auditable_type auditable_id changes]
+    },
+    ProjectAnalytics: {
+      type: :object,
+      properties: {
+        range: {
+          type: :object,
+          properties: { from: { type: :string, format: "date" }, to: { type: :string, format: "date" }, interval: { type: :string, enum: %w[day week month] } }
+        },
+        totals: {
+          type: :object,
+          description: "Live (not deleted) tasks. `overdue` counts open tasks past their due date.",
+          properties: %i[total open done overdue unassigned].index_with { { type: :integer } }
+        },
+        by_status: { type: :object, description: "status => count", additionalProperties: { type: :integer } },
+        by_priority: { type: :object, description: "priority => count of open tasks", additionalProperties: { type: :integer } },
+        throughput: {
+          type: :array,
+          description: "One row per period in the range, empty periods included. `period` is the first day of the bucket (UTC; weeks start on Monday).",
+          items: {
+            type: :object,
+            properties: { period: { type: :string, format: "date" }, created: { type: :integer }, completed: { type: :integer } }
+          }
+        },
+        cycle_time_hours: {
+          type: :object,
+          description: "Creation-to-completion time of tasks completed in the range. `median` and `p90` are null when `sample` is 0.",
+          properties: { sample: { type: :integer }, median: { type: :number, nullable: true }, p90: { type: :number, nullable: true } }
+        },
+        workload: {
+          type: :array,
+          description: "Open tasks per assignee, most overdue first (at most 20 people).",
+          items: {
+            type: :object,
+            properties: { assignee: ref("UserSummary"), open: { type: :integer }, overdue: { type: :integer } }
+          }
+        }
+      },
+      required: %i[range totals by_status by_priority throughput cycle_time_hours workload]
     },
     AuditEvent: {
       type: :object,

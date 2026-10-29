@@ -7,7 +7,6 @@ RSpec.describe "Audit events" do
   let(:path) { "/api/v1/projects/#{project.id}/audit_events" }
 
   it "shows admins who changed what, newest first" do
-    task_id = nil
     api :post, "/api/v1/projects/#{project.id}/tasks", { title: "Draft" }, as: owner
     task_id = data["id"]
     api :patch, "/api/v1/tasks/#{task_id}", { title: "Final", status: "done" }, as: owner

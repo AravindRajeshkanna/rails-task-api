@@ -8,7 +8,8 @@ module Auditable
   IGNORED_ATTRIBUTES = %w[created_at updated_at lock_version comments_count].freeze
 
   included do
-    has_many :audit_trail, as: :auditable, class_name: "AuditEvent", inverse_of: :auditable
+    # No `dependent:`: the trail deliberately outlives the record it describes.
+    has_many :audit_trail, as: :auditable, class_name: "AuditEvent", inverse_of: :auditable # rubocop:disable Rails/HasManyOrHasOneDependent
 
     after_create { record_audit("create") }
     after_update { record_audit(audit_action_for_update) }

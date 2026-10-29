@@ -1,17 +1,96 @@
-# Omakase Ruby styling for Rails
+# Omakase Ruby styling for Rails (layout and style), plus a stricter layer on top:
+# the Lint, Rails and Performance departments and the complexity metrics are on.
+# docs/decisions.md (ADR 29) explains why this and not StandardRB.
 inherit_gem: { rubocop-rails-omakase: rubocop.yml }
 
-# Overwrite or add rules to create your own house style
-#
-# # Use `[a, [b, c]]` not `[ a, [ b, c ] ]`
-# Layout/SpaceInsideArrayLiteralBrackets:
-#   Enabled: false
+# Offenses that predate the stricter rules, listed per file so new code is held to
+# the full standard while the old code is paid down. Regenerate with:
+#   bin/rubocop --auto-gen-config --no-auto-gen-timestamp
+inherit_from: .rubocop_todo.yml
 
-# Generated files that Rails rewrites on every migration
+plugins:
+  - rubocop-rails
+  - rubocop-performance
+
 inherit_mode:
   merge:
     - Exclude
 
 AllCops:
+  NewCops: disable
   Exclude:
+    # Generated files that Rails rewrites on every migration
     - "services/*/db/schema.rb"
+
+Lint:
+  Enabled: true
+
+Rails:
+  Enabled: true
+  # Rails-free code: shared gems and the Lambdas run without Active Support.
+  Exclude:
+    - "gems/**/*"
+    - "deploy/**/*"
+
+Performance:
+  Enabled: true
+
+# --- Complexity ratchet --------------------------------------------------------------
+# RuboCop's defaults (10-line methods, ABC 17) are tuned for tiny methods; these are the
+# limits past which a method is genuinely hard to review. Keyword arguments are not
+# counted as parameters, because they are how this codebase passes configuration around.
+Metrics/AbcSize:
+  Enabled: true
+  Max: 30
+  Exclude: [ "db/migrate/**/*", "services/*/db/migrate/**/*", "spec/**/*", "services/*/spec/**/*", "gems/*/spec/**/*", "deploy/lambda/*/spec/**/*" ]
+Metrics/CyclomaticComplexity:
+  Enabled: true
+  Max: 10
+  Exclude: [ "spec/**/*", "services/*/spec/**/*", "gems/*/spec/**/*", "deploy/lambda/*/spec/**/*" ]
+Metrics/PerceivedComplexity:
+  Enabled: true
+  Max: 10
+  Exclude: [ "spec/**/*", "services/*/spec/**/*", "gems/*/spec/**/*", "deploy/lambda/*/spec/**/*" ]
+Metrics/MethodLength:
+  Enabled: true
+  Max: 20
+  Exclude: [ "db/migrate/**/*", "services/*/db/migrate/**/*", "spec/**/*", "services/*/spec/**/*", "gems/*/spec/**/*", "deploy/lambda/*/spec/**/*" ]
+Metrics/ParameterLists:
+  Enabled: true
+  CountKeywordArgs: false
+  Exclude: [ "spec/**/*", "services/*/spec/**/*" ]
+
+# --- Deliberate exceptions -----------------------------------------------------------
+# The API takes flat JSON bodies (wrap_parameters is off), so `params.permit` is the
+# right call; `params.expect` is meant for nested form-style params.
+Rails/StrongParametersExpect:
+  Enabled: false
+
+# Interface methods (providers, Lambda handlers) must accept arguments they ignore.
+Lint/UnusedMethodArgument:
+  AllowUnusedKeywordArguments: true
+
+# `expect { ... }.to change { ... }` is idiomatic RSpec.
+Lint/AmbiguousBlockAssociation:
+  Exclude: [ "spec/**/*", "services/*/spec/**/*" ]
+
+# Specs set up odd states on purpose, and Time.now is fine for comparing to a log line.
+Rails/SkipsModelValidations:
+  Exclude: [ "spec/**/*", "services/*/spec/**/*" ]
+Rails/TimeZone:
+  Exclude: [ "spec/**/*", "services/*/spec/**/*" ]
+
+# `find_by_password_reset_token!` comes from has_secure_password; it is not a dynamic finder.
+Rails/DynamicFindBy:
+  AllowedMethods:
+    - find_by_sql
+    - find_by_password_reset_token
+    - find_by_password_reset_token!
+
+# Already-applied migrations are history; do not rewrite them for style.
+Rails/BulkChangeTable:
+  Exclude: [ "db/migrate/**/*", "services/*/db/migrate/**/*" ]
+
+# Seeds are a script that reports to the person running it.
+Rails/Output:
+  Exclude: [ "db/seeds.rb" ]

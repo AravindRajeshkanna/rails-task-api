@@ -65,10 +65,10 @@ RSpec.describe "Authentication" do
 
     it "rejects a wrong password without revealing whether the account exists" do
       json_post "/api/v1/session", { email_address: "ada@example.com", password: "wrong" }
-      wrong_password = [ response.status, error ]
+      wrong_password = [ response.status, error.except("request_id") ]
 
       json_post "/api/v1/session", { email_address: "nobody@example.com", password: "wrong" }
-      unknown_email = [ response.status, error ]
+      unknown_email = [ response.status, error.except("request_id") ]
 
       expect(wrong_password).to eq(unknown_email)
       expect(wrong_password.first).to eq(401)

@@ -18,7 +18,7 @@ RSpec.describe "Error responses" do
 
     expect(response).to have_http_status(:not_found)
     expect(response.media_type).to eq("application/json")
-    expect(error).to eq("status" => 404, "code" => "not_found", "message" => "Not Found")
+    expect(error).to include("status" => 404, "code" => "not_found", "message" => "Not Found")
   end
 
   it "renders unparseable JSON as a 400 envelope" do

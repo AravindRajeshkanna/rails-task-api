@@ -8,9 +8,23 @@ class ApplicationController < ActionController::API
   wrap_parameters false
 
   before_action :annotate_request
+  before_action :set_cache_headers
 
   private
     def pundit_user = Current.user
+
+    # Responses are per-user, so they must never sit in a shared cache; `no-cache` still
+    # lets a client keep a copy and revalidate it with If-None-Match (Rack::ETag answers 304).
+    # Vary tells any cache between us and the client that the token is part of the key.
+    # Actions that hand out credentials call `prevent_storage` to forbid even a private copy.
+    def set_cache_headers
+      response.cache_control.merge!(no_cache: true, extras: %w[private])
+      response.headers["Vary"] = "Authorization, Accept"
+    end
+
+    def prevent_storage
+      response.cache_control.replace(no_store: true, private: true)
+    end
 
     # Ties this request's events (and its trace) to the signed-in user: IDs only, never names or emails.
     def annotate_request

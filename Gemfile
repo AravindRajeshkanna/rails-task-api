@@ -31,12 +31,21 @@ gem "thruster", require: false
 
 # Use Active Storage variants [https://guides.rubyonrails.org/active_storage_overview.html#transforming-images]
 gem "image_processing", "~> 2.2"
+# image_processing 2.x no longer pulls this in, and without it Active Storage silently skips analysing
+# uploaded images (width/height) and warns at boot. libvips itself is installed in the Dockerfile.
+gem "ruby-vips", "~> 2.3", require: false
 
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
 gem "rack-cors"
 
 # Throttling and blocking abusive clients at the Rack layer [https://github.com/rack/rack-attack]
 gem "rack-attack"
+
+# Security response headers for a JSON API (config/initializers/secure_headers.rb)
+gem "secure_headers"
+
+# Blocks migrations that would lock tables or break a rolling deploy (config/initializers/strong_migrations.rb)
+gem "strong_migrations"
 
 # Fast, explicit JSON serializers [https://github.com/okuramasafumi/alba]
 gem "alba"
@@ -92,6 +101,9 @@ group :development, :test do
 
   # Omakase Ruby styling [https://github.com/rails/rubocop-rails-omakase/]
   gem "rubocop-rails-omakase", require: false
+  # The stricter layer configured in .rubocop.yml (they ship with omakase; declared because we configure them directly)
+  gem "rubocop-rails", require: false
+  gem "rubocop-performance", require: false
 
   # Testing: RSpec + FactoryBot + Faker + Shoulda Matchers
   gem "rspec-rails"
@@ -100,6 +112,9 @@ group :development, :test do
   gem "shoulda-matchers"
   gem "pundit-matchers"
   gem "webmock"
+
+  # Line and branch coverage, with a floor enforced in CI (spec/spec_helper.rb)
+  gem "simplecov", require: false
 
   # Generate OpenAPI documents from request specs
   gem "rswag-specs"

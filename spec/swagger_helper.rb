@@ -33,7 +33,7 @@ RSpec.configure do |config|
       servers: [ { url: "http://localhost:3000", description: "Local development" } ],
       tags: [
         { name: "Authentication" }, { name: "Account" }, { name: "Projects" }, { name: "Tasks" },
-        { name: "AI" }, { name: "Comments" }, { name: "Tags" }, { name: "Memberships" }, { name: "Webhooks" }, { name: "Audit log" }
+        { name: "AI" }, { name: "Activity" }, { name: "Analytics" }, { name: "Comments" }, { name: "Tags" }, { name: "Memberships" }, { name: "Webhooks" }, { name: "Audit log" }
       ],
       components: {
         securitySchemes: { bearer_auth: { type: :http, scheme: :bearer, description: "Session token from sign-in or sign-up" } },

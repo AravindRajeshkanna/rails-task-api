@@ -45,7 +45,7 @@ RSpec.describe Notifications::Consumer do
   end
 
   it "leaves a failing message on the queue and delays its retry, longer each time" do
-    allow_any_instance_of(ActionMailer::MessageDelivery).to receive(:deliver_now).and_raise(Net::SMTPServerBusy.new("busy")) # rubocop:disable RSpec/AnyInstance
+    allow_any_instance_of(ActionMailer::MessageDelivery).to receive(:deliver_now).and_raise(Net::SMTPServerBusy.new("busy"))
 
     [ "1", "2", "5", "20" ].each do |count|
       sqs.stub_responses(:receive_message, messages: [ message(assigned_event, received: count) ])

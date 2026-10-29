@@ -25,6 +25,9 @@ Rails.application.routes.draw do
         get :usage
       end
 
+      # Everything that happened in the caller's projects (the member's view of the audit log).
+      get "activity", to: "activities#index"
+
       resource :me, controller: "me", only: %i[show update] do
         resource :avatar, only: %i[update destroy]
       end
@@ -40,6 +43,7 @@ Rails.application.routes.draw do
           resources :attachments, only: %i[create destroy]
         end
         resource :summary, only: :show, controller: "project_summaries"
+        resource :analytics, only: :show, controller: "analytics"
         resources :memberships, only: %i[index create update destroy]
         resources :tags, only: %i[index create destroy]
         resources :webhooks do

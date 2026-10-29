@@ -2,6 +2,8 @@
 #
 #   { "error": { "status": 422, "code": "validation_failed", "message": "...", "details": { ... } } }
 #
+# ErrorSerializer owns that shape.
+#
 # Errors raised outside controllers (bad JSON, unknown routes) get the same shape
 # from ErrorsController via config.exceptions_app.
 module ErrorHandling
@@ -22,6 +24,10 @@ module ErrorHandling
     end
     rescue_from ActiveRecord::RecordInvalid do |error|
       render_error :unprocessable_content, "validation_failed", "Validation failed", error.record.errors.messages
+    end
+    # Form objects (app/forms): same shape as RecordInvalid, so clients handle one kind of 422.
+    rescue_from ActiveModel::ValidationError do |error|
+      render_error :unprocessable_content, "validation_failed", "Validation failed", error.model.errors.messages
     end
     rescue_from ActiveRecord::RecordNotFound do
       render_error :not_found, "not_found", "Resource not found"
@@ -61,8 +67,7 @@ module ErrorHandling
 
   private
     def render_error(status, code, message, details = nil)
-      error = { status: Rack::Utils.status_code(status), code: code, message: message }
-      error[:details] = details if details.present?
-      render json: { error: error }, status: status
+      error = ErrorSerializer.new(status: status, code: code, message: message, details: details, request_id: request.request_id)
+      render json: error, status: status
     end
 end

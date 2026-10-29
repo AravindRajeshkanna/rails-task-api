@@ -31,6 +31,8 @@ tags:
 - name: Projects
 - name: Tasks
 - name: AI
+- name: Activity
+- name: Analytics
 - name: Comments
 - name: Tags
 - name: Memberships
@@ -60,6 +62,10 @@ components:
             details:
               type: object
               description: Field errors (422) or the offending parameter (400)
+            request_id:
+              type: string
+              description: Echoes the X-Request-Id response header; quote it in bug
+                reports
           required:
           - status
           - code
@@ -584,6 +590,136 @@ components:
       - id
       - event
       - status
+    Activity:
+      type: object
+      description: An audit event as an item of the feed.
+      properties:
+        id:
+          type: integer
+        project_id:
+          type: integer
+        action:
+          type: string
+          enum:
+          - create
+          - update
+          - discard
+          - restore
+        auditable_type:
+          type: string
+          enum:
+          - Project
+          - Task
+          - Membership
+        auditable_id:
+          type: integer
+        changes:
+          type: object
+          description: attribute => [old, new]
+        actor:
+          allOf:
+          - "$ref": "#/components/schemas/UserSummary"
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - project_id
+      - action
+      - auditable_type
+      - auditable_id
+      - changes
+    ProjectAnalytics:
+      type: object
+      properties:
+        range:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date
+            to:
+              type: string
+              format: date
+            interval:
+              type: string
+              enum:
+              - day
+              - week
+              - month
+        totals:
+          type: object
+          description: Live (not deleted) tasks. `overdue` counts open tasks past
+            their due date.
+          properties:
+            total:
+              type: integer
+            open:
+              type: integer
+            done:
+              type: integer
+            overdue:
+              type: integer
+            unassigned:
+              type: integer
+        by_status:
+          type: object
+          description: status => count
+          additionalProperties:
+            type: integer
+        by_priority:
+          type: object
+          description: priority => count of open tasks
+          additionalProperties:
+            type: integer
+        throughput:
+          type: array
+          description: One row per period in the range, empty periods included. `period`
+            is the first day of the bucket (UTC; weeks start on Monday).
+          items:
+            type: object
+            properties:
+              period:
+                type: string
+                format: date
+              created:
+                type: integer
+              completed:
+                type: integer
+        cycle_time_hours:
+          type: object
+          description: Creation-to-completion time of tasks completed in the range.
+            `median` and `p90` are null when `sample` is 0.
+          properties:
+            sample:
+              type: integer
+            median:
+              type: number
+              nullable: true
+            p90:
+              type: number
+              nullable: true
+        workload:
+          type: array
+          description: Open tasks per assignee, most overdue first (at most 20 people).
+          items:
+            type: object
+            properties:
+              assignee:
+                "$ref": "#/components/schemas/UserSummary"
+              open:
+                type: integer
+              overdue:
+                type: integer
+      required:
+      - range
+      - totals
+      - by_status
+      - by_priority
+      - throughput
+      - cycle_time_hours
+      - workload
     AuditEvent:
       type: object
       properties:
@@ -873,6 +1009,68 @@ paths:
       responses:
         '204':
           description: Removed
+  "/api/v1/activity":
+    get:
+      summary: Activity feed
+      tags:
+      - Activity
+      description: Everything that happened in the projects you belong to (projects,
+        tasks and membership changes), newest first. This is the member's view of
+        the audit log; admins can also read a single project's full log at `/projects/{id}/audit_events`.
+        Deleted projects contribute nothing until restored.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: project_id
+        in: query
+        required: false
+        description: Only this project (ignored if you are not in it)
+        schema:
+          type: integer
+      - name: type
+        in: query
+        required: false
+        description: 'Comma-separated: Project, Task, Membership'
+        schema:
+          type: string
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Activity"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '400':
+          description: Unknown `type`
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
   "/api/v1/ai/suggest_priority":
     post:
       summary: Suggest a priority and deadline
@@ -1227,6 +1425,79 @@ paths:
                 - data
         '404':
           description: Not found, or not a member
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/v1/projects/{project_id}/analytics":
+    parameters:
+    - name: project_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: Project analytics
+      tags:
+      - Analytics
+      description: 'What a project dashboard needs, computed by the database: counts
+        by status and priority, tasks created and completed per period, how long completed
+        tasks took, and who is carrying what. Any member can read it. Cached for five
+        minutes, and invalidated as soon as a task in the project changes.'
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: from
+        in: query
+        format: date
+        required: false
+        description: 'First day, ISO 8601 (default: 29 days before `to`)'
+        schema:
+          type: string
+      - name: to
+        in: query
+        format: date
+        required: false
+        description: 'Last day, ISO 8601 (default: today, UTC)'
+        schema:
+          type: string
+      - name: interval
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - day
+          - week
+          - month
+          default: week
+        description: Bucket size for `throughput`. A range may span at most 120 buckets.
+      responses:
+        '200':
+          description: The report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/ProjectAnalytics"
+                required:
+                - data
+        '422':
+          description: Invalid range or interval (every problem is listed in `details`)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '404':
+          description: Not found, or not a member
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '401':
+          description: Missing or invalid token
           content:
             application/json:
               schema:

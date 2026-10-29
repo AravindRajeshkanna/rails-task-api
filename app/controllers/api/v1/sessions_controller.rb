@@ -8,6 +8,7 @@ module Api
       def create
         if (user = User.authenticate_by(params.permit(:email_address, :password)))
           token = start_new_session_for(user)
+          prevent_storage
           render_resource SessionResource, Current.session, status: :created, params: { token: token }
         else
           render_error :unauthorized, "invalid_credentials", "Invalid email address or password"

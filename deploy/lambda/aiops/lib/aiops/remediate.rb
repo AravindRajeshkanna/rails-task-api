@@ -38,7 +38,7 @@ module Aiops
           else { skipped: "state #{alarm.state}" }
           end
 
-        announce(sns, env["ALERTS_TOPIC_ARN"], alarm, action, outcome, dry_run)
+        announce(sns, env["ALERTS_TOPIC_ARN"], alarm:, action:, outcome:, dry_run:)
         outcome
       end
 
@@ -92,7 +92,7 @@ module Aiops
           last && now - Time.parse(last) < COOLDOWN
         end
 
-        def announce(sns, topic, alarm, action, outcome, dry_run)
+        def announce(sns, topic, alarm:, action:, outcome:, dry_run:)
           return unless topic
 
           verb = dry_run ? "WOULD HAVE" : "DID"

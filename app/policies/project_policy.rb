@@ -17,6 +17,7 @@ class ProjectPolicy < ApplicationPolicy
   def restore? = record.discarded? && owner?
 
   # Project-level administration that other resources defer to.
+  def analytics? = show?
   def audit? = update?
   def manage_webhooks? = update?
 
