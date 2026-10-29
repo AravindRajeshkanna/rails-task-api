@@ -7,7 +7,7 @@ each section is a ledger, not a plan, so every line says what actually happened.
 | --- | --- | --- | --- |
 | 1 | [Build an API-only Rails 8.1 backend](#roadmap-1-build-the-api) (phases 0-7) | [#1](https://github.com/AravindRajeshkanna/rails-task-api/pull/1) | The Task/Project Management API |
 | 2 | [AI-powered, AIOps-enabled microservices on AWS EKS](#roadmap-2-ai-aiops-and-microservices-on-eks) (phases 1-6) | [#5](https://github.com/AravindRajeshkanna/rails-task-api/pull/5) | AI features, observability, three extracted services, the platform to run it |
-| 3 | [Improve it further](#roadmap-3-improving-the-project-further) (phases 1-8) | this change | Hardening, testing, performance, security, documentation, organizations, analytics |
+| 3 | [Improve it further](#roadmap-3-improving-the-project-further) (phases 1-8) | [#6](https://github.com/AravindRajeshkanna/rails-task-api/pull/6) | Hardening, testing, performance, security, documentation, organizations, analytics |
 
 **Status key.** ✅ done and verified as described · 🟡 done in part, or done differently on purpose (the note says how) · ⏭ deliberately not done (the note says why, and what would trigger it).
 
@@ -50,7 +50,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 
 ## Roadmap 3: Improving the project further
 
-*Goal: take the project from a solid learning build to a production-ready portfolio piece, in eight phases. Delivered in this change.*
+*Goal: take the project from a solid learning build to a production-ready portfolio piece, in eight phases. Delivered in #6.*
 
 ### Phase 1: Code quality and architecture
 
@@ -63,7 +63,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | Proper `/api/v1`, prepare v2 | ✅ | `/api/v1` since #1; now `API-Version` on every response and `Deprecation`/`Sunset` headers for retiring a version; [api-versioning.md](api-versioning.md) is the v2 guide |
 | Alba, no `as_json` | ✅ | Since #1 (`app/resources`); the analytics report is the one hash payload, built from explicit keys |
 | DB constraints, indexes, foreign keys | ✅ | Foreign keys since #1. Now CHECK constraints (11 on existing tables), validated in a second migration; `strong_migrations` guards future ones; one index added because `EXPLAIN` demanded it ([ADR 31](decisions.md), [performance.md](performance.md)) |
-| ADR document | ✅ | [decisions.md](decisions.md): 1-13 (#1), 14-28 (#5), 29-34 (this change) |
+| ADR document | ✅ | [decisions.md](decisions.md): 1-13 (#1), 14-28 (#5), 29-34 (#6) |
 
 ### Phase 2: Testing
 
