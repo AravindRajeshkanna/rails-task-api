@@ -243,6 +243,22 @@ module OpenapiSchemas
       },
       required: %i[id role user]
     },
+    SearchResult: {
+      type: :object,
+      description: "A task that matched a full-text search. Highlights wrap matched words in « » (plain text, not HTML).",
+      properties: {
+        id: { type: :integer }, project_id: { type: :integer },
+        project: { type: :object, properties: { id: { type: :integer }, name: { type: :string } }, required: %i[id name] },
+        title: { type: :string }, status: { type: :string }, priority: { type: :string },
+        due_on: { type: :string, format: :date, nullable: true }, updated_at: { type: :string, format: "date-time" },
+        rank: { type: :number, description: "Higher is a better match; title matches count for more than description matches" },
+        highlights: {
+          type: :object,
+          properties: { title: { type: :string, nullable: true }, description: { type: :string, nullable: true, description: "One fragment around the best match" } }
+        }
+      },
+      required: %i[id project_id project title rank highlights]
+    },
     Team: {
       type: :object,
       properties: {

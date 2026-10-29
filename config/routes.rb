@@ -25,6 +25,9 @@ Rails.application.routes.draw do
         get :usage
       end
 
+      # Full-text search across the caller's projects (inside one project: `?search=` on its task list).
+      get "search", to: "search#index"
+
       # Everything that happened in the caller's projects (the member's view of the audit log).
       get "activity", to: "activities#index"
 

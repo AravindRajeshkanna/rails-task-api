@@ -645,6 +645,59 @@ components:
       - id
       - role
       - user
+    SearchResult:
+      type: object
+      description: A task that matched a full-text search. Highlights wrap matched
+        words in « » (plain text, not HTML).
+      properties:
+        id:
+          type: integer
+        project_id:
+          type: integer
+        project:
+          type: object
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+          required:
+          - id
+          - name
+        title:
+          type: string
+        status:
+          type: string
+        priority:
+          type: string
+        due_on:
+          type: string
+          format: date
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+        rank:
+          type: number
+          description: Higher is a better match; title matches count for more than
+            description matches
+        highlights:
+          type: object
+          properties:
+            title:
+              type: string
+              nullable: true
+            description:
+              type: string
+              nullable: true
+              description: One fragment around the best match
+      required:
+      - id
+      - project_id
+      - project
+      - title
+      - rank
+      - highlights
     Team:
       type: object
       properties:
@@ -2654,6 +2707,69 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+  "/api/v1/search":
+    get:
+      summary: Search tasks across my projects
+      tags:
+      - Search
+      description: Full-text search of task titles and descriptions in every project
+        the caller can see (including through a team or an organization), best match
+        first. Words are stemmed (`deploying` finds `deployed`); `"quoted phrases"`,
+        `or` and `-excluded` work; any text is safe. Deleted tasks and archived projects
+        never match. Inside one project, use `search` on its task list.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: q
+        in: query
+        required: true
+        description: What to look for, at most 200 characters
+        schema:
+          type: string
+      - name: project_id
+        in: query
+        required: false
+        description: Only this project
+        schema:
+          type: integer
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of matches
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/SearchResult"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '400':
+          description: q is missing or longer than 200 characters
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
   "/api/v1/projects/{project_id}/tasks":
     parameters:
     - name: project_id
@@ -2714,7 +2830,15 @@ paths:
       - name: q
         in: query
         required: false
-        description: Case-insensitive search of title and description
+        description: Case-insensitive substring search of title and description
+        schema:
+          type: string
+      - name: search
+        in: query
+        required: false
+        description: 'Full-text search of title and description (max 200 characters):
+          words are stemmed, `"quoted phrases"`, `or` and `-excluded` work. Best match
+          first unless `sort` is given'
         schema:
           type: string
       - name: sort

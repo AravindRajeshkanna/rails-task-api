@@ -401,3 +401,22 @@ would be a trap. Measured on the 149,000-task database: the whale project's task
 
 What teams are not: they have no roles of their own, cannot nest, and cannot be granted to a personal project (a project without an organization has no
 teams to grant). Projects of an organization still cannot be given to a person outside it, with or without a team.
+
+## 38. Full-text search: a stored `tsvector`, ranked, next to (not instead of) substring search
+
+Substring search (`?q=`) cannot use an index for the description, matches letters rather than words, and cannot rank. Full-text search is
+`websearch_to_tsquery` against a `tsvector` that PostgreSQL maintains itself: a **stored generated column** over title (weight A) and
+description (weight B), indexed with GIN. A generated column rather than a trigger or a callback, because it is correct for every write including
+bulk inserts and never drifts, and it is visible in `schema.rb`. The price is that adding it rewrites the table under a lock (3.7 s for 149,000
+rows), so that migration is the one marked `safety_assured`, with the measurement beside it and the alternative in the migrations runbook.
+`websearch_to_tsquery` because it accepts anything a person types (quotes, `or`, `-`) and never raises a syntax error. The language is fixed to
+English in the expression; supporting more would mean a language column and a new vector.
+
+`q` keeps its meaning: it is a documented contract, and substring is still the right tool for fragments like part of an id or a code. The new
+behavior is `search=` on a project's task list and `GET /search` across every project the caller can see. Results come only through
+`policy_scope(Task)`, so team and organization access apply and nothing else leaks; the ranking SQL is built with Arel from a quoted value,
+the highlight SQL from sanitized fragments, and the term is capped at 200 characters. Highlights are **plain text with « » around matches**,
+never HTML: there is nothing to inject, and clients escape fields like any other.
+
+What it is not: no stemming for languages other than English, no typo tolerance or synonyms (that is a search engine's job), nothing for comments
+or attachments, and a broad term in a very large project costs about 20 ms because every match is scored ([performance.md](performance.md)).

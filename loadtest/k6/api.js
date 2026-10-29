@@ -18,7 +18,7 @@ const seed = JSON.parse(open('../../tmp/loadtest/tokens.json'));
 const tokens = new SharedArray('tokens', () => seed.tokens);
 
 const ENDPOINTS = [
-  'projects_index', 'tasks_index', 'tasks_whale', 'tasks_filtered', 'tasks_search', 'task_show', 'analytics', 'activity',
+  'projects_index', 'tasks_index', 'tasks_whale', 'tasks_filtered', 'tasks_search', 'tasks_fulltext', 'search', 'task_show', 'analytics', 'activity',
   'task_create', 'task_update', 'comment_create',
 ];
 
@@ -45,6 +45,7 @@ export const options = {
     'http_req_duration{kind:write}': ['p(95)<600'],
     // The expensive endpoints get their own line, so a regression there is not averaged away.
     'http_req_duration{name:tasks_whale}': ['p(95)<500', 'max>=0'],
+    'http_req_duration{name:search}': ['p(95)<600', 'max>=0'],
     'http_req_duration{name:analytics}': ['p(95)<800', 'max>=0'],
   },
   summaryTrendStats: ['avg', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
@@ -63,6 +64,9 @@ function send(method, path, body, headers, name) {
 
 const ok = (res, label) => check(res, { [`${label} 2xx`]: (r) => r.status >= 200 && r.status < 300 });
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
+// The seed vocabulary is 26 words, so every term matches a large share of rows: the worst case for ranked
+// full-text search (it must score every match). Real text has rare words and is much cheaper.
+const SEARCHES = ['billing', 'billing+invoice', '%22deploy+review%22', 'audit+-backup', 'migrating'];
 
 export default function () {
   const useWhale = Math.random() < 0.2; // one huge project is where slow queries hide
@@ -82,6 +86,8 @@ export default function () {
   if (Math.random() < 0.85) { // browse
     ok(get(`/projects/${project.id}/tasks?status=todo,in_progress&sort=-priority,due_on&limit=25`, headers, 'tasks_filtered'), 'filtered');
     ok(get(`/projects/${project.id}/tasks?q=billing&limit=25`, headers, 'tasks_search'), 'search');
+    ok(get(`/projects/${project.id}/tasks?search=${pick(SEARCHES)}&limit=25`, headers, 'tasks_fulltext'), 'full-text');
+    ok(get(`/search?q=${pick(SEARCHES)}&limit=25`, headers, 'search'), 'cross-project search');
     const first = tasks.status === 200 ? tasks.json('data.0') : null;
     if (first) ok(get(`/tasks/${first.id}`, headers, 'task_show'), 'show');
     ok(get(`/projects/${project.id}/analytics`, headers, 'analytics'), 'analytics');

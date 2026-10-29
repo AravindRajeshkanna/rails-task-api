@@ -15,6 +15,10 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - **Organizations.** `GET|POST /api/v1/organizations`, `GET|PATCH|DELETE /api/v1/organizations/{id}` and
   `GET /api/v1/organizations/{id}/members`, `PATCH|DELETE /api/v1/organizations/{id}/members/{member_id}`.
   Roles `owner`, `admin`, `member`. Owners and admins administer every project of the organization.
+- **Full-text search.** `GET /api/v1/search?q=` searches task titles and descriptions across every project you can see, best match first
+  (title matches outrank description matches), with the task's project, a rank, and highlights (matched words wrapped in `«»`, plain text).
+  `GET /api/v1/projects/{id}/tasks?search=` does the same inside one project (best match first unless `sort` is given). Words are stemmed
+  (`deploying` finds `deployed`), `"quoted phrases"`, `or` and `-excluded` work, any text is safe, at most 200 characters. `q` still means substring.
 - **Teams.** Groups inside an organization that a project can grant access to as a unit. `GET|POST /api/v1/organizations/{id}/teams`,
   `GET|PATCH|DELETE /api/v1/organizations/{id}/teams/{team_id}`, `GET|POST /api/v1/organizations/{id}/teams/{team_id}/members` (by `user_id`; the person
   must be in the organization) and `DELETE .../members/{member_id}`: owners and admins manage them, any member of the organization can read them.

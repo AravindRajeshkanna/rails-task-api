@@ -106,7 +106,8 @@ Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it.
 
 **Task filters** (`GET /api/v1/projects/:id/tasks`, all combinable):
 `status`, `priority` (comma lists), `assignee` (`me` / `unassigned` / id), `tag`, `due_from`, `due_to`,
-`overdue=true`, `q` (title + description search), `sort` (`-priority,due_on`; prefix `-` for descending).
+`overdue=true`, `q` (substring search of title and description), `search` (full-text: stemmed words, `"phrases"`, `or`, `-excluded`; best match first unless `sort` is given), `sort` (`-priority,due_on`; prefix `-` for descending).
+`GET /api/v1/search?q=` is the same full-text search across every project you can see, with highlighted snippets (matches wrapped in `«»`).
 
 **Optimistic locking.** Tasks expose `lock_version`; send it back on `PATCH` and a concurrent edit returns `409`.
 
@@ -122,6 +123,7 @@ purged for good after 30 days.
 | Organizations | `GET` `POST /organizations` · `GET` `PATCH` `DELETE /organizations/:id` · `GET /organizations/:id/members` · `PATCH` `DELETE /organizations/:id/members/:member_id` · `GET` `POST /organizations/:id/invitations` · `DELETE /organizations/:id/invitations/:id` · `POST /invitations/accept` · `GET /organizations/:id/audit_events` (owners) · `GET` `POST /organizations/:id/teams` · `GET` `PATCH` `DELETE /organizations/:id/teams/:id` · `GET` `POST /organizations/:id/teams/:id/members` · `DELETE /organizations/:id/teams/:id/members/:member_id` |
 | Projects | `GET` `POST /projects` (`organization_id` creates one inside an organization) · `GET` `PATCH` `DELETE /projects/:id` · `POST /projects/:id/restore` |
 | Members | `GET` `POST /projects/:id/memberships` · `PATCH` `DELETE /memberships/:id` · `GET` `POST /projects/:id/teams` · `PATCH` `DELETE /projects/:id/teams/:id` (a team's access) |
+| Search | `GET /search?q=` (all your projects) · `GET /projects/:id/tasks?search=` (one project) |
 | Tasks | `GET` `POST /projects/:id/tasks` · `GET` `PATCH` `DELETE /tasks/:id` · `POST /tasks/:id/restore` |
 | Comments | `GET` `POST /tasks/:id/comments` · `PATCH` `DELETE /comments/:id` |
 | Attachments | `POST /tasks/:id/attachments` (multipart `files[]`) · `DELETE /attachments/:id` |

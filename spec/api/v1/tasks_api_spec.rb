@@ -36,7 +36,10 @@ RSpec.describe "Tasks API", type: :request do
       parameter name: :due_from, in: :query, type: :string, format: :date, required: false
       parameter name: :due_to, in: :query, type: :string, format: :date, required: false
       parameter name: :overdue, in: :query, type: :boolean, required: false, description: "Only unfinished tasks past their due date"
-      parameter name: :q, in: :query, type: :string, required: false, description: "Case-insensitive search of title and description"
+      parameter name: :q, in: :query, type: :string, required: false, description: "Case-insensitive substring search of title and description"
+      parameter name: :search, in: :query, type: :string, required: false,
+                description: "Full-text search of title and description (max 200 characters): words are stemmed, `\"quoted phrases\"`, `or` and `-excluded` work. " \
+                             "Best match first unless `sort` is given"
       parameter name: :sort, in: :query, type: :string, required: false,
                 description: "Comma-separated columns (created_at, updated_at, due_on, priority, status, title); prefix `-` for descending. Default `-created_at`"
       parameter name: :page, in: :query, type: :integer, required: false

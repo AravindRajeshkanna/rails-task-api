@@ -48,8 +48,8 @@ p95 by endpoint, in milliseconds:
 | `PATCH /tasks/:id` | 16 | 12 | 25 |
 | `POST /tasks/:id/comments` | 22 | 10 | 20 |
 
-The slowest read is text search (`ILIKE '%term%'` on title and description, no usable index for the
-description): fine today, and the first thing to move to a `tsvector` index if projects grow ([roadmap](roadmap.md)).
+The slowest read is substring text search (`ILIKE '%term%'` on title and description, no usable index for the
+description); full-text search ([below](#full-text-search)) is the indexed alternative.
 Analytics is cached for five minutes per project version, so its p95 is dominated by the occasional cache miss.
 
 ## What the measurements changed
@@ -83,6 +83,30 @@ and the rest of the request do not shrink. That ratio is the honest number.
 
 No other index was added: the planner already used the existing ones, and an index that no measured
 query needs only slows writes. Add one when `EXPLAIN` on production-sized data shows a scan, not before.
+
+## Full-text search
+
+`GET /search` and `?search=` use a stored `tsvector` (title weight A, description weight B) with a GIN index
+([ADR 38](decisions.md)). Measured in-process (no HTTP, no k6) against the 149,000-task database, 50,000 of them in one project,
+`EXPLAIN (ANALYZE)` plans in the PR:
+
+| Query (first page of 25) | Substring `?q=` (`ILIKE`) | Full-text `?search=` / `GET /search` |
+| --- | ---: | ---: |
+| **Rare** word (15 of 50,000 tasks) | 62 ms | **2 ms** |
+| **Common** word (29,000 of 50,000 match) | 1.7 ms | 21 ms |
+| Two common words, or a phrase | n/a (one substring) | 13-23 ms |
+| Word that matches nothing | scans the project | 1 ms |
+| The count behind the pagination header | n/a | 1 ms (rare), 11-19 ms (common) |
+
+Two different shapes, and neither wins everywhere. A substring search walks the newest tasks first and stops after 25 hits, so a *common*
+word is nearly free and a *rare* word reads the whole project (no index can serve `%word%` on the description). A ranked search has to
+score **every** match before it knows the best 25, so its cost grows with the number of matches: tiny for a rare word, about 20 ms for a word
+in 60% of 50,000 tasks. The seed data (26 words) is the worst case for that; real text is mostly rare words. Highlights cost nothing extra,
+because PostgreSQL only computes them for the 25 rows it returns. If a ranked search ever becomes the slow one, the lever is to rank only
+the most recent N matches for broad queries; it is not built because nothing needs it yet.
+
+The migration that adds the column rewrites `tasks` under a lock: 3.7 s here ([runbook](runbooks/zero-downtime-migrations.md)). The GIN
+index is 2.9 MB for 149,000 tasks and is built concurrently.
 
 ## Other performance guards that run in CI
 

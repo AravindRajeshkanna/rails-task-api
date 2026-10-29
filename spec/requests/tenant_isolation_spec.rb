@@ -39,7 +39,8 @@ RSpec.describe "Tenant isolation" do
       [ "GET", "/api/v1/me" ], [ "PATCH", "/api/v1/me" ], [ "PATCH", "/api/v1/me/avatar" ], [ "DELETE", "/api/v1/me/avatar" ],
       [ "GET", "/api/v1/projects" ], [ "POST", "/api/v1/projects" ], [ "GET", "/api/v1/organizations" ], [ "POST", "/api/v1/organizations" ],
       [ "GET", "/api/v1/ai/usage" ], [ "GET", "/api/v1/activity" ], # the feed is scoped to the caller's projects; see activity_spec
-      [ "POST", "/api/v1/invitations/accept" ] # needs a token addressed to the caller; see organization_invitations_spec
+      [ "POST", "/api/v1/invitations/accept" ], # needs a token addressed to the caller; see organization_invitations_spec
+      [ "GET", "/api/v1/search" ] # scoped to the caller's projects; see search_spec
     ]
   end
 

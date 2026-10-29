@@ -41,6 +41,15 @@ class Task < ApplicationRecord
   scope :with_tag_names, ->(names) {
     where(id: Tagging.joins(:tag).where(tags: { name: names }).select(:task_id))
   }
+  # Full-text match on the generated search_vector (title and description, stemmed). The term is a web
+  # search query ("quoted phrase", or, -excluded) and any text is safe. Ranking is TaskSearch's job.
+  scope :full_text, ->(term) { where("tasks.search_vector @@ websearch_to_tsquery('english', ?)", term) }
+
+  # How well a task matches +term+, as an Arel node (title matches count for more than description matches).
+  def self.search_rank(term)
+    query = Arel::Nodes::NamedFunction.new("websearch_to_tsquery", [ Arel::Nodes.build_quoted("english"), Arel::Nodes.build_quoted(term) ])
+    Arel::Nodes::NamedFunction.new("ts_rank", [ arel_table[:search_vector], query ])
+  end
   scope :search, ->(term) {
     pattern = "%#{sanitize_sql_like(term)}%"
     where("tasks.title ILIKE :pattern OR tasks.description ILIKE :pattern", pattern: pattern)
