@@ -29,6 +29,10 @@ module ErrorHandling
     rescue_from ActiveModel::ValidationError do |error|
       render_error :unprocessable_content, "validation_failed", "Validation failed", error.model.errors.messages
     end
+    # A destroy that a `dependent: :restrict_with_error` or a before_destroy guard refused.
+    rescue_from ActiveRecord::RecordNotDestroyed do |error|
+      render_error :unprocessable_content, "validation_failed", "Validation failed", error.record.errors.messages
+    end
     rescue_from ActiveRecord::RecordNotFound do
       render_error :not_found, "not_found", "Resource not found"
     end

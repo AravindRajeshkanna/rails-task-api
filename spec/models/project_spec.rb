@@ -105,3 +105,38 @@ RSpec.describe Project do
     end
   end
 end
+
+RSpec.describe Project, "in an organization" do
+  let(:organization) { create(:organization) }
+  let(:owner) { create(:user).tap { |user| create(:organization_membership, organization: organization, user: user) } }
+
+  it "makes its owner an admin as usual" do
+    project = create(:project, owner: owner, organization: organization)
+
+    expect(project.memberships.find_by!(user: owner).role).to eq("admin")
+  end
+
+  it "stays in its organization for life" do
+    project = create(:project, owner: owner, organization: organization)
+
+    expect(project.update(organization: create(:organization))).to be(false)
+    expect(project.errors[:organization_id]).to be_present
+    expect(create(:project, owner: owner).update(organization: organization)).to be(false)
+  end
+
+  it "only takes members of its organization" do
+    project = create(:project, owner: owner, organization: organization)
+    outsider = create(:user)
+
+    membership = build(:membership, project: project, user: outsider)
+    expect(membership).not_to be_valid
+    expect(membership.errors[:user]).to include("must be a member of the project's organization")
+
+    create(:organization_membership, organization: organization, user: outsider)
+    expect(build(:membership, project: project, user: outsider)).to be_valid
+  end
+
+  it "does not constrain personal projects" do
+    expect(build(:membership, project: create(:project), user: create(:user))).to be_valid
+  end
+end

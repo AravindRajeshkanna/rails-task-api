@@ -27,13 +27,17 @@ RSpec.configure do |config|
           means the provider is busy.
 
           **Authorization.** Resources inside a project you do not belong to answer `404`, not `403`,
-          so their existence is not disclosed.
+          so their existence is not disclosed. Owners and admins of an organization administer all of its
+          projects without being added to each one.
+
+          **Versioning.** Every response carries `API-Version`. A version being retired also sends
+          `Deprecation` and `Sunset` headers (RFC 9745, RFC 8594).
         MD
       },
       servers: [ { url: "http://localhost:3000", description: "Local development" } ],
       tags: [
         { name: "Authentication" }, { name: "Account" }, { name: "Projects" }, { name: "Tasks" },
-        { name: "AI" }, { name: "Activity" }, { name: "Analytics" }, { name: "Comments" }, { name: "Tags" }, { name: "Memberships" }, { name: "Webhooks" }, { name: "Audit log" }
+        { name: "AI" }, { name: "Activity" }, { name: "Analytics" }, { name: "Comments" }, { name: "Tags" }, { name: "Memberships" }, { name: "Organizations" }, { name: "Webhooks" }, { name: "Audit log" }
       ],
       components: {
         securitySchemes: { bearer_auth: { type: :http, scheme: :bearer, description: "Session token from sign-in or sign-up" } },

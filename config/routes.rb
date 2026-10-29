@@ -32,6 +32,11 @@ Rails.application.routes.draw do
         resource :avatar, only: %i[update destroy]
       end
 
+      # People and the projects they share; members are addressed under their organization.
+      resources :organizations do
+        resources :members, controller: "organization_memberships", only: %i[index create update destroy]
+      end
+
       # Shallow nesting: collections hang off their parent
       # (/projects/1/tasks), members stand alone (/tasks/7).
       resources :projects, shallow: true do

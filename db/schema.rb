@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_29_184720) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -99,6 +99,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_184720) do
     t.check_constraint "role::text = ANY (ARRAY['member'::character varying, 'admin'::character varying]::text[])", name: "memberships_role_valid"
   end
 
+  create_table "organization_memberships", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.bigint "user_id", null: false
+    t.string "role", default: "member", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["organization_id", "user_id"], name: "index_organization_memberships_on_organization_id_and_user_id", unique: true
+    t.index ["organization_id"], name: "index_organization_memberships_on_organization_id"
+    t.index ["user_id"], name: "index_organization_memberships_on_user_id"
+    t.check_constraint "role::text = ANY (ARRAY['member'::character varying, 'admin'::character varying, 'owner'::character varying]::text[])", name: "organization_memberships_role_valid"
+  end
+
+  create_table "organizations", force: :cascade do |t|
+    t.string "name", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.check_constraint "char_length(btrim(name::text)) > 0", name: "organizations_name_present"
+  end
+
   create_table "projects", force: :cascade do |t|
     t.bigint "owner_id", null: false
     t.string "name", null: false
@@ -106,7 +125,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_184720) do
     t.datetime "discarded_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "organization_id"
     t.index ["discarded_at"], name: "index_projects_on_discarded_at"
+    t.index ["organization_id"], name: "index_projects_on_organization_id"
     t.index ["owner_id"], name: "index_projects_on_owner_id"
     t.check_constraint "char_length(btrim(name::text)) > 0", name: "projects_name_present"
   end
@@ -226,6 +247,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_184720) do
   add_foreign_key "comments", "users"
   add_foreign_key "memberships", "projects"
   add_foreign_key "memberships", "users"
+  add_foreign_key "organization_memberships", "organizations"
+  add_foreign_key "organization_memberships", "users"
+  add_foreign_key "projects", "organizations"
   add_foreign_key "projects", "users", column: "owner_id"
   add_foreign_key "sessions", "users"
   add_foreign_key "taggings", "tags"

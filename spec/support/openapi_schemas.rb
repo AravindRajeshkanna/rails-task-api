@@ -61,7 +61,8 @@ module OpenapiSchemas
       type: :object,
       properties: {
         id: { type: :integer }, name: { type: :string }, description: { type: :string, nullable: true },
-        role: { type: :string, enum: %w[member admin], nullable: true, description: "The caller's role" },
+        role: { type: :string, enum: %w[member admin], nullable: true, description: "The caller's role (admin also through owning or administering the project's organization)" },
+        organization_id: { type: :integer, nullable: true, description: "Set when the project was created inside an organization; fixed for life" },
         owner: ref("UserSummary"), created_at: { type: :string, format: "date-time" }, updated_at: { type: :string, format: "date-time" },
         stats: {
           type: :object, description: "Task counts (only on single-project responses)",
@@ -224,6 +225,23 @@ module OpenapiSchemas
         delivered_at: { type: :string, format: "date-time", nullable: true }, created_at: { type: :string, format: "date-time" }
       },
       required: %i[id event status]
+    },
+    Organization: {
+      type: :object,
+      properties: {
+        id: { type: :integer }, name: { type: :string },
+        role: { type: :string, enum: %w[member admin owner], nullable: true, description: "The caller's role in it" },
+        created_at: { type: :string, format: "date-time" }, updated_at: { type: :string, format: "date-time" }
+      },
+      required: %i[id name]
+    },
+    OrganizationMember: {
+      type: :object,
+      properties: {
+        id: { type: :integer }, role: { type: :string, enum: %w[member admin owner] },
+        user: ref("UserSummary"), created_at: { type: :string, format: "date-time" }
+      },
+      required: %i[id role user]
     },
     Activity: {
       type: :object,
