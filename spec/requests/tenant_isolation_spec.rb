@@ -40,7 +40,9 @@ RSpec.describe "Tenant isolation" do
       [ "GET", "/api/v1/projects" ], [ "POST", "/api/v1/projects" ], [ "GET", "/api/v1/organizations" ], [ "POST", "/api/v1/organizations" ],
       [ "GET", "/api/v1/ai/usage" ], [ "GET", "/api/v1/activity" ], # the feed is scoped to the caller's projects; see activity_spec
       [ "POST", "/api/v1/invitations/accept" ], # needs a token addressed to the caller; see organization_invitations_spec
-      [ "GET", "/api/v1/search" ] # scoped to the caller's projects; see search_spec
+      [ "GET", "/api/v1/search" ], # scoped to the caller's projects; see search_spec
+      [ "GET", "/api/v1/notifications" ], [ "PATCH", "/api/v1/notifications/:x" ], [ "DELETE", "/api/v1/notifications/:x" ],
+      [ "POST", "/api/v1/notifications/read_all" ] # the caller's own inbox; see notifications_spec
     ]
   end
 

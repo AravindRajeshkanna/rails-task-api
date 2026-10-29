@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_30_090010) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_30_110000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -99,6 +99,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_30_090010) do
     t.index ["project_id"], name: "index_memberships_on_project_id"
     t.index ["user_id"], name: "index_memberships_on_user_id"
     t.check_constraint "role::text = ANY (ARRAY['member'::character varying::text, 'admin'::character varying::text])", name: "memberships_role_valid"
+  end
+
+  create_table "notifications", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "project_id", null: false
+    t.bigint "task_id", null: false
+    t.bigint "actor_id"
+    t.string "kind", null: false
+    t.jsonb "data", default: {}, null: false
+    t.string "dedupe_key"
+    t.datetime "read_at"
+    t.datetime "created_at", null: false
+    t.index ["actor_id"], name: "index_notifications_on_actor_id"
+    t.index ["project_id"], name: "index_notifications_on_project_id"
+    t.index ["task_id"], name: "index_notifications_on_task_id"
+    t.index ["user_id", "created_at", "id"], name: "index_notifications_on_user_id_and_created_at", order: { created_at: :desc, id: :desc }
+    t.index ["user_id", "dedupe_key"], name: "index_notifications_on_user_id_and_dedupe_key", unique: true, where: "(dedupe_key IS NOT NULL)"
+    t.index ["user_id"], name: "index_notifications_unread_on_user_id", where: "(read_at IS NULL)"
+    t.check_constraint "kind::text = ANY (ARRAY['task.assigned'::character varying, 'task.due_soon'::character varying, 'task.completed'::character varying, 'comment.created'::character varying]::text[])", name: "notifications_kind_valid"
   end
 
   create_table "organization_invitations", force: :cascade do |t|
@@ -302,6 +321,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_30_090010) do
   add_foreign_key "comments", "users"
   add_foreign_key "memberships", "projects"
   add_foreign_key "memberships", "users"
+  add_foreign_key "notifications", "projects", on_delete: :cascade
+  add_foreign_key "notifications", "tasks", on_delete: :cascade
+  add_foreign_key "notifications", "users", column: "actor_id", on_delete: :nullify
+  add_foreign_key "notifications", "users", on_delete: :cascade
   add_foreign_key "organization_invitations", "organizations"
   add_foreign_key "organization_invitations", "users", column: "invited_by_id", on_delete: :nullify
   add_foreign_key "organization_memberships", "organizations"

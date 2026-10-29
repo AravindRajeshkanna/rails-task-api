@@ -420,3 +420,22 @@ never HTML: there is nothing to inject, and clients escape fields like any other
 
 What it is not: no stemming for languages other than English, no typo tolerance or synonyms (that is a search engine's job), nothing for comments
 or attachments, and a broad term in a very large project costs about 20 ms because every match is scored ([performance.md](performance.md)).
+
+## 39. The in-app inbox lives in the monolith, fed by the same events, independent of email
+
+Email and Slack are delivery: stateless, at-least-once, deduplicated by event id, which is why the Notification service owns them. An inbox is
+*state*: one row per person per event, with read/unread, listed and counted on every page load. It belongs next to the data it points at (the
+task, its project, the access rules that decide who may still see it), and putting it in the Notification service would mean that service
+re-implementing project visibility or calling back into the monolith, which ADR 23 deliberately designs out (events carry everything, consumers never call back). So the monolith writes it, from the domain events it
+already emits (`task.assigned`, `task.due_soon`, `task.completed`, plus `comment.created`), through one more `Rails.event` subscriber. That keeps it
+working in `NOTIFICATIONS_MODE=local` and `remote` alike, and means a single-host Kamal deployment has an inbox too; email stays on its own switch.
+
+Decisions that matter: **nobody is told about their own action**, and the recipient must be able to see the project *when the event happens*;
+afterwards the policy scope hides notifications of a project you have left or that is archived, so the inbox never outlives the access. Each
+notification carries a snapshot of the task title, project name and (clipped) comment, so listing is one indexed query with no joins to tasks and
+an old item still reads sensibly (what it points at may since have been renamed). Reminders have a unique `dedupe_key` per person, task and due date,
+so re-running the daily job cannot double-notify. Foreign keys cascade, so purging a deleted task or project, or deleting a user, needs no callback.
+Read items are pruned after 30 days and unread after 180 (`PurgeNotificationsJob`), which bounds the table. New items are pushed to the person's
+own Action Cable stream. Measured on 300,000 rows over 500 users: first page 0.8 ms, unread count 0.5 ms (a partial index on `read_at IS NULL`).
+
+Not built: per-kind preferences or muting, digests, mentions, and counts per project; each is an addition to this table and subscriber rather than a redesign.

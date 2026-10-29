@@ -645,6 +645,49 @@ components:
       - id
       - role
       - user
+    Notification:
+      type: object
+      description: An item in the caller's inbox. `data` is a snapshot taken when
+        it happened.
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+          enum:
+          - task.assigned
+          - task.due_soon
+          - task.completed
+          - comment.created
+        project_id:
+          type: integer
+        task_id:
+          type: integer
+        data:
+          type: object
+          description: task_title, project_name, and as relevant due_on and comment_excerpt
+        read:
+          type: boolean
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        actor:
+          allOf:
+          - "$ref": "#/components/schemas/UserSummary"
+          nullable: true
+          description: Who did it; absent for reminders
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - kind
+      - project_id
+      - task_id
+      - data
+      - read
+      - created_at
     SearchResult:
       type: object
       description: A task that matched a full-text search. Highlights wrap matched
@@ -1718,6 +1761,163 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+  "/api/v1/notifications":
+    get:
+      summary: List my notifications
+      tags:
+      - Notifications
+      description: 'The caller''s inbox, newest first: tasks assigned to you, reminders
+        for tasks due tomorrow, comments on your tasks, and completion of tasks you
+        created. Things in a project you have left, or that is archived, are not listed.
+        `meta.unread_count` counts all unread notifications whatever the filters.
+        New ones are also pushed over `NotificationsChannel` (Action Cable).'
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: unread
+        in: query
+        required: false
+        description: Only unread ones
+        schema:
+          type: boolean
+      - name: project_id
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: kind
+        in: query
+        required: false
+        description: 'Comma-separated: task.assigned, task.due_soon, task.completed,
+          comment.created'
+        schema:
+          type: string
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Notification"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '400':
+          description: Unknown kind
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/v1/notifications/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    patch:
+      summary: Mark a notification read or unread
+      tags:
+      - Notifications
+      description: 'Idempotent: marking a read notification read again keeps its original
+        time.'
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Notification"
+                required:
+                - data
+        '404':
+          description: Not yours, or not found
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                read:
+                  type: boolean
+              required:
+              - read
+    delete:
+      summary: Dismiss a notification
+      tags:
+      - Notifications
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Deleted
+  "/api/v1/notifications/read_all":
+    post:
+      summary: Mark everything read
+      tags:
+      - Notifications
+      description: Marks all of the caller's unread notifications read, optionally
+        only those of one project (`project_id` in the body).
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: How many were marked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      updated:
+                        type: integer
+                    required:
+                    - updated
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id:
+                  type: integer
   "/api/v1/organizations":
     get:
       summary: List my organizations

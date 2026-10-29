@@ -15,6 +15,12 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - **Organizations.** `GET|POST /api/v1/organizations`, `GET|PATCH|DELETE /api/v1/organizations/{id}` and
   `GET /api/v1/organizations/{id}/members`, `PATCH|DELETE /api/v1/organizations/{id}/members/{member_id}`.
   Roles `owner`, `admin`, `member`. Owners and admins administer every project of the organization.
+- **In-app inbox.** `GET /api/v1/notifications` (newest first; `unread=true`, `project_id`, `kind`; `meta.unread_count`), `PATCH /api/v1/notifications/{id}`
+  with `{"read": true|false}`, `DELETE /api/v1/notifications/{id}` and `POST /api/v1/notifications/read_all` (optionally `project_id`). You are told when a
+  task is assigned to you by someone else (`task.assigned`), when one of yours is due tomorrow (`task.due_soon`), when someone else completes a task you created
+  (`task.completed`) and when someone else comments on a task you created or are assigned (`comment.created`). New ones are pushed over Action Cable
+  (`NotificationsChannel`, `{event: "notification.created", data: ...}`). Notifications in a project you have left or that is archived are not listed;
+  read ones are removed after 30 days, unread after 180.
 - **Full-text search.** `GET /api/v1/search?q=` searches task titles and descriptions across every project you can see, best match first
   (title matches outrank description matches), with the task's project, a rank, and highlights (matched words wrapped in `«»`, plain text).
   `GET /api/v1/projects/{id}/tasks?search=` does the same inside one project (best match first unless `sort` is given). Words are stemmed

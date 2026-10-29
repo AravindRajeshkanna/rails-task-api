@@ -243,6 +243,19 @@ module OpenapiSchemas
       },
       required: %i[id role user]
     },
+    Notification: {
+      type: :object,
+      description: "An item in the caller's inbox. `data` is a snapshot taken when it happened.",
+      properties: {
+        id: { type: :integer }, kind: { type: :string, enum: %w[task.assigned task.due_soon task.completed comment.created] },
+        project_id: { type: :integer }, task_id: { type: :integer },
+        data: { type: :object, description: "task_title, project_name, and as relevant due_on and comment_excerpt" },
+        read: { type: :boolean }, read_at: { type: :string, format: "date-time", nullable: true },
+        actor: { allOf: [ ref("UserSummary") ], nullable: true, description: "Who did it; absent for reminders" },
+        created_at: { type: :string, format: "date-time" }
+      },
+      required: %i[id kind project_id task_id data read created_at]
+    },
     SearchResult: {
       type: :object,
       description: "A task that matched a full-text search. Highlights wrap matched words in « » (plain text, not HTML).",

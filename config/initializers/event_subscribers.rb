@@ -15,6 +15,9 @@ Rails.application.config.after_initialize do
     Rails.event.subscribe(Events::SnsSubscriber.new) { |event| event[:name].match?(/\A(task|project|comment)\./) }
   end
 
+  # The in-app inbox, fed by the events people should hear about.
+  Rails.event.subscribe(Events::InboxSubscriber.new) { |event| Events::InboxSubscriber::HANDLED.include?(event[:name]) }
+
   Rails.event.subscribe(Events::BroadcastSubscriber.new) do |event|
     event[:name].start_with?("task.", "comment.", "project.")
   end

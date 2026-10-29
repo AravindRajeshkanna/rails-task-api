@@ -25,6 +25,11 @@ Rails.application.routes.draw do
         get :usage
       end
 
+      # The caller's in-app inbox (kept current over NotificationsChannel).
+      resources :notifications, only: %i[index update destroy] do
+        post :read_all, on: :collection
+      end
+
       # Full-text search across the caller's projects (inside one project: `?search=` on its task list).
       get "search", to: "search#index"
 
