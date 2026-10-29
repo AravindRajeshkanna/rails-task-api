@@ -32,6 +32,8 @@ data "aws_iam_policy_document" "github_trust" {
 }
 
 resource "aws_iam_role" "github_deploy" {
+  count = local.is_secondary ? 0 : 1 # the standby's images arrive by ECR replication; CI only pushes to the primary's registry
+
   name               = "${local.name}-github-deploy"
   assume_role_policy = data.aws_iam_policy_document.github_trust.json
 }
@@ -51,7 +53,9 @@ data "aws_iam_policy_document" "github_deploy" {
 }
 
 resource "aws_iam_role_policy" "github_deploy" {
+  count = local.is_secondary ? 0 : 1
+
   name   = "push-images"
-  role   = aws_iam_role.github_deploy.id
+  role   = aws_iam_role.github_deploy[0].id
   policy = data.aws_iam_policy_document.github_deploy.json
 }

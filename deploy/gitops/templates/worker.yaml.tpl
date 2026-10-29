@@ -2,7 +2,7 @@
 image:
   repository: ${ECR_REGISTRY}/task-api/api
   tag: bootstrap
-secrets: { prefix: task-api/${ENV} }
+secrets: { prefix: task-api/${SECRETS_ENV} }
 keda: { maxReplicaCount: ${WORKER_MAX_REPLICAS} }
 env:
   APP_BASE_URL: https://${DOMAIN}

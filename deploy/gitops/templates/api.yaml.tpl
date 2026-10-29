@@ -4,7 +4,7 @@ image:
   tag: bootstrap                 # CI replaces this with the git SHA on every deploy
 replicaCount: ${API_REPLICAS}
 autoscaling: { minReplicas: ${API_REPLICAS}, maxReplicas: ${API_MAX_REPLICAS} }
-secrets: { prefix: task-api/${ENV} }
+secrets: { prefix: task-api/${SECRETS_ENV} }
 rollout: { enabled: ${ROLLOUT_ENABLED}, analysis: { enabled: ${ROLLOUT_ENABLED} } }
 env:
   APP_BASE_URL: https://${DOMAIN}

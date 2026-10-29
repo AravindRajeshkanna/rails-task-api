@@ -2,7 +2,7 @@
 image:
   repository: ${ECR_REGISTRY}/task-api/auth
   tag: bootstrap
-secrets: { prefix: task-api/${ENV} }
+secrets: { prefix: task-api/${SECRETS_ENV} }
 rollout: { enabled: ${ROLLOUT_ENABLED}, analysis: { enabled: ${ROLLOUT_ENABLED} } }
 env:
   DB_HOST: ${DB_ENDPOINT}

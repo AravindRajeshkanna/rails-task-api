@@ -295,6 +295,8 @@ rendered for every environment and checked against Kubernetes and CRD schemas), 
 [docs/aws/setup-guide.md](docs/aws/setup-guide.md) lists every manual step in order (Bedrock access, SES, state bucket, secrets, database bootstrap, Argo CD,
 DNS), with a verification checklist. Runbooks for the alerts are in [docs/runbooks/](docs/runbooks/).
 
+A second region (an active/passive warm standby built from the same Terraform with `dr_role`, with a Route 53 failover pair) is written and checked offline with `terraform test`, but has never been applied: [docs/aws/multi-region.md](docs/aws/multi-region.md).
+
 The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE=local` and the monolith's own auth.
 
 ## Known limitations

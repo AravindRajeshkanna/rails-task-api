@@ -482,6 +482,8 @@ oldest unpublished event (`taskapi_outbox_oldest_pending_event_age_seconds`, ala
 
 ## 42. Multi-region is designed, not built
 
+> **Superseded in part by [ADR 45](decisions.md):** the Terraform was built afterwards, at the owner's request. The reasoning below for why it was *not* built first still stands, and the caveat (nothing has been applied) is unchanged.
+
 The roadmap listed multi-region as the last item, with the condition "only after a single region has run in anger". That condition still holds: the single-region platform has
 never been applied to an AWS account. A second region built now would be Terraform written for a primary nobody has run, validated only by `terraform validate`, and its first
 real test would be the incident it exists for. Unrun infrastructure is not a smaller version of working infrastructure; it is a liability that looks like an asset (a runbook
@@ -517,3 +519,23 @@ service, and a demo with private accounts needs everything this one deliberately
 Two safeguards against the obvious accident: the reset **refuses to run unless `DEMO_MODE` is on** (so the nightly job and the rake task cannot wipe a real instance, which is what ships in `recurring.yml` for every environment), and the deployment is a Kamal
 *destination* with its own service name, server and database, so it cannot share state with the real deployment by default. What was not done, because it cannot be done from a repository: hosting it, a domain, a front end (there is none here), abuse monitoring beyond rate limits.
 `docs/demo.md` is the recipe.
+
+## 45. Multi-region Terraform: one root module applied twice, and tested offline against mocks
+
+ADR 42 declined to write Terraform for a second region before the first had run. It was written anyway when asked for, so the useful question became how to write it so that its mistakes show up *before* an account does.
+Two decisions follow from that.
+
+**One root module, two states, a `dr_role`.** The alternative, a separate `terraform-dr/` module, would duplicate network, EKS, WAF, messaging and observability and then drift. Instead the standby is this code applied with `dr_role = "secondary"`, `region`, and
+`-dr` on every name (so the account-global names cannot collide), and the few things that differ are `count`s on the role: no secrets, signing key, SES user or deploy role in the standby; a secondary member of the global database with its own
+KMS key; a replication rule in one direction on the primary and in the other on the standby, so failback is a switchover; Route 53 failover records owned by the primary's stack only. Alternatives rejected: **Aurora Global Database vs a
+cross-region read replica**: global is the managed path with a promotion API and typically sub-second lag; **active/active**: nothing here is conflict-free; **automatic database failover**: a wrong automatic promotion loses data, a slow human one loses minutes, and
+only the second can be undone, so DNS fails over by health check but the database and the scale-up stay manual. `dr_role` records how a stack was *built*, never who is *serving*: after a failover the roles swap in AWS and no Terraform change is needed or wanted.
+The standby's state bucket is in the standby's region, because state that lives only in the failed region is state you cannot use during the failure.
+
+**`terraform test` with mocked providers, in CI.** `terraform validate` cannot see most of what this change is about: whether the right resources exist for each role. A test file plans and applies the whole configuration against mocked AWS providers
+(no credentials, nothing created) for a single region, a primary before and after its standby is ready, and a standby, and asserts what each creates, what it is named, and which bucket it replicates to; invalid role combinations must fail validation.
+The tests were mutation-checked (breaking the secrets gating, the load-balancer condition and the replication target each failed the right test). Building them found two defects in the existing single-region code that a real `terraform plan` would have hit: a
+security-group rule description containing an apostrophe, which the AWS provider rejects, and certificate-validation records keyed by values unknown until apply (now keyed by the one domain). What mocks cannot prove: that AWS accepts the settings (global-database engine versions,
+Replication Time Control prerequisites, the ECR creation template), that IAM is sufficient, that timing works. Those are what the first apply and the drill are for, and why every document says *unapplied*.
+
+Not done: cross-account pairs (the ECR rule, replication roles and the ACM validation record assume one account), a read-only switch for the promotion window, automating the failover steps, and rendering a second Grafana/Prometheus view across regions.

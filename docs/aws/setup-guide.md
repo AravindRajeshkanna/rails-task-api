@@ -290,10 +290,14 @@ Production defaults: `single_nat_gateway = false`, two Aurora instances, deletio
 | Roll back | revert the tag commit in Git (Argo syncs the old image); a canary that fails analysis rolls back by itself |
 | Cost | Cost Explorer grouped by tag `Environment`; `bin/rails ai:usage` for model spend |
 
+## A second region (optional, later)
+
+Once an environment has run for a while: [multi-region.md](multi-region.md) builds a warm standby of `prod` in another region from this same Terraform (`dr_role`), with replicated data, images and secrets and a DNS failover. Do it in staging first. Its ordered steps start from "Building it"; the incident procedure is [the failover runbook](../runbooks/regional-failover.md).
+
 ## Tearing down
 
 Destroy in this order, or the VPC will not delete (the ALB and node ENIs are created outside Terraform):
 1. `kubectl delete -f deploy/gitops/bootstrap/root-app.yaml`, then delete the Argo-created Ingresses (`kubectl -n task-api delete ingress --all`) and wait for the ALB to disappear.
 2. `kubectl delete nodepools --all` and wait for Karpenter nodes to terminate.
-3. Remove `deletion_protection` (`db_deletion_protection = false`, apply), then `terraform destroy -var-file=envs/dev.tfvars`.
+3. Remove `deletion_protection` (`db_deletion_protection = false`, apply), then `terraform destroy -var-file=envs/dev.tfvars`. With a standby (`dr_role`), destroy the standby's stack first, and detach its cluster from the global database before the primary's.
 4. Empty and delete the storage and state buckets if you no longer need them.

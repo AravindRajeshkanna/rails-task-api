@@ -152,7 +152,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | Full observability (OpenTelemetry + Grafana) | ✅ | #5 |
 | Event-driven pieces (SQS / EventBridge) | ✅ | CloudEvents on SNS → SQS (+ DLQ), EventBridge rules (#5) |
 | AIOps experiments (anomaly detection) | ✅ | CloudWatch anomaly detection, RCA and remediation Lambdas (#5) |
-| Multi-region or advanced AWS | 🟡 | Advanced AWS in place (Karpenter, Pod Identity, WAF, FIS, Budgets). **Multi-region 🟡 designed, not built**: [the design](aws/multi-region.md), [the failover runbook](runbooks/regional-failover.md) and [ADR 42](decisions.md); unrun Terraform for a second region would be a liability |
+| Multi-region or advanced AWS | 🟡 | Advanced AWS in place (Karpenter, Pod Identity, WAF, FIS, Budgets). **Multi-region 🟡 built and tested offline, never applied**: Terraform (`dr_role`, one root module applied twice), a `prod-dr` GitOps environment, [the design](aws/multi-region.md), [the failover runbook](runbooks/regional-failover.md), [ADR 42](decisions.md) and [45](decisions.md) |
 
 ---
 
@@ -170,7 +170,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | 6 | Keyset pagination | ✅ | `?cursor=` on the task list, built on Pagy's keyset paginator with microsecond cutoffs and validated cursors; 13.8 ms → 0.08 ms at row 49,000; for `created_at`, `updated_at` and `title` sorts ([ADR 40](decisions.md)) |
 | 7 | Transactional outbox | ✅ | `outbox_events` written in the change's transaction, envelope built then; a leased, backed-off relay; alarm on the oldest unpublished event; runbook ([ADR 41](decisions.md)) |
 | 8 | A load test in CI | ✅ | `.github/workflows/loadtest.yml` runs `loadtest/ci.sh` nightly, on demand and when the load test changes; fails on any k6 threshold (now including dropped iterations); opens an issue when the nightly run fails. The script ran end to end locally, passing and breaching, and the workflow ran green on GitHub in the pull request that added it (about 2 minutes; see the numbers in [performance.md](performance.md#full-text-search)) |
-| 9 | Multi-region | 🟡 | A design, a failover runbook and an ADR; **no Terraform**, because the single-region platform has never been applied and the roadmap's own condition ("after a single region has run in anger") is unmet ([ADR 42](decisions.md)) |
+| 9 | Multi-region | 🟡 | Built, **never applied**: `dr_role` in the one Terraform root module (a global Aurora cluster, S3 and ECR replication, secret replicas, a Route 53 failover pair with a health check), a `prod-dr` GitOps environment and promotion path, a standby sized by `SIZE_AS`, a design, a failover runbook, and `terraform test` against mocked providers in CI (mutation-checked; it found two defects in the existing code). The roadmap's condition ("after a single region has run in anger") is still unmet, so the first real apply is expected to teach something ([ADR 42](decisions.md), [45](decisions.md)) |
 | 10 | GraphQL and a public demo | ✅ / 🟡 | GraphQL: read-only, authorized by the policy scopes, with hard limits and a committed schema ([ADR 43](decisions.md)). Demo: `DEMO_MODE`, a nightly reset, a seeded dataset, a Kamal destination validated with `kamal config`; **not hosted**, which only you can do ([ADR 44](decisions.md)) |
 
 ## Next
@@ -179,7 +179,7 @@ Ordered by what a real user would hit first. None is started.
 
 1. **A read-only switch** for the standby region and the promotion window: a few lines of middleware turning `PG::ReadOnlySqlTransaction` into `503 read_only`. Build it with the first failover drill.
 2. **Cross-region snapshot copy** of the database and the dumps: the cheap first step of the multi-region plan, and the whole answer if an hour of downtime is acceptable ([backup runbook](runbooks/backup-and-restore.md)).
-3. **Multi-region itself**, when a single region has run for a few months and an RTO/RPO is stated ([design](aws/multi-region.md)).
+3. **Apply the multi-region pair for real**, in staging first, and run the drill, once a single region has run for a few months and an RTO/RPO is stated ([design](aws/multi-region.md#building-it-in-this-order)).
 4. **Per-person notification settings** (mute a kind or a project, a daily digest) on top of the inbox.
 5. **Cap the work of a broad ranked search** (rank only the most recent N matches) if one shows up in a p95; keyset pagination for other lists if any grows past what offset serves.
 6. **GraphQL mutations or subscriptions**, only if a client needs them; REST and Action Cable already cover both.
@@ -196,5 +196,6 @@ Ordered by what a real user would hit first. None is started.
 | Access is as documented | `tenant_isolation_spec` (every route, now including teams, invitations, search, the inbox, GraphQL), `project_policy_team_spec` (both role lookups agree for every combination), `graphql_spec` ("who can see what") |
 | The load-test script works | `loadtest/ci.sh` ran locally end to end: a passing run, and a deliberately overloaded one that exited 99, listed the breached thresholds and cleaned up |
 | Backups restore | `pg_dump` → `pg_restore` of the same database; row counts, constraints and the `vector` extension checked |
+| The multi-region wiring is right | `terraform test` (in CI): the whole configuration is planned and applied against mocked AWS providers for a single region, a primary before and after its standby is ready, and a standby; mutation-checked ([ADR 45](decisions.md)). Proves what each role creates, not that AWS accepts it |
 | Migrations are safe | `strong_migrations` accepted every migration but one: the full-text column, which rewrites `tasks` under a lock (3.7 s for 149,000 rows) and is marked `safety_assured` with that number ([runbook](runbooks/zero-downtime-migrations.md)) |
-| **Not verified** | Docker Compose, `kind`, any Terraform plan/apply, Kamal deploys (the demo destination only passes `kamal config`), Bedrock with real credentials, the Aurora restore commands, the multi-region plan (nothing is built), the Kamal/hosting of the demo |
+| **Not verified** | Docker Compose, `kind`, any Terraform plan/apply against a real account (the multi-region pair is checked only offline, against mocks), Kamal deploys (the demo destination only passes `kamal config`), Bedrock with real credentials, the Aurora restore commands, hosting the demo |

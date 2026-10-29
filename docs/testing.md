@@ -27,6 +27,7 @@ them as a matrix.
 | `spec/forms/`, `spec/queries/`, `spec/services/`, `spec/jobs/`, `spec/subscribers/` | unit specs | Form objects, query objects, AI/webhook/observability services, background jobs, event subscribers |
 | `spec/channels/`, `spec/mailers/` | channel and mailer specs | Action Cable authorization, emails |
 | `gems/*/spec`, `deploy/lambda/*/spec` | unit specs | The shared gems and the AIOps Lambdas |
+| `deploy/terraform/tests/` | `terraform test`, in CI | The multi-region wiring: what each role (single region, primary, standby) creates and is named, against mocked AWS providers, with no credentials ([ADR 45](decisions.md)) |
 | `loadtest/` | k6, nightly in CI | Latency and error thresholds under load, against ~150,000 seeded tasks in production mode ([loadtest/README.md](../loadtest/README.md)) |
 
 Tools: RSpec, FactoryBot, Faker, Shoulda Matchers, pundit-matchers, WebMock (no real HTTP in tests), Bullet

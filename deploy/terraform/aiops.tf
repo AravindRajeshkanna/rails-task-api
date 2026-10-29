@@ -144,7 +144,7 @@ resource "aws_lambda_function" "rca" {
 
   environment {
     variables = {
-      ENVIRONMENT          = var.environment
+      ENVIRONMENT          = local.app_env
       CLUSTER_NAME         = module.eks.cluster_name
       APP_LOG_GROUP        = "/aws/containerinsights/${local.name}/application"
       ALERTS_TOPIC_ARN     = aws_sns_topic.alerts.arn
@@ -221,7 +221,7 @@ resource "aws_lambda_function" "remediate" {
 
   environment {
     variables = {
-      ENVIRONMENT         = var.environment
+      ENVIRONMENT         = local.app_env
       CLUSTER_NAME        = module.eks.cluster_name
       ALERTS_TOPIC_ARN    = aws_sns_topic.alerts.arn
       K8S_NAMESPACE       = local.namespace

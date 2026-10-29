@@ -3,7 +3,7 @@ image:
   repository: ${ECR_REGISTRY}/task-api/notifications
   tag: bootstrap
 replicaCount: ${NOTIFICATIONS_REPLICAS}
-secrets: { prefix: task-api/${ENV} }
+secrets: { prefix: task-api/${SECRETS_ENV} }
 env:
   DB_HOST: ${DB_ENDPOINT}
   AWS_REGION: ${REGION}

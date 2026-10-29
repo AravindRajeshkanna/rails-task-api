@@ -1,4 +1,4 @@
-# The Task API services: one Application per (cluster, service), all rendered from the same chart. production changes only when someone approves the sync.
+# The Task API services: one Application per (cluster, service), all rendered from the same chart. production (and its standby region) changes only when someone approves the sync.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -14,7 +14,7 @@ spec:
               selector:
                 matchLabels: { taskapi/managed: "true" }
                 matchExpressions:
-                  - { key: env, operator: In, values: [ prod ] }
+                  - { key: env, operator: In, values: [ prod, prod-dr ] } # prod-dr: the warm standby in the other region (docs/aws/multi-region.md); synced by hand like prod
           - list:
               elements:
                 - { service: api }

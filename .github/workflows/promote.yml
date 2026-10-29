@@ -1,7 +1,8 @@
 name: Promote
 
 # Promote the images running in one environment to the next by opening a pull request. Review it, merge it, then
-# press Sync in Argo CD (staging syncs automatically; production waits for a human).
+# press Sync in Argo CD (staging syncs automatically; production and its standby region wait for a human).
+# Promote prod into prod-dr after prod is healthy, so the standby runs the same images (docs/aws/multi-region.md).
 
 on:
   workflow_dispatch:
@@ -9,12 +10,12 @@ on:
       from:
         description: Environment to copy the image tags from
         type: choice
-        options: [ dev, staging ]
+        options: [ dev, staging, prod ]
         default: dev
       to:
         description: Environment to promote into
         type: choice
-        options: [ staging, prod ]
+        options: [ staging, prod, prod-dr ]
         default: staging
 
 permissions:
