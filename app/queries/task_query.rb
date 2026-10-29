@@ -1,0 +1,90 @@
+# Applies the public filtering / sorting contract of GET /projects/:id/tasks:
+#
+#   status=todo,in_progress   priority=high,urgent   assignee=me|unassigned|<user id>
+#   tag=bug,api               due_from=2026-11-01    due_to=2026-11-30
+#   overdue=true              q=search+words
+#   sort=-priority,due_on     (prefix with - for descending; default -created_at)
+#
+# Everything is validated against allow-lists, so user input never reaches SQL
+# as a column name, and bad values raise InvalidParameterError (HTTP 400).
+class TaskQuery
+  SORT_COLUMNS = %w[created_at updated_at due_on priority status title].freeze
+  DEFAULT_SORT = "-created_at".freeze
+  NULLS_LAST_COLUMNS = %w[due_on].freeze
+
+  def initialize(scope, params, current_user:)
+    @scope = scope
+    @params = params
+    @current_user = current_user
+  end
+
+  def call
+    relation = @scope
+    relation = filter_enum(relation, :status, Task.statuses)
+    relation = filter_enum(relation, :priority, Task.priorities)
+    relation = filter_assignee(relation)
+    relation = relation.with_tag_names(list(:tag)) if @params[:tag].present?
+    relation = relation.where(due_on: date(:due_from)..) if @params[:due_from].present?
+    relation = relation.where(due_on: ..date(:due_to)) if @params[:due_to].present?
+    relation = relation.overdue if boolean(:overdue)
+    relation = relation.search(@params[:q].to_s.strip) if @params[:q].present?
+    sort(relation)
+  end
+
+  private
+    def list(key) = @params[key].to_s.split(",").map(&:strip).compact_blank.uniq
+
+    def filter_enum(relation, key, mapping)
+      return relation if @params[key].blank?
+
+      values = list(key)
+      unknown = values - mapping.keys
+      if unknown.any?
+        raise InvalidParameterError.new(key.to_s, "#{key} must be one of: #{mapping.keys.join(', ')}")
+      end
+
+      relation.where(key => values)
+    end
+
+    def filter_assignee(relation)
+      case (value = @params[:assignee].to_s)
+      when "" then relation
+      when "me" then relation.where(assignee_id: @current_user.id)
+      when "unassigned" then relation.where(assignee_id: nil)
+      when /\A\d+\z/ then relation.where(assignee_id: value.to_i)
+      else raise InvalidParameterError.new("assignee", "assignee must be 'me', 'unassigned' or a user id")
+      end
+    end
+
+    def date(key)
+      Date.iso8601(@params[key].to_s)
+    rescue Date::Error
+      raise InvalidParameterError.new(key.to_s, "#{key} must be an ISO 8601 date (YYYY-MM-DD)")
+    end
+
+    def boolean(key)
+      return false if @params[key].blank?
+
+      ActiveModel::Type::Boolean.new.cast(@params[key]) || false
+    end
+
+    def sort(relation)
+      fields = list(:sort).presence || [ DEFAULT_SORT ]
+      direction_of_first = nil
+
+      orders = fields.map do |field|
+        direction = field.start_with?("-") ? :desc : :asc
+        column = field.delete_prefix("-").delete_prefix("+")
+        unless column.in?(SORT_COLUMNS)
+          raise InvalidParameterError.new("sort", "sort must be one or more of: #{SORT_COLUMNS.join(', ')} (prefix with - for descending)")
+        end
+
+        direction_of_first ||= direction
+        order = Task.arel_table[column].public_send(direction)
+        column.in?(NULLS_LAST_COLUMNS) ? order.nulls_last : order
+      end
+
+      # The id tie-breaker keeps pagination stable when sort values collide.
+      relation.reorder(*orders, Task.arel_table[:id].public_send(direction_of_first))
+    end
+end

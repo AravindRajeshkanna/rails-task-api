@@ -1,0 +1,1864 @@
+---
+openapi: 3.0.3
+info:
+  title: Task API
+  version: v1
+  description: |
+    A task / project management API.
+
+    **Authentication.** `POST /api/v1/registrations` or `POST /api/v1/session` returns a bearer token.
+    Send it as `Authorization: Bearer <token>`.
+
+    **Errors.** Every failure uses the same envelope:
+    `{ "error": { "status": 422, "code": "validation_failed", "message": "...", "details": { ... } } }`.
+
+    **Pagination.** List endpoints accept `page` and `limit` (default 25, max 100) and return
+    `meta` plus `Link`, `Total-Count`, `Total-Pages`, `Current-Page` and `Page-Limit` headers.
+
+    **Authorization.** Resources inside a project you do not belong to answer `404`, not `403`,
+    so their existence is not disclosed.
+servers:
+- url: http://localhost:3000
+  description: Local development
+tags:
+- name: Authentication
+- name: Account
+- name: Projects
+- name: Tasks
+- name: Comments
+- name: Tags
+- name: Memberships
+- name: Webhooks
+- name: Audit log
+components:
+  securitySchemes:
+    bearer_auth:
+      type: http
+      scheme: bearer
+      description: Session token from sign-in or sign-up
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            status:
+              type: integer
+              example: 422
+            code:
+              type: string
+              example: validation_failed
+            message:
+              type: string
+            details:
+              type: object
+              description: Field errors (422) or the offending parameter (400)
+          required:
+          - status
+          - code
+          - message
+      required:
+      - error
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        count:
+          type: integer
+        pages:
+          type: integer
+        next:
+          type: integer
+          nullable: true
+        previous:
+          type: integer
+          nullable: true
+      required:
+      - page
+      - limit
+      - count
+      - pages
+    UserSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+      required:
+      - id
+      - name
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email_address:
+          type: string
+          format: email
+        avatar_url:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - name
+      - email_address
+      - created_at
+    Session:
+      type: object
+      description: The plaintext token is only ever returned here; store it securely.
+      properties:
+        token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          "$ref": "#/components/schemas/User"
+      required:
+      - token
+      - expires_at
+      - user
+    Project:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum:
+          - member
+          - admin
+          nullable: true
+          description: The caller's role
+        owner:
+          "$ref": "#/components/schemas/UserSummary"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        stats:
+          type: object
+          description: Task counts (only on single-project responses)
+          properties:
+            todo:
+              type: integer
+            in_progress:
+              type: integer
+            done:
+              type: integer
+            overdue:
+              type: integer
+      required:
+      - id
+      - name
+      - owner
+    Attachment:
+      type: object
+      properties:
+        id:
+          type: integer
+        filename:
+          type: string
+        content_type:
+          type: string
+        byte_size:
+          type: integer
+        url:
+          type: string
+          description: Signed URL, valid for 10 minutes
+      required:
+      - id
+      - filename
+      - url
+    Task:
+      type: object
+      properties:
+        id:
+          type: integer
+        project_id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+          - todo
+          - in_progress
+          - done
+        priority:
+          type: string
+          enum:
+          - low
+          - medium
+          - high
+          - urgent
+        due_on:
+          type: string
+          format: date
+          nullable: true
+        overdue:
+          type: boolean
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        comments_count:
+          type: integer
+        lock_version:
+          type: integer
+          description: Send back on update for optimistic locking; a stale value returns
+            409
+        tags:
+          type: array
+          items:
+            type: string
+        creator:
+          "$ref": "#/components/schemas/UserSummary"
+        assignee:
+          allOf:
+          - "$ref": "#/components/schemas/UserSummary"
+          nullable: true
+        attachments:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Attachment"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - project_id
+      - title
+      - status
+      - priority
+      - tags
+      - creator
+      - attachments
+    Comment:
+      type: object
+      properties:
+        id:
+          type: integer
+        task_id:
+          type: integer
+        body:
+          type: string
+        user:
+          "$ref": "#/components/schemas/UserSummary"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - task_id
+      - body
+      - user
+    Tag:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - name
+    Membership:
+      type: object
+      properties:
+        id:
+          type: integer
+        project_id:
+          type: integer
+        role:
+          type: string
+          enum:
+          - member
+          - admin
+        user:
+          "$ref": "#/components/schemas/UserSummary"
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - role
+      - user
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: integer
+        project_id:
+          type: integer
+        url:
+          type: string
+        events:
+          type: array
+          items:
+            type: string
+          description: Empty means every event
+        active:
+          type: boolean
+        secret:
+          type: string
+          description: Signing secret; only present in the create response
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - url
+      - events
+      - active
+    WebhookDelivery:
+      type: object
+      properties:
+        id:
+          type: integer
+        webhook_id:
+          type: integer
+        event:
+          type: string
+        status:
+          type: string
+          enum:
+          - pending
+          - delivered
+          - failed
+        response_status:
+          type: integer
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        duration_ms:
+          type: integer
+          nullable: true
+        payload:
+          type: object
+        delivered_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - event
+      - status
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        action:
+          type: string
+          enum:
+          - create
+          - update
+          - discard
+          - restore
+        auditable_type:
+          type: string
+        auditable_id:
+          type: integer
+        changes:
+          type: object
+          description: attribute => [old, new]
+        actor:
+          allOf:
+          - "$ref": "#/components/schemas/UserSummary"
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - action
+      - auditable_type
+      - auditable_id
+      - changes
+paths:
+  "/api/v1/registrations":
+    post:
+      summary: Sign up
+      tags:
+      - Authentication
+      description: Creates an account and signs in. Limited to 10 attempts per hour
+        per IP.
+      parameters: []
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Session"
+                required:
+                - data
+        '422':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                email_address:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+              required:
+              - name
+              - email_address
+              - password
+  "/api/v1/session":
+    post:
+      summary: Sign in
+      tags:
+      - Authentication
+      description: Exchanges credentials for a bearer token. Limited to 10 attempts
+        per 3 minutes per IP and 5 per minute per account.
+      parameters: []
+      responses:
+        '201':
+          description: Signed in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Session"
+                required:
+                - data
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email_address:
+                  type: string
+                password:
+                  type: string
+              required:
+              - email_address
+              - password
+    delete:
+      summary: Sign out
+      tags:
+      - Authentication
+      description: Revokes the token used for the request.
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Signed out
+        '401':
+          description: Missing or invalid token
+  "/api/v1/passwords":
+    post:
+      summary: Request a password reset
+      tags:
+      - Authentication
+      description: Emails a link to the front end. Always answers 202, whether or
+        not the address exists.
+      parameters: []
+      responses:
+        '202':
+          description: Accepted
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email_address:
+                  type: string
+              required:
+              - email_address
+  "/api/v1/passwords/{token}":
+    patch:
+      summary: Choose a new password
+      tags:
+      - Authentication
+      description: Sets a new password using the emailed token (valid 15 minutes)
+        and signs out every device.
+      parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '204':
+          description: Password changed
+        '422':
+          description: Invalid or expired token, or weak password
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  minLength: 8
+              required:
+              - password
+  "/api/v1/me":
+    get:
+      summary: Current user
+      tags:
+      - Account
+      security:
+      - bearer_auth: []
+      responses:
+        '200':
+          description: The signed-in user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/User"
+                required:
+                - data
+        '401':
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    patch:
+      summary: Update profile
+      tags:
+      - Account
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/User"
+                required:
+                - data
+        '422':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+  "/api/v1/me/avatar":
+    put:
+      summary: Upload avatar
+      tags:
+      - Account
+      description: multipart/form-data with an `avatar` image field (PNG, JPEG or
+        WebP, up to 2 MB).
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Avatar saved; `avatar_url` is a signed URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/User"
+                required:
+                - data
+        '422':
+          description: Not an acceptable image
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                avatar:
+                  type: string
+                  format: binary
+              required:
+              - avatar
+        required: true
+    delete:
+      summary: Remove avatar
+      tags:
+      - Account
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Removed
+  "/api/v1/projects":
+    get:
+      summary: List my projects
+      tags:
+      - Projects
+      description: Projects the caller belongs to, newest first. Soft-deleted projects
+        are excluded.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        description: Page number (default 1)
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        description: Items per page (default 25, max 100)
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of projects
+          headers:
+            Total-Count:
+              schema:
+                type: integer
+              description: Total number of matching records
+            Link:
+              schema:
+                type: string
+              description: RFC 8288 first/prev/next/last links
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Project"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    post:
+      summary: Create a project
+      tags:
+      - Projects
+      description: The caller becomes the owner and an admin member.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Project"
+                required:
+                - data
+        '422':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 120
+                description:
+                  type: string
+              required:
+              - name
+  "/api/v1/projects/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: Show a project
+      tags:
+      - Projects
+      description: Includes task counts by status in `stats` (cached in Solid Cache).
+      security:
+      - bearer_auth: []
+      responses:
+        '200':
+          description: The project
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Project"
+                required:
+                - data
+        '404':
+          description: Not a member (or no such project)
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    patch:
+      summary: Update a project
+      tags:
+      - Projects
+      description: Admins only.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Project"
+                required:
+                - data
+        '403':
+          description: Caller is a member but not an admin
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+    delete:
+      summary: Delete a project
+      tags:
+      - Projects
+      description: Soft delete (owner only). Everything inside becomes unreachable
+        until restored; permanently purged after 30 days.
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          description: Not the owner
+  "/api/v1/projects/{id}/restore":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    post:
+      summary: Restore a deleted project
+      tags:
+      - Projects
+      security:
+      - bearer_auth: []
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Project"
+                required:
+                - data
+  "/api/v1/projects/{project_id}/memberships":
+    parameters:
+    - name: project_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List members
+      tags:
+      - Memberships
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        description: Page number (default 1)
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        description: Items per page (default 25, max 100)
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Members
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Membership"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+    post:
+      summary: Add a member
+      tags:
+      - Memberships
+      description: Admins add an existing user by email address.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Membership"
+                required:
+                - data
+        '422':
+          description: Already a member, or invalid role
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email_address:
+                  type: string
+                role:
+                  type: string
+                  enum:
+                  - member
+                  - admin
+              required:
+              - email_address
+  "/api/v1/memberships/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    patch:
+      summary: Change a member's role
+      tags:
+      - Memberships
+      description: Admins only. The owner's role cannot change.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Membership"
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum:
+                  - member
+                  - admin
+    delete:
+      summary: Remove a member (or leave)
+      tags:
+      - Memberships
+      description: Admins remove anyone except the owner; members can remove themselves.
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Removed
+  "/api/v1/projects/{project_id}/tags":
+    parameters:
+    - name: project_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List tags
+      tags:
+      - Tags
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        description: Page number (default 1)
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        description: Items per page (default 25, max 100)
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Tags, alphabetical
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Tag"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+    post:
+      summary: Create a tag
+      tags:
+      - Tags
+      description: Names are lower-cased and unique per project. Tasks can also create
+        tags implicitly through `tag_names`.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Tag"
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 40
+              required:
+              - name
+  "/api/v1/tags/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    delete:
+      summary: Delete a tag
+      tags:
+      - Tags
+      description: Admins only.
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Deleted
+  "/api/v1/projects/{project_id}/audit_events":
+    parameters:
+    - name: project_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: Project audit log
+      tags:
+      - Audit log
+      description: Who changed what, newest first, for the project and its tasks and
+        memberships. Admins only.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        description: Page number (default 1)
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        description: Items per page (default 25, max 100)
+        schema:
+          type: integer
+      - name: auditable_type
+        in: query
+        required: false
+        enum:
+        - Project
+        - Task
+        - Membership
+        schema:
+          type: string
+        description: ":\n * `Project` \n * `Task` \n * `Membership` \n "
+      responses:
+        '200':
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/AuditEvent"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '403':
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/v1/projects/{project_id}/tasks":
+    parameters:
+    - name: project_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List and search tasks
+      tags:
+      - Tasks
+      description: Filters combine with AND. Invalid values return 400 with `details.parameter`.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: 'Comma-separated: todo, in_progress, done'
+        schema:
+          type: string
+      - name: priority
+        in: query
+        required: false
+        description: 'Comma-separated: low, medium, high, urgent'
+        schema:
+          type: string
+      - name: assignee
+        in: query
+        required: false
+        description: "`me`, `unassigned` or a user id"
+        schema:
+          type: string
+      - name: tag
+        in: query
+        required: false
+        description: Comma-separated tag names (any match)
+        schema:
+          type: string
+      - name: due_from
+        in: query
+        format: date
+        required: false
+        schema:
+          type: string
+      - name: due_to
+        in: query
+        format: date
+        required: false
+        schema:
+          type: string
+      - name: overdue
+        in: query
+        required: false
+        description: Only unfinished tasks past their due date
+        schema:
+          type: boolean
+      - name: q
+        in: query
+        required: false
+        description: Case-insensitive search of title and description
+        schema:
+          type: string
+      - name: sort
+        in: query
+        required: false
+        description: Comma-separated columns (created_at, updated_at, due_on, priority,
+          status, title); prefix `-` for descending. Default `-created_at`
+        schema:
+          type: string
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Task"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '400':
+          description: Invalid filter or sort value
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '404':
+          description: Not a member of the project
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    post:
+      summary: Create a task
+      tags:
+      - Tasks
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Task"
+                required:
+                - data
+        '422':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  maxLength: 200
+                description:
+                  type: string
+                status:
+                  type: string
+                  enum:
+                  - todo
+                  - in_progress
+                  - done
+                priority:
+                  type: string
+                  enum:
+                  - low
+                  - medium
+                  - high
+                  - urgent
+                due_on:
+                  type: string
+                  format: date
+                assignee_id:
+                  type: integer
+                  description: Must be a project member
+                tag_names:
+                  type: array
+                  items:
+                    type: string
+                  description: Replaces the task's tags; unknown names are created
+                lock_version:
+                  type: integer
+                  description: 'Optimistic locking: a stale value returns 409'
+              required:
+              - title
+  "/api/v1/tasks/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: Show a task
+      tags:
+      - Tasks
+      security:
+      - bearer_auth: []
+      responses:
+        '200':
+          description: The task
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Task"
+                required:
+                - data
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    patch:
+      summary: Update a task
+      tags:
+      - Tasks
+      description: Setting `status` to `done` stamps `completed_at`; reopening clears
+        it.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Task"
+                required:
+                - data
+        '409':
+          description: Stale `lock_version`
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  maxLength: 200
+                description:
+                  type: string
+                status:
+                  type: string
+                  enum:
+                  - todo
+                  - in_progress
+                  - done
+                priority:
+                  type: string
+                  enum:
+                  - low
+                  - medium
+                  - high
+                  - urgent
+                due_on:
+                  type: string
+                  format: date
+                assignee_id:
+                  type: integer
+                  description: Must be a project member
+                tag_names:
+                  type: array
+                  items:
+                    type: string
+                  description: Replaces the task's tags; unknown names are created
+                lock_version:
+                  type: integer
+                  description: 'Optimistic locking: a stale value returns 409'
+    delete:
+      summary: Delete a task
+      tags:
+      - Tasks
+      description: Soft delete (admins, or the task's creator).
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Deleted
+  "/api/v1/tasks/{id}/restore":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    post:
+      summary: Restore a deleted task
+      tags:
+      - Tasks
+      description: Admins only.
+      security:
+      - bearer_auth: []
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Task"
+                required:
+                - data
+  "/api/v1/tasks/{task_id}/attachments":
+    parameters:
+    - name: task_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    post:
+      summary: Attach files
+      tags:
+      - Tasks
+      description: multipart/form-data with one or more `files[]` (png, jpeg, webp,
+        gif, pdf, txt, csv; up to 10 files of 10 MB each).
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Returns the updated task, including signed attachment URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Task"
+                required:
+                - data
+        '422':
+          description: Unsupported type or too large
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+              required:
+              - files
+        required: true
+  "/api/v1/attachments/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    delete:
+      summary: Remove an attachment
+      tags:
+      - Tasks
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Removed
+  "/api/v1/tasks/{task_id}/comments":
+    parameters:
+    - name: task_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List comments
+      tags:
+      - Comments
+      description: Oldest first.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Comment"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+    post:
+      summary: Add a comment
+      tags:
+      - Comments
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Comment"
+                required:
+                - data
+        '422':
+          description: Blank body
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body:
+                  type: string
+                  maxLength: 5000
+              required:
+              - body
+  "/api/v1/comments/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    patch:
+      summary: Edit a comment
+      tags:
+      - Comments
+      description: Author only.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Comment"
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body:
+                  type: string
+              required:
+              - body
+    delete:
+      summary: Delete a comment
+      tags:
+      - Comments
+      description: The author or a project admin.
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Deleted
+  "/api/v1/projects/{project_id}/webhooks":
+    parameters:
+    - name: project_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List webhooks
+      tags:
+      - Webhooks
+      description: Project admins only.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Webhooks (secrets are never listed)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Webhook"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+    post:
+      summary: Register a webhook
+      tags:
+      - Webhooks
+      description: |
+        Deliveries are `POST`ed as JSON with headers `X-TaskApi-Event`, `X-TaskApi-Delivery`, `X-TaskApi-Timestamp` and
+        `X-TaskApi-Signature: sha256=<hex>`, where the signature is `HMAC-SHA256(secret, "<timestamp>.<raw body>")`.
+        Failed deliveries are retried up to 6 times with back-off. The `secret` is returned only in this response.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Webhook"
+                required:
+                - data
+        '422':
+          description: Invalid URL or unknown event
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  description: https:// only in production. Private and loopback addresses
+                    are blocked.
+                events:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                    - task.created
+                    - task.updated
+                    - task.completed
+                    - task.discarded
+                    - task.restored
+                    - comment.created
+                    - project.updated
+                    - project.discarded
+                    - project.restored
+                  description: Empty subscribes to everything
+                active:
+                  type: boolean
+              required:
+              - url
+  "/api/v1/webhooks/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: Show a webhook
+      tags:
+      - Webhooks
+      security:
+      - bearer_auth: []
+      responses:
+        '200':
+          description: The webhook
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Webhook"
+                required:
+                - data
+    patch:
+      summary: Update a webhook
+      tags:
+      - Webhooks
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Webhook"
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  description: https:// only in production. Private and loopback addresses
+                    are blocked.
+                events:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                    - task.created
+                    - task.updated
+                    - task.completed
+                    - task.discarded
+                    - task.restored
+                    - comment.created
+                    - project.updated
+                    - project.discarded
+                    - project.restored
+                  description: Empty subscribes to everything
+                active:
+                  type: boolean
+    delete:
+      summary: Delete a webhook
+      tags:
+      - Webhooks
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Deleted
+  "/api/v1/webhooks/{webhook_id}/deliveries":
+    parameters:
+    - name: webhook_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: Delivery log
+      tags:
+      - Webhooks
+      description: Every attempt's outcome, newest first. Use it to debug a receiver.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: Deliveries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/WebhookDelivery"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data

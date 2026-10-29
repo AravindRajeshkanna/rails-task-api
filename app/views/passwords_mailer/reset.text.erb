@@ -1,0 +1,7 @@
+Hi <%= @user.name %>,
+
+Someone asked to reset the password for your account. If that was you, choose a new one here:
+
+<%= @reset_url %>
+
+This link expires in <%= @expires_in %>. If you didn't ask for this, you can ignore this email.
