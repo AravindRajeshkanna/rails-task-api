@@ -105,6 +105,10 @@ in 60% of 50,000 tasks. The seed data (26 words) is the worst case for that; rea
 because PostgreSQL only computes them for the 25 rows it returns. If a ranked search ever becomes the slow one, the lever is to rank only
 the most recent N matches for broad queries; it is not built because nothing needs it yet.
 
+On a GitHub-hosted runner (the nightly load test, 10 visits a second, the same 149,000 tasks, k6, the app and PostgreSQL sharing the machine) the numbers are
+a different order but the same shape, and cross-project search is the slowest endpoint, as predicted for words that match about half the rows: median 109 ms, p95 195 ms,
+against p95 62 ms for the 50,000-task list, 94 ms for a project-scoped full-text search and 133 ms for substring search. All inside the thresholds (the search limit is 600 ms).
+
 The migration that adds the column rewrites `tasks` under a lock: 3.7 s here ([runbook](runbooks/zero-downtime-migrations.md)). The GIN
 index is 2.9 MB for 149,000 tasks and is built concurrently.
 
