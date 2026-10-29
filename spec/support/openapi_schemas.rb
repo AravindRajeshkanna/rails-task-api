@@ -243,6 +243,29 @@ module OpenapiSchemas
       },
       required: %i[id role user]
     },
+    Team: {
+      type: :object,
+      properties: {
+        id: { type: :integer }, organization_id: { type: :integer }, name: { type: :string },
+        members_count: { type: :integer, nullable: true }, created_at: { type: :string, format: "date-time" }, updated_at: { type: :string, format: "date-time" }
+      },
+      required: %i[id organization_id name]
+    },
+    TeamMember: {
+      type: :object,
+      properties: { id: { type: :integer }, user: ref("UserSummary"), created_at: { type: :string, format: "date-time" } },
+      required: %i[id user]
+    },
+    ProjectTeam: {
+      type: :object,
+      description: "A team's access to a project, with the role each of its members gets there.",
+      properties: {
+        id: { type: :integer }, project_id: { type: :integer }, role: { type: :string, enum: %w[member admin] },
+        team: { type: :object, properties: { id: { type: :integer }, name: { type: :string } }, required: %i[id name] },
+        created_at: { type: :string, format: "date-time" }
+      },
+      required: %i[id project_id role team]
+    },
     OrganizationInvitation: {
       type: :object,
       description: "An offer to join an organization, addressed to an email address. The token is only ever in the email.",

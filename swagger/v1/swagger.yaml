@@ -645,6 +645,73 @@ components:
       - id
       - role
       - user
+    Team:
+      type: object
+      properties:
+        id:
+          type: integer
+        organization_id:
+          type: integer
+        name:
+          type: string
+        members_count:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - organization_id
+      - name
+    TeamMember:
+      type: object
+      properties:
+        id:
+          type: integer
+        user:
+          "$ref": "#/components/schemas/UserSummary"
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - user
+    ProjectTeam:
+      type: object
+      description: A team's access to a project, with the role each of its members
+        gets there.
+      properties:
+        id:
+          type: integer
+        project_id:
+          type: integer
+        role:
+          type: string
+          enum:
+          - member
+          - admin
+        team:
+          type: object
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+          required:
+          - id
+          - name
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - project_id
+      - role
+      - team
     OrganizationInvitation:
       type: object
       description: An offer to join an organization, addressed to an email address.
@@ -1126,7 +1193,7 @@ paths:
       - name: type
         in: query
         required: false
-        description: 'Comma-separated: Project, Task, Membership'
+        description: 'Comma-separated: Project, Task, Membership, ProjectTeam'
         schema:
           type: string
       - name: page
@@ -2348,7 +2415,10 @@ paths:
       summary: Add a member
       tags:
       - Memberships
-      description: Admins add an existing user by email address.
+      description: Admins add an existing user by email address. In a project of an
+        organization the person must already be in the organization, and an unknown
+        address is the same `422` as a user outside it; invite people to the organization
+        instead.
       security:
       - bearer_auth: []
       parameters: []
@@ -3077,6 +3147,416 @@ paths:
       responses:
         '204':
           description: Deleted
+  "/api/v1/organizations/{organization_id}/teams":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List teams
+      tags:
+      - Teams
+      description: Any member of the organization can list its teams, sorted by name.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of teams
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Team"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '404':
+          description: Not found, or not a member of the organization
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    post:
+      summary: Create a team
+      tags:
+      - Teams
+      description: Owners and admins of the organization. Names are unique within
+        it, ignoring case.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Team"
+                required:
+                - data
+        '403':
+          description: Not an owner or admin
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '422':
+          description: Name taken or blank
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 100
+              required:
+              - name
+  "/api/v1/organizations/{organization_id}/teams/{id}":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: Show a team
+      tags:
+      - Teams
+      security:
+      - bearer_auth: []
+      responses:
+        '200':
+          description: The team
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Team"
+                required:
+                - data
+    patch:
+      summary: Rename a team
+      tags:
+      - Teams
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Team"
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required:
+              - name
+    delete:
+      summary: Delete a team
+      tags:
+      - Teams
+      description: Takes the team's access to projects with it.
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          description: Not an owner or admin
+  "/api/v1/organizations/{organization_id}/teams/{team_id}/members":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: team_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List a team's members
+      tags:
+      - Teams
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of members
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/TeamMember"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+    post:
+      summary: Add someone to a team
+      tags:
+      - Teams
+      description: By user id; the person must be a member of the organization. A
+        person who is not, and an id that matches nobody, get the same `422`. Owners
+        and admins.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/TeamMember"
+                required:
+                - data
+        '422':
+          description: Not in the organization, or already in the team
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: integer
+              required:
+              - user_id
+  "/api/v1/organizations/{organization_id}/teams/{team_id}/members/{id}":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: team_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    delete:
+      summary: Remove someone from a team
+      tags:
+      - Teams
+      description: They lose the access the team gave them to projects.
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Removed
+  "/api/v1/projects/{project_id}/teams":
+    parameters:
+    - name: project_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List the teams with access
+      tags:
+      - Teams
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of grants
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/ProjectTeam"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+    post:
+      summary: Give a team access
+      tags:
+      - Teams
+      description: Project admins grant a team of the project's organization access,
+        as `member` (default) or `admin`; everyone in the team gets that role, added
+        up with their other routes in. A team from anywhere else, and an id that matches
+        no team, get the same `422`.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Granted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/ProjectTeam"
+                required:
+                - data
+        '422':
+          description: Not a team of the project's organization, or already granted
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                team_id:
+                  type: integer
+                role:
+                  type: string
+                  enum:
+                  - member
+                  - admin
+                  default: member
+              required:
+              - team_id
+  "/api/v1/projects/{project_id}/teams/{id}":
+    parameters:
+    - name: project_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    patch:
+      summary: Change a team's role in a project
+      tags:
+      - Teams
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/ProjectTeam"
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum:
+                  - member
+                  - admin
+              required:
+              - role
+    delete:
+      summary: Withdraw a team's access
+      tags:
+      - Teams
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Withdrawn
   "/api/v1/projects/{project_id}/webhooks":
     parameters:
     - name: project_id

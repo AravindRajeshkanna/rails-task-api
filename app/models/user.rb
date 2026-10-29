@@ -9,6 +9,8 @@ class User < ApplicationRecord
   has_many :memberships, dependent: :destroy
   has_many :organization_memberships, dependent: :destroy
   has_many :organizations, through: :organization_memberships
+  has_many :team_memberships, dependent: :destroy
+  has_many :teams, through: :team_memberships
   has_many :projects, through: :memberships
   has_many :owned_projects, class_name: "Project", foreign_key: :owner_id, inverse_of: :owner, dependent: :restrict_with_error
   has_many :assigned_tasks, class_name: "Task", foreign_key: :assignee_id, inverse_of: :assignee, dependent: :nullify

@@ -1,17 +1,31 @@
 class ProjectPolicy < ApplicationPolicy
   class Scope < Scope
     # Projects the user belongs to (kept and discarded), annotated with the user's role as
-    # +current_role+: their own membership, or admin through owning/administering the project's
-    # organization. Callers narrow with +.kept+ / +.discarded+.
+    # +current_role+: the highest of their own membership, their teams' access, and admin through
+    # owning/administering the project's organization. Callers narrow with +.kept+ / +.discarded+.
     #
-    # Both joins match at most one row (a user has one membership per project and per organization),
-    # so a project never appears twice.
+    # Each join yields at most one row per project (a user has one membership per project and per
+    # organization, and the team grants are grouped per project), so a project never appears twice.
+    TEAM_ACCESS = <<~SQL.squish.freeze
+      LEFT JOIN (
+        SELECT project_teams.project_id,
+               CASE WHEN bool_or(project_teams.role = 'admin') THEN 'admin' ELSE 'member' END AS role
+        FROM project_teams
+        JOIN team_memberships ON team_memberships.team_id = project_teams.team_id AND team_memberships.user_id = ?
+        GROUP BY project_teams.project_id
+      ) team_access ON team_access.project_id = projects.id
+    SQL
+
     def resolve
       scope.joins(sanitize("LEFT JOIN memberships ON memberships.project_id = projects.id AND memberships.user_id = ?"))
            .joins(sanitize("LEFT JOIN organization_memberships administered ON administered.organization_id = projects.organization_id " \
                            "AND administered.user_id = ? AND administered.role IN ('owner', 'admin')"))
-           .where("memberships.id IS NOT NULL OR administered.id IS NOT NULL")
-           .select("projects.*", "CASE WHEN administered.id IS NOT NULL THEN 'admin' ELSE memberships.role END AS current_role")
+           .joins(sanitize(TEAM_ACCESS))
+           .where("memberships.id IS NOT NULL OR administered.id IS NOT NULL OR team_access.project_id IS NOT NULL")
+           .select("projects.*", <<~SQL.squish)
+             CASE WHEN administered.id IS NOT NULL OR memberships.role = 'admin' OR team_access.role = 'admin' THEN 'admin'
+                  ELSE 'member' END AS current_role
+           SQL
     end
 
     private

@@ -95,6 +95,31 @@ RSpec.describe "Organization audit events" do
     expect(AuditEvent.where(auditable_type: "OrganizationMembership", auditable_id: linus_role.id).pluck(:action)).to contain_exactly("create", "destroy")
   end
 
+  it "records teams: created, filled, granted a project, emptied and deleted, with the project's side in the project's feed" do
+    organization_id
+    join(grace)
+    api :post, "/api/v1/organizations/#{organization_id}/teams", { name: "Backend" }, as: ada
+    team_id = data["id"]
+    api :post, "/api/v1/organizations/#{organization_id}/teams/#{team_id}/members", { user_id: grace.id }, as: ada
+    membership_id = data["id"]
+    api :post, "/api/v1/projects", { name: "Relaunch", organization_id: organization_id }, as: ada
+    project_id = data["id"]
+    api :post, "/api/v1/projects/#{project_id}/teams", { team_id: team_id, role: "admin" }, as: ada
+    api :delete, "/api/v1/organizations/#{organization_id}/teams/#{team_id}/members/#{membership_id}", as: ada
+
+    expect(history(auditable_type: "Team")).to eq([ "Team create" ])
+    expect(history(auditable_type: "TeamMembership")).to eq([ "TeamMembership destroy", "TeamMembership create" ])
+    expect(history(auditable_type: "ProjectTeam")).to eq([ "ProjectTeam create" ])
+
+    api :get, "/api/v1/activity", { project_id: project_id, type: "ProjectTeam" }, as: ada
+    expect(data.sole).to include("action" => "create", "project_id" => project_id)
+    expect(data.sole["changes"]).to include("role" => [ "member", "admin" ], "team_id" => [ nil, team_id ])
+
+    api :delete, "/api/v1/organizations/#{organization_id}/teams/#{team_id}", as: ada
+    expect(history(auditable_type: "Team")).to eq([ "Team destroy", "Team create" ])
+    expect(AuditEvent.where(auditable_type: "ProjectTeam", action: "destroy")).to be_empty # went with the team
+  end
+
   it "filters by type and rejects an unknown one" do
     organization_id
     join(grace)

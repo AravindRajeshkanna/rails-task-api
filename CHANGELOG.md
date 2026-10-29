@@ -15,6 +15,12 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - **Organizations.** `GET|POST /api/v1/organizations`, `GET|PATCH|DELETE /api/v1/organizations/{id}` and
   `GET /api/v1/organizations/{id}/members`, `PATCH|DELETE /api/v1/organizations/{id}/members/{member_id}`.
   Roles `owner`, `admin`, `member`. Owners and admins administer every project of the organization.
+- **Teams.** Groups inside an organization that a project can grant access to as a unit. `GET|POST /api/v1/organizations/{id}/teams`,
+  `GET|PATCH|DELETE /api/v1/organizations/{id}/teams/{team_id}`, `GET|POST /api/v1/organizations/{id}/teams/{team_id}/members` (by `user_id`; the person
+  must be in the organization) and `DELETE .../members/{member_id}`: owners and admins manage them, any member of the organization can read them.
+  `GET|POST /api/v1/projects/{id}/teams` and `PATCH|DELETE /api/v1/projects/{id}/teams/{grant_id}` give a team of the project's organization access
+  as `member` or `admin`. A person's role in a project is the highest of their own membership, their teams' grants and (as admin) administering the
+  organization. Team members can be assigned tasks. Leaving the organization removes someone from its teams; deleting a team ends the access it gave.
 - `GET /api/v1/organizations/{id}/audit_events` (owners; filter `auditable_type`): the organization's history, newest first: renames, invitations
   sent, accepted and withdrawn, members joining, changing role and leaving, each with who did it and what changed.
 - **Invitations.** People join an organization by invitation, not by being added:
@@ -31,6 +37,9 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - `API-Version`, `Deprecation` and `Sunset` are exposed to browsers through CORS.
 
 ### Changed
+- `GET /api/v1/activity` also covers `ProjectTeam` (a team being given or losing access to a project; filter `type=ProjectTeam`).
+- Fixed: a person who administers a project's organization *and* is a plain member of the project is an admin everywhere. Lists already said so; the
+  per-record check that single resources use took the direct role first and treated them as a member.
 - Removing someone from a project is now recorded in its audit log and activity feed (`action: "destroy"`, the member's attributes going to `null`);
   previously only additions and role changes were. Audit event `action` can now also be `destroy`, `accept` and `revoke`.
 - Adding someone to a project **of an organization** by email now answers `422` ("must be a member of the project's organization") for an

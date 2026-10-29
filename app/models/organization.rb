@@ -7,6 +7,7 @@ class Organization < ApplicationRecord
   has_many :organization_memberships, dependent: :destroy
   has_many :members, through: :organization_memberships, source: :user
   has_many :organization_invitations, dependent: :destroy
+  has_many :teams, dependent: :destroy
   # The history of the organization's membership; kept (unlinked) if the organization is deleted, like a project's.
   has_many :audit_events, dependent: :nullify
   # An organization with projects cannot be deleted: its projects would lose their tenant boundary.

@@ -18,6 +18,8 @@ class OrganizationMembership < ApplicationRecord
 
   before_destroy :prevent_removing_last_owner, prepend: true
   audit_destruction
+  # Leaving the organization means leaving its teams, wherever the removal came from.
+  after_destroy :leave_teams, unless: :destroyed_by_association
 
   # Owners and admins; the roles that administer the organization's projects.
   scope :administrators, -> { where(role: %w[owner admin]) }
@@ -36,6 +38,10 @@ class OrganizationMembership < ApplicationRecord
 
       errors.add(:base, "The last owner cannot leave; make someone else an owner first")
       throw :abort
+    end
+
+    def leave_teams
+      TeamMembership.where(user_id: user_id, team_id: organization.teams.select(:id)).destroy_all
     end
 
     def last_owner? = !organization.organization_memberships.owner.where.not(id: id).exists?

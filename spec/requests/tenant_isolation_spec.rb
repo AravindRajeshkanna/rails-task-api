@@ -21,6 +21,11 @@ RSpec.describe "Tenant isolation" do
   let!(:organization) { create(:organization, owner: owner) }
   let!(:org_member_role) { create(:organization_membership, organization: organization, user: member) }
   let!(:invitation) { create(:organization_invitation, organization: organization, invited_by: owner) }
+  let!(:team) { create(:team, organization: organization) }
+  let!(:team_membership) { create(:team_membership, team: team, user: owner) }
+  let!(:org_project) { create(:project, owner: owner, organization: organization) }
+  let!(:org_project_member_role) { create(:membership, project: org_project, user: member) }
+  let!(:project_team) { create(:project_team, project: org_project, team: team) }
   let!(:attachment) do
     task.attachments.attach(io: StringIO.new("hello"), filename: "note.txt", content_type: "text/plain")
     task.attachments.first
@@ -96,7 +101,23 @@ RSpec.describe "Tenant isolation" do
       [ "DELETE", "/api/v1/organizations/:id/invitations/:id", [ organization.id, invitation.id ], 404 ],
 
       # The organization's history is for its owners.
-      [ "GET",    "/api/v1/organizations/:id/audit_events", organization.id, 403 ]
+      [ "GET",    "/api/v1/organizations/:id/audit_events", organization.id, 403 ],
+
+      # Teams: any member of the organization can look, its administrators change them.
+      [ "GET",    "/api/v1/organizations/:id/teams", organization.id, nil ],
+      [ "POST",   "/api/v1/organizations/:id/teams", organization.id, 403, { name: "Planted" } ],
+      [ "GET",    "/api/v1/organizations/:id/teams/:id", [ organization.id, team.id ], nil ],
+      [ "PATCH",  "/api/v1/organizations/:id/teams/:id", [ organization.id, team.id ], 403, { name: "Hijacked" } ],
+      [ "DELETE", "/api/v1/organizations/:id/teams/:id", [ organization.id, team.id ], 403 ],
+      [ "GET",    "/api/v1/organizations/:id/teams/:id/members", [ organization.id, team.id ], nil ],
+      [ "POST",   "/api/v1/organizations/:id/teams/:id/members", [ organization.id, team.id ], 403, { user_id: member.id } ],
+      [ "DELETE", "/api/v1/organizations/:id/teams/:id/members/:id", [ organization.id, team.id, team_membership.id ], 403 ],
+
+      # A team's access to a project (org_project: `member` belongs to it, as a plain member).
+      [ "GET",    "/api/v1/projects/:id/teams", org_project.id, nil ],
+      [ "POST",   "/api/v1/projects/:id/teams", org_project.id, 403, { team_id: team.id } ],
+      [ "PATCH",  "/api/v1/projects/:id/teams/:id", [ org_project.id, project_team.id ], 403, { role: "admin" } ],
+      [ "DELETE", "/api/v1/projects/:id/teams/:id", [ org_project.id, project_team.id ], 403 ]
     ]
   end
 
@@ -107,7 +128,7 @@ RSpec.describe "Tenant isolation" do
   end
 
   def snapshot
-    [ Organization.pluck(:id, :name), OrganizationMembership.pluck(:id, :role), OrganizationInvitation.pluck(:id, :role, :revoked_at, :accepted_at), Project.pluck(:id, :name, :discarded_at), Task.pluck(:id, :title, :discarded_at), Comment.pluck(:id, :body),
+    [ Organization.pluck(:id, :name), OrganizationMembership.pluck(:id, :role), OrganizationInvitation.pluck(:id, :role, :revoked_at, :accepted_at), Team.pluck(:id, :name), TeamMembership.pluck(:id), ProjectTeam.pluck(:id, :role), Project.pluck(:id, :name, :discarded_at), Task.pluck(:id, :title, :discarded_at), Comment.pluck(:id, :body),
       Tag.pluck(:id), Membership.pluck(:id, :role), Webhook.pluck(:id, :active), ActiveStorage::Attachment.count ]
   end
 

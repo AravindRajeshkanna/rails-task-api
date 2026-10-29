@@ -119,9 +119,9 @@ purged for good after 30 days.
 | --- | --- |
 | Auth | `POST /registrations` · `POST /session` · `DELETE /session` · `POST /passwords` · `PATCH /passwords/:token` |
 | Account | `GET` `PATCH /me` · `PUT` `DELETE /me/avatar` |
-| Organizations | `GET` `POST /organizations` · `GET` `PATCH` `DELETE /organizations/:id` · `GET /organizations/:id/members` · `PATCH` `DELETE /organizations/:id/members/:member_id` · `GET` `POST /organizations/:id/invitations` · `DELETE /organizations/:id/invitations/:id` · `POST /invitations/accept` · `GET /organizations/:id/audit_events` (owners) |
+| Organizations | `GET` `POST /organizations` · `GET` `PATCH` `DELETE /organizations/:id` · `GET /organizations/:id/members` · `PATCH` `DELETE /organizations/:id/members/:member_id` · `GET` `POST /organizations/:id/invitations` · `DELETE /organizations/:id/invitations/:id` · `POST /invitations/accept` · `GET /organizations/:id/audit_events` (owners) · `GET` `POST /organizations/:id/teams` · `GET` `PATCH` `DELETE /organizations/:id/teams/:id` · `GET` `POST /organizations/:id/teams/:id/members` · `DELETE /organizations/:id/teams/:id/members/:member_id` |
 | Projects | `GET` `POST /projects` (`organization_id` creates one inside an organization) · `GET` `PATCH` `DELETE /projects/:id` · `POST /projects/:id/restore` |
-| Members | `GET` `POST /projects/:id/memberships` · `PATCH` `DELETE /memberships/:id` |
+| Members | `GET` `POST /projects/:id/memberships` · `PATCH` `DELETE /memberships/:id` · `GET` `POST /projects/:id/teams` · `PATCH` `DELETE /projects/:id/teams/:id` (a team's access) |
 | Tasks | `GET` `POST /projects/:id/tasks` · `GET` `PATCH` `DELETE /tasks/:id` · `POST /tasks/:id/restore` |
 | Comments | `GET` `POST /tasks/:id/comments` · `PATCH` `DELETE /comments/:id` |
 | Attachments | `POST /tasks/:id/attachments` (multipart `files[]`) · `DELETE /attachments/:id` |
@@ -294,7 +294,7 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 - Offset pagination: fine for this data shape, but very deep pages on huge projects would want keyset pagination.
 - Active Storage defaults to local disk; on Kubernetes set `ACTIVE_STORAGE_SERVICE=amazon` (S3).
 - Image dimension analysis needs `libvips` at runtime (it is in the Docker image; locally `brew install vips`). Without it uploads still work, their dimensions are just not recorded. No image variants are generated.
-- No in-app notification inbox and no teams inside organizations; see "Next" in [docs/roadmap.md](docs/roadmap.md).
+- No in-app notification inbox; see "Next" in [docs/roadmap.md](docs/roadmap.md). Teams grant project access but are flat (no team roles, no nested teams), and a person with an administrator's implicit access to a project, or access only through a team, is not in `GET /projects/:id/memberships`: that lists direct members; `GET /projects/:id/teams` lists the teams.
 - No GraphQL endpoint (optional in the roadmap); no public demo deployment is bundled.
 - The platform code is validated statically and by CI (the four images build, Terraform validates, every Helm release renders and passes
   Kubernetes/CRD schema checks) and the services were exercised together locally with an AWS mock. The Compose stack, the `kind` script and

@@ -153,7 +153,8 @@ RSpec.describe "Projects API", type: :request do
 
     post "Add a member" do
       tags "Memberships"
-      description "Admins add an existing user by email address."
+      description "Admins add an existing user by email address. In a project of an organization the person must already be in the " \
+                  "organization, and an unknown address is the same `422` as a user outside it; invite people to the organization instead."
       security [ { bearer_auth: [] } ]
       consumes "application/json"
       produces "application/json"

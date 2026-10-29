@@ -5,7 +5,7 @@ module Api
     # member's view of all of them. It reads the same events and scopes them through the
     # caller's visible projects, so a project you are not in, or one that is deleted, adds nothing.
     class ActivitiesController < BaseController
-      ACTIVITY_TYPES = %w[Project Task Membership].freeze
+      ACTIVITY_TYPES = %w[Project Task Membership ProjectTeam].freeze
 
       def index
         authorize Project, :index?

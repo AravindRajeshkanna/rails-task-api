@@ -1,9 +1,10 @@
 module Api
   module V1
-    # The organization's history: renames, who joined or left, role changes, invitations sent and answered.
+    # The organization's history: renames, who joined or left, role changes, invitations sent and answered,
+    # teams and who is in them, and the projects teams were granted.
     # Owners only (an invitation's changes carry the invited email address).
     class OrganizationAuditEventsController < BaseController
-      AUDITED_TYPES = %w[Organization OrganizationMembership OrganizationInvitation].freeze
+      AUDITED_TYPES = %w[Organization OrganizationMembership OrganizationInvitation Team TeamMembership ProjectTeam].freeze
 
       def index
         organization = policy_scope(Organization).find(params[:organization_id])

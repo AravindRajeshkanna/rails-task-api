@@ -345,8 +345,7 @@ Rules that keep the boundary meaningful: a project's organization is fixed at cr
 tenant line); a project of an organization only accepts members of that organization (a model validation, so only a bulk insert that skips
 validations gets past it); removing someone from the organization removes their project memberships there and is refused while they still
 own one of its projects; the organization keeps at least one owner (changes to owners take a row lock on the organization, so two owners cannot leave at the same moment) and cannot be deleted while it has projects; only owners delete and
-restore its projects and grant roles above `member`. **Teams** (sub-groups inside an organization) are not built; they would be a
-second kind of principal on projects and are the next step if per-team access is needed ([roadmap](roadmap.md)).
+restore its projects and grant roles above `member`. **Teams** (sub-groups inside an organization) were added later: [ADR 37](decisions.md).
 
 ## 35. Joining an organization by invitation, with a signed token and no stored secret
 
@@ -379,3 +378,26 @@ the rows would point at nothing. The history is for **owners**, not admins: it n
 relaxing that later is a one-line policy change whereas tightening it is a breaking one. The activity feed is unaffected: it reads events through
 projects, and these have none. The migration is the zero-downtime shape from the migrations runbook (nullable column, `NOT VALID` key
 validated next, concurrent partial index, since nearly every row belongs to a project).
+
+## 37. Teams: a second way into a project, resolved in the same two places
+
+A team is a named set of an organization's members, and a *grant* (`ProjectTeam`) gives all of them a role in one project. The alternative was
+copying the team into project memberships and keeping the copies in sync, which is the design ADR 34 rejected for organization admins, for the
+same reason: copies drift, and a missed callback leaves a former team member with access. So a grant is data of its own, and access is *derived*
+where it is already decided: `ProjectPolicy::Scope` (one more grouped join that yields at most one row per project, so lists never duplicate),
+`member_project_ids` (which every child resource scopes through, so tasks, comments, tags, webhooks and the channel followed without changes) and
+`role_in` (the per-record lookup). The role is the **highest** of a person's routes in. That rule exposed a latent inconsistency, which is fixed:
+the per-record lookup used to take the first route that answered, so an organization admin who was also a plain project member was an admin in
+lists and a member on a single project. `project_policy_team_spec` now asserts both lookups agree for every combination.
+
+Rules that keep it sound: a team belongs to one organization and its members must be in that organization (validated when added, and ended
+by `OrganizationMembership` whenever someone leaves, by any route, since a team membership outliving the organization membership would be a back
+door); only a project of the team's own organization can be granted, and a project's organization never changes; names are unique per
+organization ignoring case (a unique index on `lower(name)`); teams are managed by organization owners and admins, and a project's admins grant
+them. Adding to a team is by `user_id`, and a user outside the organization gets the same `422` as an id that matches nobody, so teams add no
+way to learn who is registered; the same goes for granting a team from another organization. **Participants** (direct members plus team members)
+are who a task can be assigned to and who the AI assignee suggestions rank, because a team that can see a project but cannot be given work in it
+would be a trap. Measured on the 149,000-task database: the whale project's task page costs the same with the extra branch (0.7 ms against 0.8 ms).
+
+What teams are not: they have no roles of their own, cannot nest, and cannot be granted to a personal project (a project without an organization has no
+teams to grant). Projects of an organization still cannot be given to a person outside it, with or without a team.

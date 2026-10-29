@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_29_221010) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_29_230000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -128,7 +128,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_221010) do
     t.index ["organization_id", "user_id"], name: "index_organization_memberships_on_organization_id_and_user_id", unique: true
     t.index ["organization_id"], name: "index_organization_memberships_on_organization_id"
     t.index ["user_id"], name: "index_organization_memberships_on_user_id"
-    t.check_constraint "role::text = ANY (ARRAY['member'::character varying::text, 'admin'::character varying::text, 'owner'::character varying::text])", name: "organization_memberships_role_valid"
+    t.check_constraint "role::text = ANY (ARRAY['member'::character varying, 'admin'::character varying, 'owner'::character varying]::text[])", name: "organization_memberships_role_valid"
   end
 
   create_table "organizations", force: :cascade do |t|
@@ -136,6 +136,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_221010) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.check_constraint "char_length(btrim(name::text)) > 0", name: "organizations_name_present"
+  end
+
+  create_table "project_teams", force: :cascade do |t|
+    t.bigint "project_id", null: false
+    t.bigint "team_id", null: false
+    t.string "role", default: "member", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["project_id", "team_id"], name: "index_project_teams_on_project_id_and_team_id", unique: true
+    t.index ["project_id"], name: "index_project_teams_on_project_id"
+    t.index ["team_id"], name: "index_project_teams_on_team_id"
+    t.check_constraint "role::text = ANY (ARRAY['member'::character varying, 'admin'::character varying]::text[])", name: "project_teams_role_valid"
   end
 
   create_table "projects", force: :cascade do |t|
@@ -219,6 +231,26 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_221010) do
     t.check_constraint "status = ANY (ARRAY[0, 1, 2])", name: "tasks_status_valid"
   end
 
+  create_table "team_memberships", force: :cascade do |t|
+    t.bigint "team_id", null: false
+    t.bigint "user_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["team_id", "user_id"], name: "index_team_memberships_on_team_id_and_user_id", unique: true
+    t.index ["team_id"], name: "index_team_memberships_on_team_id"
+    t.index ["user_id"], name: "index_team_memberships_on_user_id"
+  end
+
+  create_table "teams", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.string "name", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index "organization_id, lower((name)::text)", name: "index_teams_on_organization_id_and_lower_name", unique: true
+    t.index ["organization_id"], name: "index_teams_on_organization_id"
+    t.check_constraint "char_length(btrim(name::text)) > 0", name: "teams_name_present"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "name", null: false
     t.string "email_address", null: false
@@ -272,6 +304,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_221010) do
   add_foreign_key "organization_invitations", "users", column: "invited_by_id", on_delete: :nullify
   add_foreign_key "organization_memberships", "organizations"
   add_foreign_key "organization_memberships", "users"
+  add_foreign_key "project_teams", "projects"
+  add_foreign_key "project_teams", "teams"
   add_foreign_key "projects", "organizations"
   add_foreign_key "projects", "users", column: "owner_id"
   add_foreign_key "sessions", "users"
@@ -281,6 +315,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_221010) do
   add_foreign_key "tasks", "projects"
   add_foreign_key "tasks", "users", column: "assignee_id"
   add_foreign_key "tasks", "users", column: "creator_id"
+  add_foreign_key "team_memberships", "teams"
+  add_foreign_key "team_memberships", "users"
+  add_foreign_key "teams", "organizations"
   add_foreign_key "webhook_deliveries", "webhooks"
   add_foreign_key "webhooks", "projects"
 end

@@ -70,9 +70,7 @@ class Task < ApplicationRecord
     def assignee_is_project_member
       return if assignee_id.blank? || project.blank?
 
-      unless project.memberships.exists?(user_id: assignee_id)
-        errors.add(:assignee, "must be a member of the project")
-      end
+      errors.add(:assignee, "must be a member of the project") unless project.participant?(assignee_id)
     end
 
     def attachments_are_acceptable

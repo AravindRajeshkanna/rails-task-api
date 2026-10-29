@@ -25,8 +25,7 @@ module Ai
       open_counts = @project.tasks.kept.where.not(status: :done).group(:assignee_id).count
       overdue_counts = @project.tasks.kept.overdue.group(:assignee_id).count
 
-      candidates = @project.memberships.includes(:user).map { |membership|
-        member = membership.user
+      candidates = @project.participants.order(:id).map { |member|
         finished, weight = expertise.fetch(member.id, [ 0, 0.0 ])
         open = open_counts.fetch(member.id, 0)
         overdue = overdue_counts.fetch(member.id, 0)

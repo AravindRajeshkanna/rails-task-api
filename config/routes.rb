@@ -37,9 +37,17 @@ Rails.application.routes.draw do
         resources :members, controller: "organization_memberships", only: %i[index update destroy]
         resources :invitations, controller: "organization_invitations", only: %i[index create destroy]
         resources :audit_events, controller: "organization_audit_events", only: :index
+        resources :teams do
+          resources :members, controller: "team_memberships", only: %i[index create destroy]
+        end
       end
       # Joining happens by redeeming an invitation (there is no "add by email"): the emailed token, as the invited address.
       post "invitations/accept", to: "invitation_acceptances#create"
+
+      # A team's access to a project is addressed under the project (it only means something there).
+      resources :projects, only: [] do
+        resources :teams, controller: "project_teams", only: %i[index create update destroy]
+      end
 
       # Shallow nesting: collections hang off their parent
       # (/projects/1/tasks), members stand alone (/tasks/7).
