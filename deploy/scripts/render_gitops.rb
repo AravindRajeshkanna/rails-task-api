@@ -7,6 +7,8 @@
 #
 # prod-dr is the warm standby of prod in another region (docs/aws/multi-region.md): the same templates at standby size.
 # At a failover, render it at production size:  SIZE_AS=prod ruby deploy/scripts/render_gitops.rb prod-dr tmp/prod-dr-outputs.json
+# The API's READ_ONLY switch (writes get 503 `read_only`) is on for the standby at standby size and off otherwise; READ_ONLY=true|false overrides it:
+#   READ_ONLY=true ruby deploy/scripts/render_gitops.rb prod tmp/prod-outputs.json    # drain writes before a planned switchover
 #
 # Everything it writes is non-secret (ARNs, hostnames, URLs); secrets stay in AWS Secrets Manager.
 require "json"
@@ -16,16 +18,18 @@ env = ARGV[0] or abort "usage: render_gitops.rb <dev|staging|prod|prod-dr> [terr
 root = File.expand_path("..", __dir__)
 
 SIZE_TABLE = {
-  "dev" => { API_REPLICAS: 1, API_MAX_REPLICAS: 3, WORKER_MAX_REPLICAS: 3, NOTIFICATIONS_REPLICAS: 1, ROLLOUT_ENABLED: false, NODEPOOL_CPU_LIMIT: 40, CRITICAL_POOL: false, FIS_ENABLED: true },
-  "staging" => { API_REPLICAS: 2, API_MAX_REPLICAS: 6, WORKER_MAX_REPLICAS: 5, NOTIFICATIONS_REPLICAS: 1, ROLLOUT_ENABLED: true, NODEPOOL_CPU_LIMIT: 80, CRITICAL_POOL: false, FIS_ENABLED: true },
-  "prod" => { API_REPLICAS: 3, API_MAX_REPLICAS: 12, WORKER_MAX_REPLICAS: 10, NOTIFICATIONS_REPLICAS: 2, ROLLOUT_ENABLED: true, NODEPOOL_CPU_LIMIT: 200, CRITICAL_POOL: true, FIS_ENABLED: false },
+  "dev" => { API_REPLICAS: 1, API_MAX_REPLICAS: 3, WORKER_MAX_REPLICAS: 3, NOTIFICATIONS_REPLICAS: 1, ROLLOUT_ENABLED: false, NODEPOOL_CPU_LIMIT: 40, CRITICAL_POOL: false, FIS_ENABLED: true, READ_ONLY: false },
+  "staging" => { API_REPLICAS: 2, API_MAX_REPLICAS: 6, WORKER_MAX_REPLICAS: 5, NOTIFICATIONS_REPLICAS: 1, ROLLOUT_ENABLED: true, NODEPOOL_CPU_LIMIT: 80, CRITICAL_POOL: false, FIS_ENABLED: true, READ_ONLY: false },
+  "prod" => { API_REPLICAS: 3, API_MAX_REPLICAS: 12, WORKER_MAX_REPLICAS: 10, NOTIFICATIONS_REPLICAS: 2, ROLLOUT_ENABLED: true, NODEPOOL_CPU_LIMIT: 200, CRITICAL_POOL: true, FIS_ENABLED: false, READ_ONLY: false },
   # The standby serves no traffic, so no canary (its analysis would have nothing to measure) and one replica; the autoscalers and the node pool limit
-  # still allow it to grow to production size on its own once traffic arrives.
-  "prod-dr" => { API_REPLICAS: 1, API_MAX_REPLICAS: 12, WORKER_MAX_REPLICAS: 10, NOTIFICATIONS_REPLICAS: 1, ROLLOUT_ENABLED: false, NODEPOOL_CPU_LIMIT: 200, CRITICAL_POOL: true, FIS_ENABLED: false }
+  # still allow it to grow to production size on its own once traffic arrives. Its database is a read-only replica until it is promoted, so the API
+  # starts in read-only mode (ReadOnlyMode): reads work, writes get 503 `read_only`. Rendering it at production size (SIZE_AS=prod) is the promotion step.
+  "prod-dr" => { API_REPLICAS: 1, API_MAX_REPLICAS: 12, WORKER_MAX_REPLICAS: 10, NOTIFICATIONS_REPLICAS: 1, ROLLOUT_ENABLED: false, NODEPOOL_CPU_LIMIT: 200, CRITICAL_POOL: true, FIS_ENABLED: false, READ_ONLY: true }
 }
 abort "unknown environment #{env}" unless SIZE_TABLE.key?(env)
 size_as = ENV.fetch("SIZE_AS", env)
-SIZES = SIZE_TABLE.fetch(size_as) { abort "unknown size #{size_as}" }
+SIZES = SIZE_TABLE.fetch(size_as) { abort "unknown size #{size_as}" }.dup
+SIZES[:READ_ONLY] = ENV["READ_ONLY"] == "true" if ENV.key?("READ_ONLY") # drain writes on any environment, e.g. before a planned switchover
 
 domain = { "dev" => "api.dev.taskapi.example.com", "staging" => "api.staging.taskapi.example.com", "prod" => "api.taskapi.example.com", "prod-dr" => "api.taskapi.example.com" }.fetch(env) # the standby answers to the primary's name
 region = env == "prod-dr" ? "us-west-2" : "us-east-1"

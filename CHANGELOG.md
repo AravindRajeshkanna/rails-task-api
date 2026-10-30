@@ -8,6 +8,9 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Added
+- `503 read_only` (with `Retry-After`) for any write while the service is read-only: during a database promotion or planned maintenance. Reads, including
+  GraphQL queries and requests with an existing token, keep working. Nothing was changed by the refused request, so retry it as it is. Signing in is a write
+  and waits too.
 - `GET /api/v1/projects/{id}/analytics`: counts by status and priority, tasks created and completed per day/week/month, cycle time
   (median and 90th percentile), and workload per assignee. Query: `from`, `to` (ISO 8601), `interval` (`day|week|month`).
 - `GET /api/v1/activity`: what happened across all the caller's projects (projects, tasks, memberships), newest first.

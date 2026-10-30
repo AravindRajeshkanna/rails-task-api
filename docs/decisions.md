@@ -540,4 +540,28 @@ Replication Time Control prerequisites, the ECR creation template), that IAM is 
 
 Adding `count` to resources renames their addresses (`x` to `x[0]`), which for passwords, the signing key and IAM roles would mean destroying and recreating them in any stack applied from an earlier commit; `moved.tf` records the renames so nothing is replaced.
 
-Not done: cross-account pairs (the ECR rule, replication roles and the ACM validation record assume one account), a read-only switch for the promotion window, automating the failover steps, and rendering a second Grafana/Prometheus view across regions.
+Not done: cross-account pairs (the ECR rule, replication roles and the ACM validation record assume one account), (a read-only switch for the promotion window, since built: [ADR 46](#46-a-read-only-mode-for-the-promotion-window-and-what-it-took-to-make-reads-survive-it)), automating the failover steps, and rendering a second Grafana/Prometheus view across regions.
+
+## 46. A read-only mode for the promotion window, and what it took to make reads survive it
+
+The standby region's database is a read-only replica until a person promotes it, and Route 53 can send traffic there before that (ADR 42, 45). The roadmap's answer was "a few lines of middleware turning `PG::ReadOnlySqlTransaction` into
+`503 read_only`". The middleware is those few lines. What made reads actually survive was two other places that write on the way to answering a read, found by running the API against a database that really refused writes (a throwaway
+database with `default_transaction_read_only = on`):
+
+1. **`Session.authenticate` stamps `last_used_at`** (at most every five minutes per session). On a read-only database every signed-in read whose stamp was stale would have been a 503. The stamp is now skipped when the database refuses it, inside its own
+   savepoint so that a refusal cannot abort a transaction the caller is in.
+2. **Solid Cache gives up quietly on *transient* errors, and a read-only database is not one.** Rack::Attack's counters, `rate_limit` and cached project statistics all write to the cache, so every request would have raised, reads included, before reaching
+   the middleware. A small module prepended to `SolidCache::Store` treats a refused write like the errors it already tolerates (skip the write, miss the read). It overrides one private method of the gem; a spec builds a real Solid Cache in the test transaction, makes the database
+   read-only, and fails if the gem stops routing through that method. The cost: while it lasts nothing is rate-limited by the API (the WAF still is) and cached values are recomputed per request.
+
+**Two entrances, one answer.** `READ_ONLY=true` runs each request inside `ActiveRecord::Base.while_preventing_writes`, so a write fails before it reaches the database; and a Postgres `25006` from a real replica takes the same exit.
+(`ApplicationRecord.while_preventing_writes` looks like the narrower, safer call and does nothing: it is not a connection class here. The first draft used it and the specs caught it.) Both become the same `503 read_only` in the usual error envelope with
+`Retry-After: 30`, counted in `taskapi_read_only_refusals_total{source}`, and a request that changed anything was rolled back with the exception, so a client retries it unchanged. Reads, GraphQL queries (which are POSTs, hence the database-level check rather than
+an HTTP-method one) and existing tokens keep working. Signing in is a write and waits.
+
+The standby renders with `READ_ONLY=true`; the production-size render (`SIZE_AS=prod`), which the runbook already uses as the "scale up" step, turns it off, and `READ_ONLY=true|false` overrides either way, which also drains writes before a planned
+switchover. It covers the API only: workers are scaled by the runbook.
+
+Alternatives: **no switch**, only the error mapping (rejected for the planned switchover, which should stop writes deliberately, not discover them); **a method check** (`POST` is not always a write; GraphQL); **a Rack-level `REQUEST_METHOD` filter** (same); **making the standby's
+database writable by a second primary** (not available).
+Not done: workers and Action Cable under a read-only database (jobs fail and retry until promotion), and exercising any of this against Aurora; it was checked against a local Postgres that refuses writes the same way (SQLSTATE 25006).

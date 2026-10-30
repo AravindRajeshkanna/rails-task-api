@@ -19,6 +19,7 @@ env:
   EVENTS_SNS_TOPIC_ARN: arn:aws:sns:us-east-1:123456789012:task-api-staging-events
   AI_PROVIDER: ""
   AWS_S3_BUCKET: task-api-staging-storage
+  READ_ONLY: "false"        # true on the standby until its database is promoted (config/initializers/read_only_mode.rb)
 ingress:
   host: api.staging.taskapi.example.com
   annotations:

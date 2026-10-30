@@ -56,6 +56,9 @@ module TaskApi
     # A public demo instance: sign-up, password reset, uploads, webhooks, invitations and AI are refused, and its data is
     # reset every night (docs/demo.md). Never set this on an instance with real users.
     config.x.demo_mode = ENV["DEMO_MODE"] == "true"
+    # Refuses every write to the application database with 503 `read_only` while reads keep working (ReadOnlyMode). For the standby region
+    # while its database is a read-only replica, and to drain writes before a planned switchover (docs/runbooks/regional-failover.md).
+    config.x.read_only = ENV["READ_ONLY"] == "true"
     # Outgoing webhooks refuse private/loopback addresses unless this is enabled (SSRF guard).
     config.x.webhooks.allow_private_networks = false
 

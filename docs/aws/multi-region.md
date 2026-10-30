@@ -31,6 +31,7 @@ These are targets to verify in a drill, not measurements.
 | **Secrets** | Replicas | Secrets Manager multi-Region secrets (`replica` blocks), including the JWKS signing key, so tokens issued before the failover still verify | Replicas are read-only until promoted; rotating in the primary replicates |
 | **Events** | An SNS topic and SQS queues per region (they are regional and cheap) | The same Terraform; subscriptions are within a region | See below: this is where the outbox pays off |
 | **Bedrock, SES** | Enabled in region B | Model access and verified identities are per region; `bedrock_model_id` may be a different inference profile | Forgetting these is the classic failover surprise |
+| **The promotion window** | Reads work, writes are `503 read_only` | A read-only mode in the API (`READ_ONLY=true` on the standby until it is promoted, and any refused write becomes the 503); the cache skips writes meanwhile ([ADR 46](../decisions.md), [runbook](../runbooks/regional-failover.md#read-only-mode-what-clients-see-while-the-database-cannot-take-writes)) | Signing in is a write, so nobody new gets a session until promotion; rate limits are not counted; workers on a read-only database log errors until it is promoted |
 | **Observability** | Per-region Prometheus/CloudWatch, one Grafana | The same stack applied again | A regional outage takes that region's metrics with it; alarm from outside (Route 53 health check) |
 
 ## How the work done so far helps
@@ -58,6 +59,7 @@ side is serving after a failover, and no Terraform change is needed for the fail
 | DNS | `edge.tf` | the name becomes a Route 53 failover pair with a health check on the primary load balancer's `/up`, and an alarm | never owns the name or the certificate's validation record (it has a certificate of its own, issued by waiting) |
 | CI/CD | `github.tf` | the deploy role | none: CI pushes only to the primary's registry |
 | GitOps | `deploy/gitops/envs/prod-dr/`, `render_gitops.rb`, the prod ApplicationSet | | an environment `prod-dr` at standby size (one replica, no canary), same hostname, the primary's secret paths; `SIZE_AS=prod` renders it at production size |
+| Read-only API | `render_gitops.rb`, `api.yaml.tpl` | | `READ_ONLY=true` in the standby-size render; the production-size render (`SIZE_AS=prod`) turns it off |
 | Promotion | `.github/workflows/promote.yml` | | `prod` can be promoted into `prod-dr` (a pull request, then a human Sync) |
 | Tests | `deploy/terraform/tests/multi_region.tftest.hcl`, CI | | run on every pull request |
 

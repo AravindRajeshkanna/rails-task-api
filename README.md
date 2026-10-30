@@ -96,6 +96,7 @@ Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it.
 | 409 | `stale_object`, `conflict` | `lock_version` out of date; uniqueness race |
 | 422 | `validation_failed` | Details are keyed by field |
 | 429 | `rate_limited` | Honour `Retry-After` |
+| 503 | `read_only`, `ai_unavailable`, `ai_not_configured` | `read_only`: a database promotion or maintenance is under way. Reads work, nothing was changed, retry the write after `Retry-After` |
 
 **Rate limits** (`429` + `Retry-After`): sign-up 10/hour per IP; sign-in and password reset 10 per 3 minutes per IP, and
 5 sign-ins per minute per account; everything under `/api` 300 per 5 minutes per IP and 600 per 5 minutes per token.

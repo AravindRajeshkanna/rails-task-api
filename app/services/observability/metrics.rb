@@ -28,6 +28,7 @@ module Observability
     HTTP_REQUESTS = counter(:taskapi_http_requests_total, "HTTP requests handled", %i[controller action status])
     HTTP_DURATION = histogram(:taskapi_http_request_duration_seconds, "HTTP request duration", %i[controller action], LATENCY_BUCKETS)
     DOMAIN_EVENTS = counter(:taskapi_domain_events_total, "Domain events published (task.created, project.updated, ...)", %i[event])
+    READ_ONLY_REFUSALS = counter(:taskapi_read_only_refusals_total, "Writes answered 503 read_only (switch = READ_ONLY=true, database = Postgres refused it)", %i[source])
 
     AI_REQUESTS = counter(:taskapi_ai_requests_total, "Model calls by feature and outcome", %i[feature outcome])
     AI_TOKENS = counter(:taskapi_ai_tokens_total, "Model tokens consumed", %i[feature direction])
