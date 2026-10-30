@@ -69,6 +69,12 @@ module TaskApi
     # served by the primary for this many seconds, so they never read their own change from a replica that has not caught up yet.
     config.x.replica_reads = ENV["DB_REPLICA_HOST"].present? || ENV["DB_REPLICA_URL"].present?
     config.x.replica_read_your_writes_seconds = Float(ENV.fetch("REPLICA_READ_YOUR_WRITES_SECONDS", 3))
+    # Each organization may make this many changes (writes) per five minutes, in total, whatever the clients (OrganizationBudget).
+    config.x.organization_writes_per_period = Integer(ENV.fetch("ORG_WRITES_PER_5_MIN", 3000))
+    # Under load, the expensive reads are refused with 503 before the cheap ones suffer (LoadShedder). BACKLOG is how many requests may already be waiting
+    # for a Puma thread before it starts; LOAD_SHEDDING=false turns it off.
+    config.x.load_shedding = ENV.fetch("LOAD_SHEDDING", Rails.env.production?.to_s) == "true"
+    config.x.load_shedding_backlog = Integer(ENV.fetch("LOAD_SHED_BACKLOG", 2))
     # Outgoing webhooks refuse private/loopback addresses unless this is enabled (SSRF guard).
     config.x.webhooks.allow_private_networks = false
 

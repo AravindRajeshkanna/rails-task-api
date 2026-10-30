@@ -11,6 +11,16 @@ class Rack::Attack
     end
   end
 
+  # The requests that cost the most get a smaller budget of their own, on top of the general one: a client polling a dashboard or a search box in a loop
+  # should run out of that budget, not out of the budget for everything it does. 120 of them in five minutes is one every 2.5 seconds, all day.
+  EXPENSIVE_PATHS = %r{\A/api/v1/(search|activity|graphql)\b|/(analytics|audit_events|summary)\z}
+
+  throttle("api/expensive", limit: 120, period: 5.minutes) do |request|
+    if request.path.match?(EXPENSIVE_PATHS) && (header = request.get_header("HTTP_AUTHORIZATION"))
+      Session.digest(header.split.last)
+    end
+  end
+
   throttle("api/ip", limit: 300, period: 5.minutes) do |request|
     request.ip if request.path.start_with?("/api/")
   end

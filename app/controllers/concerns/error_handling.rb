@@ -64,6 +64,10 @@ module ErrorHandling
       response.headers["Retry-After"] = "5"
       render_error :service_unavailable, "auth_unavailable", "The authentication service is unreachable. Try again shortly."
     end
+    rescue_from OrganizationBudget::Exceeded do |error|
+      response.headers["Retry-After"] = error.retry_after.to_s
+      render_error :too_many_requests, "rate_limited", error.message
+    end
     rescue_from Authentication::NotAuthenticated do
       render_error :unauthorized, "unauthenticated", "Authentication is required"
     end

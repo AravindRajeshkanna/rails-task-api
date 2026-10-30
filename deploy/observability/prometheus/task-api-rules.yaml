@@ -96,6 +96,15 @@ spec:
             description: "Calls to that dependency fail at once instead of waiting out their timeout. The API itself is up; the features that need it answer 503 with a Retry-After."
             runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/ai-provider-issues.md
 
+        - alert: TaskApiLoadShedding
+          expr: sum(rate(taskapi_load_shed_total[5m])) > 0.1
+          for: 10m
+          labels: { severity: ticket }
+          annotations:
+            summary: "The API has been refusing expensive reads because every thread is busy"
+            description: "More than one in ten seconds, for ten minutes. Cheap reads and writes are still served; searches, analytics and the feed answer 503 with a Retry-After. This is capacity: add API pods (the HPA should have), or look for a client in a loop."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-latency.md
+
         - alert: TaskApiNoWorkers
           expr: max(taskapi_queue_workers) == 0 and taskapi:queue_ready_jobs:total > 0
           for: 5m

@@ -769,3 +769,25 @@ Measured honestly: the routing check adds one cache read per routed request; the
 
 The caching strategy is written up in [architecture/caching.md](architecture/caching.md); the decision worth recording here is that **no cache entry is ever invalidated by deleting it**. Entries are keyed by a version of the data they were computed from, so a change makes the old entry unreachable and it ages out. That removes the forgot-to-invalidate and the concurrent-delete-repopulate bugs by construction, at a measured price (project statistics stay exact because every task write touches its project: 28% of task write throughput). Nothing public is cached at a CDN, because nothing the API returns is the same for every caller.
 
+## 62. Fair shares and refusing work early: budgets by organization and endpoint, and load shedding
+
+The existing limits stop one client (600 requests per five minutes per token, 300 per IP). Three things they cannot do, and what now does them.
+
+**An organization is more than a client.** A hundred integrations of one customer, or a bulk import, can use up the database's write capacity for everyone, each of them well inside its own limit. Each organization now has a budget of changes (3,000 per five minutes, `ORG_WRITES_PER_5_MIN`), counted when a write is *authorized* (the record is known by then, so the organization costs no extra query, and authorization comes first, so a person who may not write cannot spend someone
+else's budget). Reads are not charged (they can be served by a replica and are cheap to refuse), personal projects have no organization and are limited as a person, and the counter fails open: a cache outage should not stop people working. The same hook records `Current.organization_id`, which logs and traces now carry.
+
+**Some requests cost thirty times others.** A search is ~50 ms and a project list ~10 ms, so a general budget of 600 lets a client spend all of it on the dearest endpoint. Search, analytics, the activity feed, audit logs and GraphQL have a smaller budget of their own (120 per five minutes per token), on top of the general one.
+
+**Under overload, refuse the work that is dearest and easiest to retry, first.** When every Puma thread is busy and two or more requests are already waiting for one, taking more work makes everyone slower: the queue grows until requests time out. The shedder (a Rack middleware, before authentication so refusal costs almost nothing) answers the expensive reads with `503 overloaded` and a one-to-two second `Retry-After` (jittered, so refused clients do not all return together) and never sheds health
+checks, metrics, sign-in or any write: a refused write is lost work, a refused read is a retry. The signal is Puma's own backlog; it is read only when running under Puma, and no signal means nothing is shed, never a guess. Measured with real Puma (3 threads), k6 and the 149,000-task database, 90 searches a second against capacity for ~60 plus 30 cheap reads a second for 25 seconds:
+
+| | Cheap reads: median / p95 | Searches |
+| --- | ---: | --- |
+| Shedding off | **9,482 ms** / 10,463 ms | all queued, median 8.3 s |
+| Shedding on | **44 ms** / 84 ms | 1,431 of 2,250 refused at once; the rest served in a median 43 ms |
+
+An earlier run of this experiment answered 500 to every request (a pending migration in the test database) and its numbers were thrown away: a load test that does not check its status codes measures a queue.
+
+**The spec caught a bug in the signal itself.** The first version read `Puma.stats_object`, which is not a public reader; the error was rescued (the signal failing must not fail a request), so the shedder would have silently never shed in production. A middleware that fails safe is also a middleware that fails silently, so the default signal now has a test, and `taskapi_puma_backlog` is exported so that "the shedder sees nothing" shows up on a dashboard.
+**Queue-based load leveling** is what the platform already does for everything that need not be synchronous: events go through the outbox, webhooks, mail, digests and embeddings through the worker pools (ADR 59), and the write path itself stays synchronous because the caller needs its answer. Not done: priorities between tenants under overload (every organization's expensive reads are shed alike), and shedding by queue time rather than backlog (Puma does not expose it).
+

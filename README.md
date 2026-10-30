@@ -95,8 +95,8 @@ Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it.
 | 404 | `not_found` | Missing **or not yours**: resources in projects you don't belong to look nonexistent |
 | 409 | `stale_object`, `conflict`, `idempotency_in_progress` | `lock_version` out of date; uniqueness race; a request with the same `Idempotency-Key` is still running |
 | 422 | `validation_failed`, `idempotency_key_reused` | Details are keyed by field; an `Idempotency-Key` was reused for a different request |
-| 429 | `rate_limited` | Honour `Retry-After` |
-| 503 | `read_only`, `ai_unavailable`, `ai_not_configured` | `read_only`: a database promotion or maintenance is under way. Reads work, nothing was changed, retry the write after `Retry-After` |
+| 429 | `rate_limited` | Honour `Retry-After`: a per-token, per-endpoint, per-IP or per-organization limit |
+| 503 | `read_only`, `overloaded`, `ai_unavailable`, `ai_not_configured` | `read_only`: a database promotion or maintenance is under way (reads work, nothing was changed); `overloaded`: the server is busy and refused an expensive read first; retry after `Retry-After` |
 
 **Sparse fieldsets.** `?fields=id,title,status` on the task list and a single task (and `?fields=id,name` on the project list) returns only those attributes, and only loads the associations you name. On a page of 100 tasks that is
 87% fewer bytes, one query instead of five, and 4x less time ([performance.md](docs/performance.md#sparse-fieldsets)). `id` is always there; an unknown name is a `400` that lists the valid ones.
@@ -106,7 +106,10 @@ instead of a second task, a second invitation email, a second model call. Same k
 successes are remembered. Not offered on sign-in, registration or password reset (their answers hold credentials), uploads, or GraphQL. See [ADR 55](docs/decisions.md).
 
 **Rate limits** (`429` + `Retry-After`): sign-up 10/hour per IP; sign-in and password reset 10 per 3 minutes per IP, and
-5 sign-ins per minute per account; everything under `/api` 300 per 5 minutes per IP and 600 per 5 minutes per token.
+5 sign-ins per minute per account; everything under `/api` 300 per 5 minutes per IP and 600 per 5 minutes per token; the expensive endpoints
+(search, analytics, the activity feed, audit logs, GraphQL) a smaller 120 per 5 minutes per token of their own; and each organization 3,000 changes (writes) per 5 minutes across all of its clients
+(`Retry-After` is the end of the window). **Under load** the expensive reads are refused first, with `503 overloaded` and a `Retry-After`, while cheap reads and every write keep being served
+([ADR 62](docs/decisions.md)).
 
 **Pagination.** `?page=2&limit=50` (default 25, max 100). The body has `meta` (`page`, `limit`, `count`,
 `pages`, `next`, `previous`) and responses carry `Link` (RFC 8288), `Total-Count`, `Total-Pages`,
