@@ -137,7 +137,7 @@ RSpec.describe Events::Outbox do
       task.update!(assignee: alice) # later: the stored event must still say Bob
 
       assigned = events("task.assigned").sole.payload["data"]
-      expect(assigned["recipient"]).to eq("id" => bob.id, "name" => "Bob Builder", "email_address" => "bob@example.com")
+      expect(assigned["recipient"]).to eq("id" => bob.id, "name" => "Bob Builder", "email_address" => "bob@example.com", "email_enabled" => true)
       expect(assigned["actor"]).to eq("id" => alice.id, "name" => "Alice")
       expect(assigned["project"]).to eq("id" => project.id, "name" => "Website")
       expect(assigned["task"]).to include("title" => "Review the PR")

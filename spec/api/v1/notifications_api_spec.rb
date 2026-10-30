@@ -98,4 +98,114 @@ RSpec.describe "Notifications API", type: :request do
       end
     end
   end
+
+  path "/api/v1/notification_settings" do
+    get "My notification settings" do
+      tags "Notifications"
+      description "The defaults (digest off) until something is changed."
+      security [ { bearer_auth: [] } ]
+      produces "application/json"
+
+      response "200", "The settings" do
+        schema envelope.call(ref.call("NotificationSetting"))
+        run_test! { expect(data).to include("digest" => "off", "digest_hour" => 8, "time_zone" => "UTC") }
+      end
+
+      response "401", "Missing or invalid token" do
+        schema ref.call("Error")
+        let(:Authorization) { nil }
+        run_test!
+      end
+    end
+
+    patch "Change my notification settings" do
+      tags "Notifications"
+      description "Any of `digest` (`off` or `daily`), `digest_hour` (0-23) and `time_zone` (an IANA name). With a daily digest this app sends one summary a day " \
+                  "instead of an email per assignment or reminder; the inbox is unaffected. Refused (`403 demo_mode`) in the public demo."
+      security [ { bearer_auth: [] } ]
+      consumes "application/json"
+      produces "application/json"
+      parameter name: :body, in: :body, schema: {
+        type: :object, properties: { digest: { type: :string, enum: %w[off daily] }, digest_hour: { type: :integer }, time_zone: { type: :string } }
+      }
+
+      response "200", "Updated" do
+        schema envelope.call(ref.call("NotificationSetting"))
+        let(:body) { { digest: "daily", digest_hour: 18, time_zone: "Europe/Paris" } }
+        run_test! { expect(data).to include("digest" => "daily", "digest_hour" => 18) }
+      end
+
+      response "422", "Unknown digest, hour or time zone" do
+        schema ref.call("Error")
+        let(:body) { { digest: "hourly" } }
+        run_test!
+      end
+    end
+  end
+
+  path "/api/v1/notification_mutes" do
+    get "List what I muted" do
+      tags "Notifications"
+      security [ { bearer_auth: [] } ]
+      produces "application/json"
+      parameter name: :page, in: :query, type: :integer, required: false
+      parameter name: :limit, in: :query, type: :integer, required: false
+
+      response "200", "My mutes" do
+        schema envelope.call(ref.call("NotificationMute"), list: true)
+        before { create(:notification_mute, user: user, kind: "comment.created") }
+        run_test! { expect(data.sole).to include("kind" => "comment.created", "project_id" => nil) }
+      end
+    end
+
+    post "Mute a kind, a project, or a kind in a project" do
+      tags "Notifications"
+      description "Give `kind`, `project_id`, or both. Muting stops the notification being stored, emailed or put in the digest from now on; " \
+                  "what is already in the inbox stays. A project you cannot see is a `404`."
+      security [ { bearer_auth: [] } ]
+      consumes "application/json"
+      produces "application/json"
+      parameter name: :body, in: :body, schema: {
+        type: :object, properties: { kind: { type: :string, enum: %w[task.assigned task.due_soon task.completed comment.created] }, project_id: { type: :integer } }
+      }
+
+      response "201", "Muted" do
+        schema envelope.call(ref.call("NotificationMute"))
+        let(:body) { { kind: "task.due_soon", project_id: project.id } }
+        run_test!
+      end
+
+      response "404", "Not a project of yours" do
+        schema ref.call("Error")
+        let(:body) { { project_id: create(:project).id } }
+        run_test!
+      end
+
+      response "422", "Nothing to mute, an unknown kind, or already muted" do
+        schema ref.call("Error")
+        let(:body) { {} }
+        run_test!
+      end
+    end
+  end
+
+  path "/api/v1/notification_mutes/{id}" do
+    parameter name: :id, in: :path, type: :integer
+
+    delete "Unmute" do
+      tags "Notifications"
+      security [ { bearer_auth: [] } ]
+
+      response "204", "Unmuted" do
+        let(:id) { create(:notification_mute, user: user, kind: "task.completed").id }
+        run_test!
+      end
+
+      response "404", "Not yours" do
+        schema ref.call("Error")
+        let(:id) { create(:notification_mute).id }
+        run_test!
+      end
+    end
+  end
 end

@@ -262,6 +262,24 @@ module OpenapiSchemas
       },
       required: %i[id kind project_id task_id data read created_at]
     },
+    NotificationSetting: {
+      type: :object,
+      description: "How the caller hears about things beyond the inbox. With `digest` `daily` there is no email per event: one summary of what is new and unread arrives at `digest_hour` in `time_zone`.",
+      properties: {
+        digest: { type: :string, enum: %w[off daily] }, digest_hour: { type: :integer, minimum: 0, maximum: 23 },
+        time_zone: { type: :string, description: "IANA name, e.g. Europe/Paris" }, last_digest_at: { type: :string, format: "date-time", nullable: true }
+      },
+      required: %i[digest digest_hour time_zone]
+    },
+    NotificationMute: {
+      type: :object,
+      description: "Silences a kind everywhere (no `project_id`), a project entirely (no `kind`), or one kind in one project. A muted notification is not stored in the inbox, emailed or put in the digest.",
+      properties: {
+        id: { type: :integer }, kind: { type: :string, nullable: true, enum: [ "task.assigned", "task.due_soon", "task.completed", "comment.created", nil ] },
+        project_id: { type: :integer, nullable: true }, created_at: { type: :string, format: "date-time" }
+      },
+      required: %i[id created_at]
+    },
     SearchResult: {
       type: :object,
       description: "A task that matched a full-text search. Highlights wrap matched words in « » (plain text, not HTML).",

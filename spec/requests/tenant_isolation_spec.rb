@@ -43,6 +43,8 @@ RSpec.describe "Tenant isolation" do
       [ "GET", "/api/v1/search" ], # scoped to the caller's projects; see search_spec
       [ "GET", "/api/v1/notifications" ], [ "PATCH", "/api/v1/notifications/:x" ], [ "DELETE", "/api/v1/notifications/:x" ],
       [ "POST", "/api/v1/notifications/read_all" ], # the caller's own inbox; see notifications_spec
+      [ "GET", "/api/v1/notification_settings" ], [ "PATCH", "/api/v1/notification_settings" ], # always the caller's own; see notification_settings_spec
+      [ "GET", "/api/v1/notification_mutes" ], [ "POST", "/api/v1/notification_mutes" ], [ "DELETE", "/api/v1/notification_mutes/:x" ], # likewise; a project you cannot see is a 404 there
       [ "POST", "/api/v1/graphql" ] # every field is scoped by the policies; see graphql_spec ("who can see what")
     ]
   end

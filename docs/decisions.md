@@ -594,3 +594,20 @@ It is plain Ruby standard library (nothing to install on the machine that runs i
 It ran against a live local server restarted into read-only mode and back (connection errors at each restart, 11 refused writes with reads working, 13 s to full service, 0 of 27 acknowledged writes lost), and the arithmetic of the report is covered by specs, with two mutations (an outage that ends a tick early; a refused write counted as acknowledged) each failing one.
 What it cannot tell you: anything about AWS. That is what the drill is for.
 
+## 49. Notification settings: mutes decide what is written, the digest decides what is emailed
+
+The inbox (ADR 39) wrote everything and every kind of email went out. People need two controls, and they act at different points, so they are two things.
+
+**Mutes** (`notification_mutes`: a kind everywhere, a project entirely, or one kind in one project; `NULLS NOT DISTINCT` makes "this whole project" one row, not as many as you click) decide **what exists**. A muted notification is never written to the inbox, never emailed and so never in a digest. The alternative, writing it
+flagged "muted" and filtering on read, would keep every count and index honest about things nobody wants and make "unmute" ambiguous (do old ones appear?). Not writing it means unmuting affects what happens next, which is what people expect, and what is already in the inbox stays.
+
+**The digest** (`notification_settings`: `off` or `daily`, an hour, a time zone) decides **how email is delivered**, not whether the inbox is filled. `daily` replaces the email per event by one summary of what is new and unread, sent in the hour the person chose in *their* time zone (the job runs hourly; a person is due when
+their local hour matches and 20 hours have passed, which is robust to daylight-saving changes and to a run that is late). The digest is built from the inbox through the same policy scope as the inbox itself, so it needs no filtering of its own and cannot leak a project the person left. It is plain data handed to the mailer, not records, so a notification
+pruned between queueing and rendering cannot fail the job, and it is queued under a row lock with a re-check so two overlapping runs send one. It is sent by this app in either `NOTIFICATIONS_MODE`: the mailer infrastructure is already needed for password resets and invitations, and the inbox it summarizes lives here.
+
+**The Notification service.** In the production configuration the emails for assignments and reminders are not sent by this app but by the Notification service, which consumes the events and knows nothing about preferences. Rather than give it a copy of everyone's settings (state to synchronize), the event says so: `recipient.email_enabled`, computed from the settings at the moment the event is built (in the
+transaction of the change, ADR 41). It is a field added to an existing object, so consumers that ignore it keep working, and the service treats "absent" as yes. The cost is that a setting changed after an event was written does not apply to that event, which is at most a delivery delay long (seconds, or the length of an outage).
+
+**Cost.** Two indexed queries per event that notifies someone (`NotificationPreferences` loads settings and mutes for a whole batch at once; the daily reminder job does it once per 1,000 tasks, not once per task), nothing on requests that notify nobody.
+Not done: per-channel preferences beyond email-or-digest (Slack is a project announcement, not a personal channel), a threshold digest ("when five things are waiting"), muting a single task (mute the project or the kind), preferences in the GraphQL schema (it is read-only and the REST API covers them), and applying mutes retroactively to the inbox.
+

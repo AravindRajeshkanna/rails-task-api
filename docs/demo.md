@@ -7,7 +7,7 @@ is the part that makes a public instance safe to run, and the steps to run it. Y
 
 | | |
 | --- | --- |
-| **Refused (`403 demo_mode`)** | sign-up, password reset, editing the profile, avatars, task attachments, webhooks, organization invitations, and every AI endpoint. These are the things that send mail, store files, call out to arbitrary addresses, spend a model budget, or create accounts: with them off, the instance cannot be a mail relay, a file host, a webhook cannon or an AI proxy |
+| **Refused (`403 demo_mode`)** | sign-up, password reset, editing the profile, the notification digest, avatars, task attachments, webhooks, organization invitations, and every AI endpoint. These are the things that send mail, store files, call out to arbitrary addresses, spend a model budget, or create accounts: with them off, the instance cannot be a mail relay, a file host, a webhook cannon or an AI proxy |
 | **Works normally** | everything else: projects, tasks, comments, tags, search, the inbox, teams, GraphQL. The demo is the real API |
 | **Every response** | carries `X-Demo-Mode: true`, so a front end can show a banner |
 | **Every night at 05:00** | `ResetDemoJob` empties the database and reloads the dataset (`Demo::Dataset`), so whatever visitors did is gone by morning |

@@ -109,7 +109,7 @@ class Task < ApplicationRecord
       return unless new_assignee_to_notify?
 
       Rails.event.notify("task.assigned", subject: to_global_id.to_s, project_id: project_id, actor_id: Current.user&.id)
-      TaskMailer.assigned(self).deliver_later if Rails.configuration.x.notifications.mode == "local"
+      TaskMailer.assigned(self).deliver_later if Rails.configuration.x.notifications.mode == "local" && NotificationPreferences.new(assignee_id).email?(assignee_id, "task.assigned", project_id)
     end
 
     def schedule_embedding

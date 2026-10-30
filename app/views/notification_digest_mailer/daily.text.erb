@@ -1,0 +1,10 @@
+Hi <%= @user.name %>,
+
+Here is what you have not read yet, from the last day:
+<% @by_project.each do |project_name, items| %>
+<%= project_name %>
+<% items.each do |item| %>  - <%= @labels.fetch(item["kind"]) %>: <%= item["task_title"] %><% if item["comment_excerpt"].present? %> ("<%= item["comment_excerpt"] %>")<% end %>
+    <%= task_link(item) %>
+<% end %><% end %>
+You are getting this as a daily summary instead of an email for each event. To change that, or to mute a project or a kind of update:
+<%= @settings_url %>

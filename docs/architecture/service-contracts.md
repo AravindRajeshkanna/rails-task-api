@@ -88,8 +88,10 @@ See [the outbox runbook](../runbooks/event-outbox.md).
 | `task.created`, `task.updated`, `task.completed`, `task.discarded`, `task.restored` | the task changes | the task, as the API serializes it |
 | `project.created`, `project.updated`, `project.discarded`, `project.restored` | likewise | the project |
 | `comment.created`, `comment.updated` | likewise | the comment |
-| **`task.assigned`** | someone other than the assignee assigns the task | `task`, `project {id,name}`, `recipient {id,name,email_address}`, `actor {id,name}`, `url` |
+| **`task.assigned`** | someone other than the assignee assigns the task | `task`, `project {id,name}`, `recipient {id,name,email_address,email_enabled}`, `actor {id,name}`, `url` |
 | **`task.due_soon`** | daily 08:00, for open tasks due tomorrow | `task`, `project`, `recipient`, `actor` (nil), `url` |
+
+`recipient.email_enabled` is `false` when the person muted this kind or project, or takes a daily digest instead of an email per event (decided by the monolith from their settings when it builds the event). A consumer that sends email must not send it for `false`; absent means `true`, as before the field existed.
 | `user.password_reset_requested` *(source `auth-service`)* | a reset is requested for a real account | `recipient {id,name,email_address}`, `reset_url`, `expires_in_minutes` |
 
 Guarantees: at least once, possibly out of order, one event per committed change. Events for records deleted before

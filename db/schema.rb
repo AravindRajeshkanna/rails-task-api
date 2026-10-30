@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_30_130000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_30_150000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -99,6 +99,30 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_30_130000) do
     t.index ["project_id"], name: "index_memberships_on_project_id"
     t.index ["user_id"], name: "index_memberships_on_user_id"
     t.check_constraint "role::text = ANY (ARRAY['member'::character varying::text, 'admin'::character varying::text])", name: "memberships_role_valid"
+  end
+
+  create_table "notification_mutes", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "project_id"
+    t.string "kind"
+    t.datetime "created_at", null: false
+    t.index ["project_id"], name: "index_notification_mutes_on_project_id"
+    t.index ["user_id", "project_id", "kind"], name: "index_notification_mutes_uniqueness", unique: true, nulls_not_distinct: true
+    t.check_constraint "kind IS NULL OR (kind::text = ANY (ARRAY['task.assigned'::character varying, 'task.due_soon'::character varying, 'task.completed'::character varying, 'comment.created'::character varying]::text[]))", name: "notification_mutes_kind_valid"
+    t.check_constraint "project_id IS NOT NULL OR kind IS NOT NULL", name: "notification_mutes_mutes_something"
+  end
+
+  create_table "notification_settings", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "digest", default: "off", null: false
+    t.integer "digest_hour", default: 8, null: false
+    t.string "time_zone", default: "UTC", null: false
+    t.datetime "last_digest_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id"], name: "index_notification_settings_on_user_id", unique: true
+    t.check_constraint "digest::text = ANY (ARRAY['off'::character varying, 'daily'::character varying]::text[])", name: "notification_settings_digest_valid"
+    t.check_constraint "digest_hour >= 0 AND digest_hour <= 23", name: "notification_settings_digest_hour_valid"
   end
 
   create_table "notifications", force: :cascade do |t|
@@ -336,6 +360,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_30_130000) do
   add_foreign_key "comments", "users"
   add_foreign_key "memberships", "projects"
   add_foreign_key "memberships", "users"
+  add_foreign_key "notification_mutes", "projects", on_delete: :cascade
+  add_foreign_key "notification_mutes", "users", on_delete: :cascade
+  add_foreign_key "notification_settings", "users", on_delete: :cascade
   add_foreign_key "notifications", "projects", on_delete: :cascade
   add_foreign_key "notifications", "tasks", on_delete: :cascade
   add_foreign_key "notifications", "users", column: "actor_id", on_delete: :nullify

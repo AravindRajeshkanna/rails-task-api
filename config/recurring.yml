@@ -18,6 +18,11 @@ production:
     class: DueSoonRemindersJob
     schedule: every day at 8am
 
+  # Emails the daily summary to the people who chose it, in the hour they chose in their own time zone.
+  notification_digest:
+    class: NotificationDigestJob
+    schedule: every hour at minute 5
+
   purge_discarded_records:
     class: PurgeDiscardedJob
     schedule: every day at 3am

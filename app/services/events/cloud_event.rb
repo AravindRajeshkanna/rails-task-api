@@ -42,7 +42,8 @@ module Events
       {
         task: TaskResource.new(task).serializable_hash,
         project: { id: task.project_id, name: task.project.name },
-        recipient: { id: assignee.id, name: assignee.name, email_address: assignee.email_address },
+        recipient: { id: assignee.id, name: assignee.name, email_address: assignee.email_address,
+                     email_enabled: NotificationPreferences.new(assignee.id).email?(assignee.id, event[:name], task.project_id) },
         actor: (actor && { id: actor.id, name: actor.name }),
         url: "#{Rails.configuration.x.frontend_url}/projects/#{task.project_id}/tasks/#{task.id}"
       }

@@ -10,6 +10,22 @@ RSpec.describe DueSoonRemindersJob do
     expect { described_class.perform_now }.to have_enqueued_mail(TaskMailer, :due_soon).with(due).once
   end
 
+  it "sends no email to someone who muted it or takes a digest, in one lookup for the whole batch" do
+    muted = create(:membership, project:).user
+    digest = create(:membership, project:).user
+    create(:notification_mute, user: muted, kind: "task.due_soon")
+    create(:notification_setting, :daily, user: digest)
+    create(:task, project:, assignee: muted, due_on: Date.tomorrow)
+    create(:task, project:, assignee: digest, due_on: Date.tomorrow)
+    kept = create(:task, project:, assignee:, due_on: Date.tomorrow)
+
+    described_class.perform_now
+
+    reminders = enqueued_jobs.select { |job| job["arguments"].first(2) == %w[TaskMailer due_soon] }
+    expect(reminders.size).to eq(1) # kept's; not one per task
+    expect(reminders.sole["arguments"].last["params"] || reminders.sole["arguments"].to_s).to include(kept.to_global_id.to_s)
+  end
+
   it "skips everything else" do
     create(:task, project:, assignee:, due_on: Date.current)                    # due today
     create(:task, project:, assignee:, due_on: Date.tomorrow + 1)               # due later

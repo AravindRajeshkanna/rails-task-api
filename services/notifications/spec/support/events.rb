@@ -1,9 +1,9 @@
 module EventHelpers
-  def assigned_event(id: SecureRandom.uuid, email: "bob@example.com", title: "Review the PR")
+  def assigned_event(id: SecureRandom.uuid, email: "bob@example.com", title: "Review the PR", email_enabled: nil)
     cloud_event("task.assigned", id: id, data: {
       "task" => { "id" => 7, "title" => title, "due_on" => "2026-11-03" },
       "project" => { "id" => 3, "name" => "Website" },
-      "recipient" => { "id" => 2, "name" => "Bob Builder", "email_address" => email },
+      "recipient" => { "id" => 2, "name" => "Bob Builder", "email_address" => email, "email_enabled" => email_enabled }.compact,
       "actor" => { "id" => 1, "name" => "Alice Admin" },
       "url" => "https://app.example.com/projects/3/tasks/7"
     })

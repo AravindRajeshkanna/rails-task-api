@@ -129,6 +129,54 @@ RSpec.describe Events::InboxSubscriber do
     end
   end
 
+  describe "what they muted" do
+    let!(:task) { create(:task, project: project, creator: owner, assignee: ada) }
+
+    before { fresh_start }
+
+    it "writes nothing for a muted kind, and still writes the other kinds" do
+      create(:notification_mute, user: ada, kind: "comment.created")
+
+      create(:comment, task: task, user: grace)
+      acting_as(owner) { task.update!(assignee: grace) && task.update!(assignee: ada) }
+
+      expect(inbox(ada).pluck(:kind)).to eq(%w[task.assigned])
+      expect(inbox(owner).pluck(:kind)).to eq(%w[comment.created]) # the creator did not mute it
+    end
+
+    it "writes nothing for a muted project, whatever the kind" do
+      create(:notification_mute, user: ada, kind: nil, project: project)
+
+      create(:comment, task: task, user: grace)
+      acting_as(owner) { task.update!(assignee: grace) && task.update!(assignee: ada) }
+      DueSoonRemindersJob.perform_now
+
+      expect(inbox(ada)).to be_empty
+    end
+
+    it "mutes one kind in one project and not the same kind in another" do
+      elsewhere = create(:project, owner: owner)
+      create(:membership, project: elsewhere, user: ada)
+      other_task = create(:task, project: elsewhere, creator: owner, assignee: ada)
+      fresh_start
+      create(:notification_mute, user: ada, kind: "comment.created", project: project)
+
+      create(:comment, task: task, user: grace)
+      create(:comment, task: other_task, user: grace)
+
+      expect(inbox(ada).sole.project_id).to eq(elsewhere.id)
+    end
+
+    it "does not hear again once they unmute" do
+      mute = create(:notification_mute, user: ada, kind: "comment.created")
+      create(:comment, task: task, user: grace)
+      mute.destroy!
+      create(:comment, task: task, user: grace)
+
+      expect(inbox(ada).count).to eq(1)
+    end
+  end
+
   describe "who may hear" do
     it "tells nobody about a project they have left, or one that is archived" do
       task = create(:task, project: project, creator: owner, assignee: ada)

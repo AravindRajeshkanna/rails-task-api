@@ -708,6 +708,58 @@ components:
       - data
       - read
       - created_at
+    NotificationSetting:
+      type: object
+      description: 'How the caller hears about things beyond the inbox. With `digest`
+        `daily` there is no email per event: one summary of what is new and unread
+        arrives at `digest_hour` in `time_zone`.'
+      properties:
+        digest:
+          type: string
+          enum:
+          - 'off'
+          - daily
+        digest_hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        time_zone:
+          type: string
+          description: IANA name, e.g. Europe/Paris
+        last_digest_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - digest
+      - digest_hour
+      - time_zone
+    NotificationMute:
+      type: object
+      description: Silences a kind everywhere (no `project_id`), a project entirely
+        (no `kind`), or one kind in one project. A muted notification is not stored
+        in the inbox, emailed or put in the digest.
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+          nullable: true
+          enum:
+          - task.assigned
+          - task.due_soon
+          - task.completed
+          - comment.created
+          -
+        project_id:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - created_at
     SearchResult:
       type: object
       description: A task that matched a full-text search. Highlights wrap matched
@@ -1999,6 +2051,177 @@ paths:
               properties:
                 project_id:
                   type: integer
+  "/api/v1/notification_settings":
+    get:
+      summary: My notification settings
+      tags:
+      - Notifications
+      description: The defaults (digest off) until something is changed.
+      security:
+      - bearer_auth: []
+      responses:
+        '200':
+          description: The settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/NotificationSetting"
+                required:
+                - data
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    patch:
+      summary: Change my notification settings
+      tags:
+      - Notifications
+      description: Any of `digest` (`off` or `daily`), `digest_hour` (0-23) and `time_zone`
+        (an IANA name). With a daily digest this app sends one summary a day instead
+        of an email per assignment or reminder; the inbox is unaffected. Refused (`403
+        demo_mode`) in the public demo.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/NotificationSetting"
+                required:
+                - data
+        '422':
+          description: Unknown digest, hour or time zone
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                digest:
+                  type: string
+                  enum:
+                  - 'off'
+                  - daily
+                digest_hour:
+                  type: integer
+                time_zone:
+                  type: string
+  "/api/v1/notification_mutes":
+    get:
+      summary: List what I muted
+      tags:
+      - Notifications
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: My mutes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/NotificationMute"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+    post:
+      summary: Mute a kind, a project, or a kind in a project
+      tags:
+      - Notifications
+      description: Give `kind`, `project_id`, or both. Muting stops the notification
+        being stored, emailed or put in the digest from now on; what is already in
+        the inbox stays. A project you cannot see is a `404`.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Muted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/NotificationMute"
+                required:
+                - data
+        '404':
+          description: Not a project of yours
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '422':
+          description: Nothing to mute, an unknown kind, or already muted
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum:
+                  - task.assigned
+                  - task.due_soon
+                  - task.completed
+                  - comment.created
+                project_id:
+                  type: integer
+  "/api/v1/notification_mutes/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    delete:
+      summary: Unmute
+      tags:
+      - Notifications
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Unmuted
+        '404':
+          description: Not yours
   "/api/v1/organizations":
     get:
       summary: List my organizations

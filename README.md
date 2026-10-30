@@ -21,7 +21,7 @@ observability with anomaly alarms and an AIOps loop, and Terraform + Helm + Argo
 
 | Area | Implementation |
 | --- | --- |
-| Resources | Users, Organizations (invitations, teams, audit log), Projects, Memberships, Tasks, Comments, Tags, Webhooks, Audit events, Activity, Analytics, Notifications (inbox), Search |
+| Resources | Users, Organizations (invitations, teams, audit log), Projects, Memberships, Tasks, Comments, Tags, Webhooks, Audit events, Activity, Analytics, Notifications (inbox, settings, mutes), Search |
 | Auth | Bearer-token sessions (digest-only storage), sign-up, sign-in/out, password reset |
 | Authorization | Pundit policies; project roles `member` / `admin`; owner-only deletes; organizations (`owner` / `admin` / `member`) whose owners and admins administer all of their projects, and whose projects only take their members; teams a project can grant a role to; access resolved in the policies, never copied |
 | API design | `/api/v1` namespace, shallow routes, [Alba](https://github.com/okuramasafumi/alba) serializers, [Pagy](https://github.com/ddnexus/pagy) pagination, filtering / sorting, substring and ranked full-text search, offset and cursor pagination, a read-only GraphQL endpoint, one error envelope |
@@ -130,6 +130,7 @@ purged for good after 30 days.
 | Projects | `GET` `POST /projects` (`organization_id` creates one inside an organization) · `GET` `PATCH` `DELETE /projects/:id` · `POST /projects/:id/restore` |
 | Members | `GET` `POST /projects/:id/memberships` · `PATCH` `DELETE /memberships/:id` · `GET` `POST /projects/:id/teams` · `PATCH` `DELETE /projects/:id/teams/:id` (a team's access) |
 | Inbox | `GET /notifications` (`unread`, `project_id`, `kind`) · `PATCH` `DELETE /notifications/:id` · `POST /notifications/read_all` · live over `NotificationsChannel` |
+| Notification settings | `GET` `PATCH /notification_settings` (`digest` off/daily, `digest_hour`, `time_zone`) · `GET` `POST /notification_mutes`, `DELETE /notification_mutes/:id` (a kind, a project, or a kind in a project) |
 | GraphQL | `POST /graphql`: read-only, same access rules ([docs/graphql](docs/graphql/README.md)) |
 | Search | `GET /search?q=` (all your projects) · `GET /projects/:id/tasks?search=` (one project) |
 | Tasks | `GET` `POST /projects/:id/tasks` · `GET` `PATCH` `DELETE /tasks/:id` · `POST /tasks/:id/restore` |
@@ -306,7 +307,7 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 - `page=` is offset pagination: fine for this data shape, but a deep page of a huge project costs more (14 ms at row 49,000 of 50,000). The task list offers `cursor=` (keyset) for that; the other lists do not need it.
 - Active Storage defaults to local disk; on Kubernetes set `ACTIVE_STORAGE_SERVICE=amazon` (S3).
 - Image dimension analysis needs `libvips` at runtime (it is in the Docker image; locally `brew install vips`). Without it uploads still work, their dimensions are just not recorded. No image variants are generated.
-- The inbox has no per-person settings (every notification kind is on) and no digest; see "Next" in [docs/roadmap.md](docs/roadmap.md). Teams grant project access but are flat (no team roles, no nested teams), and a person with an administrator's implicit access to a project, or access only through a team, is not in `GET /projects/:id/memberships`: that lists direct members; `GET /projects/:id/teams` lists the teams.
+- Notification settings are per person (mute a kind or a project, or take a daily digest instead of an email per event), but there is no per-channel choice beyond that (no Slack or push preferences, no per-event email toggle) and the digest is sent in the hour you pick, not instantly on a threshold; see [ADR 49](docs/decisions.md). Teams grant project access but are flat (no team roles, no nested teams), and a person with an administrator's implicit access to a project, or access only through a team, is not in `GET /projects/:id/memberships`: that lists direct members; `GET /projects/:id/teams` lists the teams.
 - GraphQL is read-only (writes are REST). A public demo is *supported* ([docs/demo.md](docs/demo.md): demo mode, a nightly reset, a Kamal destination) but not deployed; that is yours to run.
 - The platform code is validated statically and by CI (the four images build, Terraform validates, every Helm release renders and passes
   Kubernetes/CRD schema checks) and the services were exercised together locally with an AWS mock. The Compose stack, the `kind` script and

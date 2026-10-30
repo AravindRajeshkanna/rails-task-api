@@ -8,6 +8,12 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Added
+- **Notification settings.** `GET|PATCH /api/v1/notification_settings` (`digest`: `off` or `daily`; `digest_hour` 0-23; `time_zone`, an IANA name) and
+  `GET|POST /api/v1/notification_mutes`, `DELETE /api/v1/notification_mutes/{id}` (give `kind`, `project_id`, or both). A muted notification is not stored in the inbox,
+  emailed, or put in the digest. With a daily digest there is no email per assignment or reminder: one summary of what is new and unread arrives at the chosen hour in the
+  chosen time zone. Updating the digest is refused (`403 demo_mode`) in the public demo.
+- Events for other services: `task.assigned` and `task.due_soon` carry `data.recipient.email_enabled`, false when the person muted it or takes a digest. The Notification
+  service sends no email for `false`; a consumer that ignores the field behaves as before (adding a field is compatible).
 - `503 read_only` (with `Retry-After`) for any write while the service is read-only: during a database promotion or planned maintenance. Reads, including
   GraphQL queries and requests with an existing token, keep working. Nothing was changed by the refused request, so retry it as it is. Signing in is a write
   and waits too.

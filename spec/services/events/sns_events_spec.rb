@@ -29,7 +29,7 @@ RSpec.describe "Events published for other services" do
 
       data = described_class.build(event_for("task.assigned", task, actor_id: alice.id))[:data]
 
-      expect(data[:recipient]).to eq(id: bob.id, name: "Bob Builder", email_address: "bob@example.com")
+      expect(data[:recipient]).to eq(id: bob.id, name: "Bob Builder", email_address: "bob@example.com", email_enabled: true)
       expect(data[:project]).to eq(id: project.id, name: "Website")
       expect(data[:actor]).to eq(id: alice.id, name: alice.name)
       expect(data[:task]).to include("title" => "Review the PR")
@@ -96,6 +96,36 @@ RSpec.describe "Events published for other services" do
 
       expect(events.payloads("task.assigned").sole).to include(project_id: project.id, actor_id: alice.id)
       expect(enqueued_jobs.map { |job| job["job_class"] }).to include("ActionMailer::MailDeliveryJob")
+    end
+
+    it "tells the Notification service when the recipient does not want the email: muted, or a daily digest instead" do
+      task = create(:task, project: project, title: "Review the PR", assignee: bob)
+      email_enabled = -> { Events::CloudEvent.build(event_for("task.assigned", task, actor_id: alice.id))[:data].dig(:recipient, :email_enabled) }
+      expect(email_enabled.call).to be(true)
+
+      create(:notification_mute, user: bob, kind: nil, project: project)
+      expect(email_enabled.call).to be(false)
+
+      NotificationMute.delete_all
+      create(:notification_setting, :daily, user: bob)
+      expect(email_enabled.call).to be(false)
+    end
+
+    it "sends no local email to someone who muted the kind or the project, or takes a digest" do
+      Current.session = Session.new(user: alice)
+      [ -> { create(:notification_mute, user: bob, kind: "task.assigned") },
+        -> { create(:notification_mute, user: bob, kind: nil, project: project) },
+        -> { create(:notification_setting, :daily, user: bob) } ].each do |opt_out|
+        opt_out.call
+        task = create(:task, project: project)
+
+        events = record_events { task.update!(assignee: bob) }
+
+        expect(events.names).to include("task.assigned") # the event still happens: the inbox and the other services have their own say
+        expect(enqueued_jobs.map { |job| job["job_class"] }).not_to include("ActionMailer::MailDeliveryJob")
+        NotificationMute.delete_all
+        NotificationSetting.delete_all
+      end
     end
 
     it "leaves the email to the Notification service in remote mode" do
