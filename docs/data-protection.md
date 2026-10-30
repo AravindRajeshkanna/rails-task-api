@@ -23,7 +23,7 @@ The rules the design follows: keep the least that the product needs; give every 
 | Webhook delivery log | `webhook_deliveries` | Debug an endpoint that did not get an event | 30 days | Not specific to a person; bounded by retention |
 | Webhook signing secrets | `webhooks.secret`, encrypted (Active Record Encryption) | Sign payloads | While the webhook exists | Not personal data |
 | Idempotency keys and stored responses | `idempotency_keys` | Make retries safe | 24 hours | Deleted |
-| Event outbox | `outbox_events` | Publish events reliably | Published rows 7 days | Bounded by retention. Payloads carry ids and the event's own data |
+| Events in flight: the outbox, then the queue | `outbox_events`; SNS; the Notification service's SQS queue and its dead-letter queue | Publish events reliably | Outbox: published rows 7 days. Queue: 14 days at most (dead-letter queue) | **Not reached.** `task.assigned` and `task.due_soon` carry the recipient's name and email address (`data.recipient`), so an address sits in these for up to those periods after the event |
 | AI usage ledger | `ai_usages` | Budgets and cost | Indefinitely; **no prompt or answer text** | Rows stay, pointing at the tombstone |
 | Embeddings of tasks | `tasks.embedding` | Search | With the task | Follows the task |
 | Delivery log of the Notification service: event id, type, channel, **recipient address** | `deliveries` in its own database | Prove something was sent; dedupe | 90 days | **Not reached**; bounded by retention |
@@ -80,7 +80,7 @@ The webhook delivery log, the invitations and the Notification service's tables 
 ## Not built
 
 - **Export of a person's data** (portability, subject access). There is no endpoint; the personal data above is small and an operator can assemble it from the tables listed.
-- **Erasure in the Auth service** and **by recipient in the Notification service.** In JWT mode the Auth service holds the credentials and has no delete path; the Notification service stores the address, not a user id, so it cannot match an event for `user.erased` (which carries only the id, on purpose: putting the address on a queue to delete it from a table is the wrong trade). Its log is bounded by the 90-day retention instead.
+- **Erasure in the Auth service** and **by recipient in the Notification service.** In JWT mode the Auth service holds the credentials and has no delete path; the Notification service stores the address, not a user id, so it cannot match an erasure by id. `user.erased` is today a local event (a log line with the id); it is not published to the queue, and it carries only the id on purpose: putting the address on a queue to delete it from a table is the wrong trade. The delivery log is bounded by the 90-day retention instead, and [boundaries.md](architecture/boundaries.md#a-saga-that-exists-erasing-a-person-across-services) describes how it would be closed.
 - **Ownership transfer.** It would make erasing an owner a one-step action.
 - **Retention for the audit trail.** It is the largest personal-data holding that has none, and a deliberate one: an append-only trail is worth little if it expires quickly. It is a growth question as well (see [architecture/data-lifecycle.md](architecture/data-lifecycle.md)); the decision is a policy one and belongs to whoever owns compliance.
 - **Redaction of free text.** Nothing scans task or comment text for personal data.

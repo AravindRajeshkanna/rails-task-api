@@ -78,7 +78,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | Integration tests for auth flows | ✅ | `authentication_spec` (pieces) and `authentication_journey_spec` (sign up → work → reset password → signed out everywhere) |
 | VCR or WebMock | 🟡 | WebMock ✅. VCR deliberately not added: outbound calls are webhooks and AWS SDK calls, which stub cleanly without cassettes that record real responses ([testing.md](testing.md#decisions)) |
 | SimpleCov with a CI floor | ✅ | `COVERAGE=1`; floor 92% line / 81% branch (raised from 91 / 79 as the suite grew) in `spec/spec_helper.rb`; CI uploads the report and prints it in the job summary |
-| Parallel testing if the suite grows | ⏭ | 1,176 examples run in ~25 s; parallelism would add cost for no gain. Trigger: suite past ~2 minutes ([testing.md](testing.md#decisions)) |
+| Parallel testing if the suite grows | ⏭ | 1,343 examples run in ~40 s; parallelism would add cost for no gain. Trigger: suite past ~2 minutes ([testing.md](testing.md#decisions)) |
 | *Found on the way* | ✅ | `rspec <file>` ran the whole suite because of a `--pattern` in `.rspec`; the gem and Lambda specs had hidden dependencies on the booted Rails app. Both fixed; every way of running the specs now works |
 
 ### Phase 3: Performance and scalability
@@ -189,6 +189,34 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | 7 | Teams with roles; nested teams | ✅ | **Maintainers:** a team member is a `member` or a `maintainer`; a maintainer adds and removes the plain members of their own team and nothing else (cannot appoint, change roles, remove maintainers or themselves); no project access of its own ([ADR 52](decisions.md)). **Nesting, one level:** a sub-team's members have what its parent was granted; one rule in `Team.granting_to`/`with_sub_teams` behind all four places access is computed; +0.4 ms on the 1 ms scoped query. Both mutation-checked (5 and 9 breakages, each caught). Built without evidence that organizations outgrew flat groups ([ADR 53](decisions.md)) |
 | 8 | Hosting the demo; a front end to point at it | 🟡 | **Front end built:** `demo/web`, static files with no build step or dependencies (sign in, projects, a board, task details and comments, an inbox, a demo banner); `build.sh` writes it for your API; 32 tests in CI incl. hostile text through every screen; run against a real demo server and driven in jsdom (not repeatable from here). Found and fixed on the way: the API did not expose `X-Demo-Mode` to browsers. **Not hosted** (your server and domain) and **never looked at in a browser** ([ADR 54](decisions.md)) |
 
+## Roadmap 6: improving it from a system-design perspective
+
+*Goal: audit the system against an eight-phase system-design checklist (data and API design, performance, reliability, scalability, observability, security, distributed systems, high availability), build what was genuinely missing, and write down the rest. Delivered as one commit per item on one pull request. Each row says whether the item **existed** (audited, nothing to build), was **built** (with the measurement that justified it), was **measured and not built**, or is **a design only**. Nothing here has been applied to AWS or a cluster.*
+
+| Phase | Item | Status | Implemented as |
+| --- | --- | --- | --- |
+| 1 Data and API | Schema, indexes, soft delete, audit columns, errors, pagination, filtering, versioning | existed | Audited. `updated_by` is deliberately absent (the audit trail answers it) |
+| | Idempotency keys | built | `Idempotency-Key` on every create: the answer is stored in the write's transaction, fingerprinted, replayed or refused ([ADR 55](decisions.md)) |
+| | Sparse fieldsets | built | `fields=` that skips the work (associations not loaded), not only the bytes ([ADR 56](decisions.md)) |
+| | Index and write-path cost | measured; one removed | Each index priced; an unused trigram index dropped (17% of every task insert, no reads). Counts kept exact: the cache-busting touch costs 28% of write throughput but does not serialize writers, with a documented trigger for eventual consistency ([ADR 57](decisions.md)) |
+| 2 Performance | Read replicas | built | Opt-in per controller, read-your-writes through a marker, never a reason for a request to fail; verified against a local replica, not Aurora ([ADR 60](decisions.md)) |
+| | Caching and invalidation | built | By key version, not by delete ([ADR 61](decisions.md)) |
+| 3 Reliability | Circuit breakers, jittered retries, stale-if-error for keys | built | A per-process breaker with doubling pauses and one probe, equal-jitter backoff, JWKS served stale for a day ([ADR 58](decisions.md)) |
+| | Priority queues, bulkheads | built | Worker pools per queue; the queue a job runs in is a decision ([ADR 59](decisions.md)) |
+| 4 Scalability | Rate limits per user, organization and endpoint; backpressure | built | Organization write budgets, endpoint throttles, load shedding on the Puma backlog; queue-based load leveling documented ([ADR 62](decisions.md)) |
+| | Archival, retention, sharding readiness | built / design | Three tables that grew for ever now have retention jobs (webhook deliveries, invitations, the Notification service's log; the purge measured at 1.3 s for a million rows). The audit trail's archival is a written plan with triggers. A spec classifies every table by tenant and fails on a new one ([ADR 67](decisions.md), [data-lifecycle.md](architecture/data-lifecycle.md)). Sharding is **not recommended**; the blockers are listed |
+| 5 Observability | Organization in every log line and trace | built | `Current.organization_id` into event context and spans ([ADR 62](decisions.md)) |
+| | Liveness versus readiness | built | `/livez` and `/readyz`; probes, load balancer and DNS health check moved to readiness ([ADR 63](decisions.md)) |
+| | SLOs and burn-rate alerts | built | Multi-window alerts, tested with promtool against synthetic traffic ([ADR 64](decisions.md), [slo.md](slo.md)) |
+| | Capacity planning | built | Arithmetic on measured numbers, with the database connection limit as the wall ([ADR 65](decisions.md), [capacity-planning.md](capacity-planning.md)) |
+| | **A bug found by following a secret** | fixed | The API demanded `METRICS_TOKEN` and the PodMonitor sent none: Prometheus would never have scraped it, and the SLO alerts would have been silent. Fixed, guarded by a spec, and `TaskApiNotScraped` alerts on missing data ([ADR 68](decisions.md)) |
+| 6 Security | Token rotation, refresh, idle timeout | built (local mode) | `POST /session/rotate`, a 14-day idle timeout, `GET /sessions`, `DELETE /sessions/:id` ([ADR 66](decisions.md)); the Auth service already rotates refresh tokens |
+| | PII and data protection | built / design | `DELETE /me` anonymises in place; the inventory says what is held, for how long, and what erasure does not reach ([ADR 67](decisions.md), [data-protection.md](data-protection.md)) |
+| | Secrets rotation | runbook | Every secret, how it reaches a pod, how to rotate it, what to expect ([secrets-rotation.md](runbooks/secrets-rotation.md)); never run |
+| | Threat model, zero trust | design | Assets, actors, boundaries, 23 threats with what stops each and what remains, hop-by-hop trust ([threat-model.md](threat-model.md)) |
+| 7 Distributed systems | Bounded contexts, data ownership, saga | design | Contexts with owners and the places the rules bend; the one multi-owner change (erasure across services) designed as a forward-only process with a progress record ([boundaries.md](architecture/boundaries.md)). Not built |
+| 8 High availability | Failure domains, blast radius, chaos | design | Every domain from request to region with what users see, and the shared fate that matters most (one Aurora cluster under the API, the queue, the cache and sign-in); ten game-day experiments with hypotheses ([failure-domains.md](architecture/failure-domains.md)). **None has been run** |
+
 ## Next
 
 What is left, ordered by what a real user would hit first. Each of these needs something this repository cannot supply (an AWS account, a host, a browser, a client, or evidence), which is why they are here and not done.
@@ -197,12 +225,18 @@ What is left, ordered by what a real user would hit first. Each of these needs s
 2. **If cross-project search ever becomes the slow endpoint**, require a project (or a short list) for a broad query, or add an index that answers "newest matches first" across projects. Capping the ranking was measured and does not help there ([ADR 50](decisions.md)).
 3. **More GraphQL mutations** (projects, memberships, tags, ...) and **subscriptions**, one at a time, when a client needs them ([ADR 51](decisions.md)); REST and Action Cable already cover both.
 4. **Hosting the demo** (`demo/web/build.sh`, then `bin/kamal setup -d demo`; [docs/demo.md](demo.md)), and **looking at the front end in a browser**: its layout has never been seen.
+5. **Run game day experiment E7** (fail over the Aurora writer) in staging ([failure-domains.md](architecture/failure-domains.md)). Every claim about the database depends on how long writes fail and whether pods reconnect, and it has never been measured.
+6. **Secret scanning in CI**, and **webhook signing-secret rotation with an overlap window** (sign with both secrets for a while). The two open items in the threat model that cost the least.
+7. **Close the erasure across services**: events through the outbox, the Auth service deleting by subject, the Notification service storing a recipient id so it can delete by id ([design](architecture/boundaries.md#a-saga-that-exists-erasing-a-person-across-services)). Needed the day JWT mode has real users.
+8. **Decide the audit trail's retention** (a policy question, not a technical one) and, if it is anything shorter than for ever, partition it by month ([plan](architecture/data-lifecycle.md#archival-audit-events-when-it-is-time)).
+9. **Replace the AI service's shared token** with the caller's service-account token ([threat-model.md](threat-model.md), T15).
+10. **Project ownership transfer**, so that erasing an owner is one step.
 
 ## How this was verified
 
 | Claim | Evidence |
 | --- | --- |
-| The application behaves as documented | 1,176 examples across the app, shared gems and Lambdas (+74 in the three services), run with branch coverage in CI (94.3% line, 84.8% branch); 32 Node tests for the demo front end; 14 `terraform test` runs |
+| The application behaves as documented | 1,343 examples across the app, shared gems and Lambdas (+78 in the three services), run with branch coverage in CI (94.6% line, 85.1% branch); 32 Node tests for the demo front end; 14 `terraform test` runs |
 | Search, deep paging and the inbox are fast | `EXPLAIN (ANALYZE)` and in-process timings on a 149,000-task database, 300,000 synthetic notifications ([performance.md](performance.md), the ADRs) |
 | The outbox loses nothing | specs: rolled-back changes leave no event; a failing SNS keeps the event and delivers it exactly once when it returns; two relays never send the same row (including from four threads); a request through to a stubbed SNS |
 | Access is as documented | `tenant_isolation_spec` (every route, now including teams, invitations, search, the inbox, GraphQL), `project_policy_team_spec` (both role lookups agree for every combination), `graphql_spec` ("who can see what") |
@@ -215,4 +249,8 @@ What is left, ordered by what a real user would hit first. Each of these needs s
 | Mutations and teams cannot be used to see or change what REST would refuse | `graphql_mutations_spec` (same input through both APIs, every policy consulted, eleven breakages caught), `project_policy_team_spec` (both role lookups agree, nested), 5 + 9 breakages of the team rules caught |
 | The demo front end works | 32 Node tests in CI; the real client against a live demo server; the real `app.js` driven in jsdom against it (once, outside this repository); CORS preflights from its origin |
 | Migrations are safe | `strong_migrations` accepted every migration but one: the full-text column, which rewrites `tasks` under a lock (3.7 s for 149,000 rows) and is marked `safety_assured` with that number ([runbook](runbooks/zero-downtime-migrations.md)) |
-| **Not verified** | Docker Compose, `kind`, any Terraform plan/apply against a real account (the multi-region pair, the staging pair and the backup copy are checked only offline, against mocks), AWS Backup, the real `aws` and `age`, a failover drill of any kind, how the demo front end looks in a browser, Kamal deploys (the demo destination only passes `kamal config`), Bedrock with real credentials, the Aurora restore commands, hosting the demo |
+| Idempotency, sparse fieldsets, replica routing, load handling, sessions, erasure and retention behave as documented | request, model, job and service specs for each; every item was mutation-checked (deliberate breakages of the code, each of which must fail a test). Several survivors pointed at real gaps: a redundant line, an unasserted effect, a loop nobody tested |
+| The retention purge is cheap | 1,000,000 webhook deliveries, 35% expired, oldest rows at the highest ids (worst case for the query): 1.27 s in batches of 5,000, no new index |
+| The SLO and scrape alerts fire when they should | `promtool test rules` against synthetic series, mutation-checked; plus a spec that the PodMonitor sends the token the API demands, by reading the chart values and (with `helm`) rendering it. **Not** a scrape of a real API |
+| The table-to-tenant map is complete | `spec/db/tenant_ownership_spec.rb` fails on a table with no owner or a column that is not a foreign key |
+| **Not verified** | Docker Compose, `kind`, any Terraform plan/apply against a real account (the multi-region pair, the staging pair and the backup copy are checked only offline, against mocks), AWS Backup, the real `aws` and `age`, a failover drill of any kind, how the demo front end looks in a browser, Kamal deploys (the demo destination only passes `kamal config`), Bedrock with real credentials, the Aurora restore commands, hosting the demo; **everything in roadmap 6 that touches AWS or a cluster**: the read replica on Aurora, the Helm and Terraform changes beyond `helm template` and `terraform test`, `kubeconform` on the new PodMonitor, a real Prometheus scraping the API, the secrets-rotation procedures, the FIS experiments, and every game-day experiment |

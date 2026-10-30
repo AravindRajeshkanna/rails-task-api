@@ -36,7 +36,7 @@ observability with anomaly alarms and an AIOps loop, and Terraform + Helm + Argo
 | Observability | Structured events as JSON logs, Prometheus `/metrics`, OpenTelemetry → X-Ray, CloudWatch anomaly alarms, SNS → PagerDuty/Slack ([docs](docs/architecture/observability-and-aiops.md)) |
 | Services | Auth (JWT, rotating refresh tokens), AI, Notifications (SQS consumer), events as CloudEvents on SNS/SQS ([docs](docs/architecture/microservices.md)) |
 | Platform | Docker Compose, `kind`, one Helm chart, Terraform (EKS, Karpenter, Aurora, SNS/SQS, WAF), Argo CD + Rollouts, KEDA, AIOps Lambdas ([deploy/](deploy/README.md)) |
-| Quality | RSpec (1,176 across the app, shared gems and Lambdas, with a line/branch coverage floor; 74 more in the services; 32 Node tests for the demo front end; 14 `terraform test` runs), Bullet raising on N+1, RuboCop with the Lint/Rails/Performance cops, Brakeman, bundler-audit, `strong_migrations`, `terraform validate`, Kubernetes schema checks ([docs/testing.md](docs/testing.md)) |
+| Quality | RSpec (1,343 across the app, shared gems and Lambdas, with a line/branch coverage floor; 78 more in the services; 32 Node tests for the demo front end; 14 `terraform test` runs), Bullet raising on N+1, RuboCop with the Lint/Rails/Performance cops, Brakeman, bundler-audit, `strong_migrations`, `terraform validate`, Kubernetes schema checks ([docs/testing.md](docs/testing.md)) |
 | Performance | Measured, not guessed: `EXPLAIN` on 149k tasks, k6 load tests (nightly in CI), evidence-based indexes ([docs/performance.md](docs/performance.md)) |
 | Delivery | Dockerfile, Kamal 2 config (single host), EKS via GitOps (below), GitHub Actions, JSON logs, `/livez` and `/readyz` health checks (and `/up`), optional Sentry |
 
@@ -262,7 +262,7 @@ Schedules live in [config/recurring.yml](config/recurring.yml).
 
 ```bash
 bundle exec rspec                                   # the app, ~8 s; accepts any file or directory
-bundle exec rspec spec gems deploy/lambda           # 1,176 (app + gems + Lambdas), what CI runs
+bundle exec rspec spec gems deploy/lambda           # 1,343 (app + gems + Lambdas), what CI runs
 for s in ai auth notifications; do (cd services/$s && bundle exec rspec); done   # the services
 bin/rails ai:eval                                   # score the configured model against the golden sets
 bin/ci                                              # rubocop + bundler-audit + brakeman + rspec with the coverage floor (as GitHub Actions)
@@ -331,9 +331,10 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 | | |
 | --- | --- |
 | [docs/roadmap.md](docs/roadmap.md) | Everything that was planned and built, by pull request, with status and what is next |
-| [docs/decisions.md](docs/decisions.md) | Why (34 architecture decisions) |
+| [docs/decisions.md](docs/decisions.md) | Why (68 architecture decisions) |
 | [docs/architecture/](docs/architecture/overview.md) | System overview, AI, observability and AIOps, microservices, service contracts |
-| [docs/testing.md](docs/testing.md) · [docs/performance.md](docs/performance.md) · [docs/security.md](docs/security.md) | How it is tested, measured and defended |
+| [docs/testing.md](docs/testing.md) · [docs/performance.md](docs/performance.md) · [docs/security.md](docs/security.md) · [docs/threat-model.md](docs/threat-model.md) · [docs/data-protection.md](docs/data-protection.md) | How it is tested, measured and defended; what is held about people |
+| [docs/slo.md](docs/slo.md) · [docs/capacity-planning.md](docs/capacity-planning.md) · [docs/architecture/failure-domains.md](docs/architecture/failure-domains.md) · [docs/architecture/boundaries.md](docs/architecture/boundaries.md) · [docs/architecture/data-lifecycle.md](docs/architecture/data-lifecycle.md) | Objectives and alerts, how many pods, what fails together, who owns what, how the data ages |
 | [docs/api-versioning.md](docs/api-versioning.md) · [CHANGELOG.md](CHANGELOG.md) | Versioning policy and what changed for API clients |
 | [docs/runbooks/](docs/runbooks/) | Operating it: alerts, backups and restores, zero-downtime migrations |
 | [docs/aws/setup-guide.md](docs/aws/setup-guide.md) · [deploy/README.md](deploy/README.md) | Standing the platform up on AWS |
