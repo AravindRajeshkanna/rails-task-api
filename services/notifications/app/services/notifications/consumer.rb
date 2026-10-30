@@ -10,6 +10,7 @@ module Notifications
     BATCH = 10
     BASE_BACKOFF = 30 # seconds
     MAX_BACKOFF = 900
+    PRUNE_EVERY = 1.hour # this loop is the service's only long-lived process, so it is also where retention runs (idempotent, so replicas may overlap)
 
     def initialize(queue_url: Rails.configuration.x.queue_url, client: nil, router: Router.new, wait_time: 20)
       raise ArgumentError, "NOTIFICATIONS_QUEUE_URL is not set" if queue_url.blank?
@@ -24,7 +25,10 @@ module Notifications
     def run
       Heartbeat.enable!
       Rails.logger.info({ event: "notification.consumer_started", queue_url: @queue_url })
-      poll_once until @stopping
+      until @stopping
+        prune_if_due
+        poll_once
+      end
       Rails.logger.info({ event: "notification.consumer_stopped" })
     end
 
@@ -50,6 +54,16 @@ module Notifications
       Metrics::PROCESSED.increment(labels: { type: envelope["type"].to_s, outcome: outcome.to_s })
     rescue InvalidEvent, DeliveryError, ActiveRecord::ActiveRecordError, JSON::ParserError => error
       retry_later(message, error)
+    end
+
+    def prune_if_due
+      return if @pruned_at && @pruned_at > PRUNE_EVERY.ago
+
+      @pruned_at = Time.current
+      pruned = { deliveries: Delivery.prune!, processed_events: ProcessedEvent.prune! }
+      Rails.logger.info({ event: "notification.pruned" }.merge(pruned)) if pruned.values.any?(&:positive?)
+    rescue ActiveRecord::ActiveRecordError => error
+      Rails.error.report(error, handled: true, context: { consumer: "retention" })
     end
 
     private

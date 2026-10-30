@@ -27,6 +27,14 @@ production:
     class: PurgeIdempotencyKeysJob
     schedule: every day at 4:10am
 
+  prune_webhook_deliveries:
+    class: PurgeWebhookDeliveriesJob
+    schedule: every day at 4:20am
+
+  prune_invitations:
+    class: PurgeInvitationsJob
+    schedule: every day at 4:40am
+
   purge_discarded_records:
     class: PurgeDiscardedJob
     schedule: every day at 3am

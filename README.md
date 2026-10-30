@@ -135,7 +135,7 @@ purged for good after 30 days.
 | | |
 | --- | --- |
 | Auth | `POST /registrations` · `POST /session` · `DELETE /session` · `POST /session/rotate` · `GET /sessions` · `DELETE /sessions/:id` · `POST /passwords` · `PATCH /passwords/:token` |
-| Account | `GET` `PATCH /me` · `PUT` `DELETE /me/avatar` |
+| Account | `GET` `PATCH` `DELETE /me` · `PUT` `DELETE /me/avatar` |
 | Organizations | `GET` `POST /organizations` · `GET` `PATCH` `DELETE /organizations/:id` · `GET /organizations/:id/members` · `PATCH` `DELETE /organizations/:id/members/:member_id` · `GET` `POST /organizations/:id/invitations` · `DELETE /organizations/:id/invitations/:id` · `POST /invitations/accept` · `GET /organizations/:id/audit_events` (owners) · `GET` `POST /organizations/:id/teams` · `GET` `PATCH` `DELETE /organizations/:id/teams/:id` · `GET` `POST /organizations/:id/teams/:id/members` · `DELETE /organizations/:id/teams/:id/members/:member_id` |
 | Projects | `GET` `POST /projects` (`organization_id` creates one inside an organization) · `GET` `PATCH` `DELETE /projects/:id` · `POST /projects/:id/restore` |
 | Members | `GET` `POST /projects/:id/memberships` · `PATCH` `DELETE /memberships/:id` · `GET` `POST /projects/:id/teams` · `PATCH` `DELETE /projects/:id/teams/:id` (a team's access) |

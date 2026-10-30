@@ -14,6 +14,12 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - `503 ai_unavailable` now carries a `Retry-After` that reflects the circuit breaker: 5 seconds for a single failure, and the rest of the pause (30 seconds, doubling to 5 minutes) once the AI dependency has been failing. After five consecutive failures AI calls fail at once instead of waiting out their timeout.
 
 ### Added
+- **Erase my account.** `DELETE /me` with the current password: the name, address, password, sign-ins, memberships, inbox, preferences and avatar go; the account stays as `Deleted user` so tasks,
+  comments and history keep pointing at something, and the address can register again. `422 owns_projects` while you own a project that is not archived, `422 last_organization_owner`
+  while you are an organization's only owner, `422 incorrect_password`, `409 managed_by_auth_service` when the Auth service owns accounts. 5 attempts an hour; refused in the public demo.
+  Erased people appear as `Deleted user` wherever a user is shown.
+- **Retention.** Webhook deliveries are kept 30 days (`GET /webhooks/{id}/deliveries` shows at most that); concluded organization invitations are removed 90 days after they were accepted,
+  revoked or expired (the invitations list shows at most that).
 - **Token rotation and sign-in management.** `POST /session/rotate` exchanges the token you are using for a new one (the old one stops working at once; 30 a hour). `GET /sessions` lists your
   sign-ins (address, client, created, last used, `current`) and `DELETE /sessions/:id` ends one (someone else's is `404`). Not available when the Auth service issues tokens (`404`), and refused in the public demo.
   A token that has not been used for 14 days now expires, ahead of its 30-day lifetime; a client that goes quiet for two weeks has to sign in again.

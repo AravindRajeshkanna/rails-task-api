@@ -1396,6 +1396,39 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+    delete:
+      summary: Erase my account
+      tags:
+      - Account
+      description: 'Ends the account: the name, address, password, sign-ins, memberships,
+        notifications and avatar go, and the row stays as "Deleted user" so tasks,
+        comments and the audit trail keep pointing at something. Needs the current
+        password. Refused with 422 while you own a project that is not archived (`owns_projects`)
+        or are the last owner of an organization (`last_organization_owner`). 409
+        when the Auth service owns accounts; refused in the public demo. 5 tries an
+        hour.'
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '204':
+          description: Erased; the token used is dead
+        '422':
+          description: Wrong password, or something to hand over first
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+              required:
+              - password
     patch:
       summary: Update profile
       tags:

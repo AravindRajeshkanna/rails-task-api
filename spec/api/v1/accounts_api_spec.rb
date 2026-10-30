@@ -206,6 +206,28 @@ RSpec.describe "Authentication & account API", type: :request do
       end
     end
 
+    delete "Erase my account" do
+      tags "Account"
+      description "Ends the account: the name, address, password, sign-ins, memberships, notifications and avatar go, and the row stays as \"Deleted user\" so tasks, comments " \
+                  "and the audit trail keep pointing at something. Needs the current password. Refused with 422 while you own a project that is not archived (`owns_projects`) " \
+                  "or are the last owner of an organization (`last_organization_owner`). 409 when the Auth service owns accounts; refused in the public demo. 5 tries an hour."
+      security [ { bearer_auth: [] } ]
+      consumes "application/json"
+      produces "application/json"
+      parameter name: :body, in: :body, schema: { type: :object, properties: { password: { type: :string } }, required: [ :password ] }
+      let(:body) { { password: user.password } }
+
+      response "204", "Erased; the token used is dead" do
+        run_test! { expect(user.reload).to be_erased }
+      end
+
+      response "422", "Wrong password, or something to hand over first" do
+        schema ref.call("Error")
+        let(:body) { { password: "wrong" } }
+        run_test!
+      end
+    end
+
     patch "Update profile" do
       tags "Account"
       security [ { bearer_auth: [] } ]

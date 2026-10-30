@@ -60,6 +60,8 @@ class User < ApplicationRecord
 
   def externally_authenticated? = auth_subject.present?
 
+  def erased? = erased_at.present?
+
   private
     def password_present_unless_externally_authenticated
       errors.add(:password, :blank) unless password_digest.present? || externally_authenticated?

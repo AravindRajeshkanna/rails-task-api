@@ -50,7 +50,7 @@ Rails.application.routes.draw do
       # Everything that happened in the caller's projects (the member's view of the audit log).
       get "activity", to: "activities#index"
 
-      resource :me, controller: "me", only: %i[show update] do
+      resource :me, controller: "me", only: %i[show update destroy] do
         resource :avatar, only: %i[update destroy]
       end
 
