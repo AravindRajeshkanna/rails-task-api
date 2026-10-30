@@ -65,6 +65,10 @@ module TaskApi
     # Refuses every write to the application database with 503 `read_only` while reads keep working (ReadOnlyMode). For the standby region
     # while its database is a read-only replica, and to drain writes before a planned switchover (docs/runbooks/regional-failover.md).
     config.x.read_only = ENV["READ_ONLY"] == "true"
+    # Reads of the actions that opt in (`replica_reads`) go to the read replica, when there is one (ReplicaRouting). The person who just wrote is
+    # served by the primary for this many seconds, so they never read their own change from a replica that has not caught up yet.
+    config.x.replica_reads = ENV["DB_REPLICA_HOST"].present? || ENV["DB_REPLICA_URL"].present?
+    config.x.replica_read_your_writes_seconds = Float(ENV.fetch("REPLICA_READ_YOUR_WRITES_SECONDS", 3))
     # Outgoing webhooks refuse private/loopback addresses unless this is enabled (SSRF guard).
     config.x.webhooks.allow_private_networks = false
 

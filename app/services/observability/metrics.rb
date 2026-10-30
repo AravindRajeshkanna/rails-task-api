@@ -28,6 +28,7 @@ module Observability
     HTTP_REQUESTS = counter(:taskapi_http_requests_total, "HTTP requests handled", %i[controller action status])
     HTTP_DURATION = histogram(:taskapi_http_request_duration_seconds, "HTTP request duration", %i[controller action], LATENCY_BUCKETS)
     DOMAIN_EVENTS = counter(:taskapi_domain_events_total, "Domain events published (task.created, project.updated, ...)", %i[event])
+    REPLICA_READS = counter(:taskapi_replica_reads_total, "Reads of the actions that opt in to the replica, by where they were served (replica, read_your_writes, breaker_open, replica_unreachable, recovery_conflict)", %i[outcome])
     CIRCUIT_STATE = gauge(:taskapi_circuit_breaker_state, "Circuit breaker state per dependency (0 closed, 1 half-open, 2 open)", %i[breaker])
     CIRCUIT_TRANSITIONS = counter(:taskapi_circuit_breaker_transitions_total, "Circuit breaker state changes", %i[breaker to])
     READ_ONLY_REFUSALS = counter(:taskapi_read_only_refusals_total, "Writes answered 503 read_only (switch = READ_ONLY=true, database = Postgres refused it)", %i[source])

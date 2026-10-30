@@ -12,6 +12,7 @@ env:
   CORS_ORIGINS: https://app.taskapi.example.com
   ALLOWED_HOSTS: api.taskapi.example.com,api,api.task-api,api.task-api.svc,api.task-api.svc.cluster.local
   DB_HOST: task-api-prod.cluster-xxxx.us-east-1.rds.amazonaws.com
+  DB_REPLICA_HOST: task-api-prod.cluster-ro-xxxx.us-east-1.rds.amazonaws.com   # the Aurora reader endpoint: opted-in reads go there (ReplicaRouting); unset it to send everything to the writer
   AWS_REGION: us-east-1
   APP_ENV: prod
   AUTH_ISSUER: https://api.taskapi.example.com

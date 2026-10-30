@@ -2,6 +2,7 @@ module Api
   module V1
     # Change history for a project and everything audited inside it. Admins only.
     class AuditEventsController < BaseController
+      replica_reads :index # a moment of staleness is fine here (ReplicaRouting)
       def index
         project = policy_scope(Project).kept.find(params[:project_id])
         authorize project, :audit?

@@ -55,12 +55,17 @@ module ServiceKit
 
     def call
       permit
-      result = yield
+      begin
+        result = yield
+      rescue *@exceptions
+        failed
+        raise
+      rescue Exception # rubocop:disable Lint/RescueException -- anything at all: the probe flag must be released whatever the reason
+        abandoned # not a verdict on the dependency (a caller's mistake, a bug of ours, a timeout of the whole request): leave the state as it is
+        raise
+      end
       succeeded
       result
-    rescue *@exceptions
-      failed
-      raise
     end
 
     def state = @mutex.synchronize { current_state }
@@ -105,6 +110,11 @@ module ServiceKit
             transition(:closed)
           end
         end
+      end
+
+      # A half-open probe that ended in something that says nothing about the dependency: another call may probe next.
+      def abandoned
+        @mutex.synchronize { @probing = false }
       end
 
       def failed

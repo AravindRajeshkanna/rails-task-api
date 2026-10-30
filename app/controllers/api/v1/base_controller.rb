@@ -6,6 +6,7 @@ module Api
       include ApiVersioning
       include Idempotency
       include SparseFieldsets
+      include ReplicaReads
 
       api_version "v1"
 

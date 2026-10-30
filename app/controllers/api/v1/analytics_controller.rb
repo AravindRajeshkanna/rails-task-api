@@ -2,6 +2,7 @@ module Api
   module V1
     # GET /projects/:project_id/analytics: the numbers behind a project dashboard.
     class AnalyticsController < BaseController
+      replica_reads :show # a moment of staleness is fine here (ReplicaRouting)
       # The report is the same for every member and cheap to keep: any change to a task touches
       # its project, which changes the key; the date is in it because "overdue" moves at midnight.
       CACHE_TTL = 5.minutes

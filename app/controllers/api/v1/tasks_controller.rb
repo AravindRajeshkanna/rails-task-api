@@ -1,6 +1,7 @@
 module Api
   module V1
     class TasksController < BaseController
+      replica_reads :index, :show # a moment of staleness is fine here (ReplicaRouting)
       idempotent :create # a retried POST with the same Idempotency-Key answers the first one's response (Idempotency)
       before_action :set_project, only: %i[index create]
       before_action :set_task, only: %i[show update destroy]

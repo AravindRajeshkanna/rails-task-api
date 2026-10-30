@@ -1,4 +1,5 @@
 require "spec_helper"
+require "concurrent"
 require "service_kit/circuit_breaker"
 
 RSpec.describe ServiceKit::CircuitBreaker do
@@ -87,6 +88,14 @@ RSpec.describe ServiceKit::CircuitBreaker do
 
       expect(probes).to eq(1)
       expect(concurrent).to be_a(described_class::OpenError)
+    end
+
+    it "is not wedged by a probe that fails for a reason that is not the dependency's: the next call probes again" do
+      expect { breaker.call { raise ArgumentError, "our bug" } }.to raise_error(ArgumentError)
+
+      expect(breaker.state).to eq(:half_open)
+      expect(succeed).to eq(:ok)
+      expect(breaker.state).to eq(:closed)
     end
 
     it "closes on a successful probe" do
