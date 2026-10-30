@@ -5,7 +5,7 @@ operations is in [docs/aws/setup-guide.md](../docs/aws/setup-guide.md).
 
 | Path | What it is |
 |---|---|
-| `terraform/` | AWS: VPC, EKS (+Karpenter IAM), Aurora, SNS/SQS/EventBridge, S3, Secrets Manager, ECR, WAF, ACM, Route 53, Pod Identity roles, GitHub OIDC, CloudWatch alarms and dashboard, the AIOps Lambdas, FIS, budgets. One root module; `envs/<env>.tfvars` + `envs/<env>.backend.hcl` per environment; `dr_role` + `envs/prod-dr.*` make a second-region warm standby of prod from the same code ([docs/aws/multi-region.md](../docs/aws/multi-region.md)); `tests/` is `terraform test` |
+| `terraform/` | AWS: VPC, EKS (+Karpenter IAM), Aurora, SNS/SQS/EventBridge, S3, Secrets Manager, ECR, WAF, ACM, Route 53, Pod Identity roles, GitHub OIDC, CloudWatch alarms and dashboard, the AIOps Lambdas, FIS, budgets. One root module; `envs/<env>.tfvars` + `envs/<env>.backend.hcl` per environment; `dr_role` + `envs/prod-dr.*` (and `envs/staging-dr.*`, to rehearse on) make a second-region warm standby from the same code ([docs/aws/multi-region.md](../docs/aws/multi-region.md)); `tests/` is `terraform test` |
 | `helm/taskapi-service/` | The one chart behind every workload: Deployment or Argo Rollout, Service, ALB Ingress, ExternalSecret, HPA/KEDA, PDB, NetworkPolicy, PodMonitor, migration Job |
 | `helm/values/` | Per-service values (`api`, `worker`, `auth`, `ai`, `notifications`), the same in every environment |
 | `gitops/` | What Argo CD reads: `apps/` (ApplicationSets), `bootstrap/` (the root app), `envs/<env>/` (per-environment values, **rendered**), `templates/` (the sources for those) |
@@ -20,6 +20,6 @@ Checks that run in CI (and that you can run locally):
 ```sh
 cd deploy/terraform && terraform fmt -check -recursive && terraform init -backend=false && terraform validate && terraform test   # test: offline, mocked AWS
 helm lint deploy/helm/taskapi-service --set image.repository=x --set image.tag=y
-for env in dev staging prod prod-dr; do ruby deploy/scripts/render_gitops.rb $env; done && git diff --exit-code deploy/gitops/envs
+for env in dev staging staging-dr prod prod-dr; do ruby deploy/scripts/render_gitops.rb $env; done && git diff --exit-code deploy/gitops/envs
 kubectl kustomize deploy/observability | kubeconform -strict -
 ```

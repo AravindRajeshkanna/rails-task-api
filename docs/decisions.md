@@ -582,3 +582,15 @@ and `db_restore_check.sh` (restores into a scratch database and reports the time
 Everything is off while `backup_copy_region` is empty, independent of `dr_role` (the cheap option must be usable without committing to the expensive one), and a standby creates none of it (the primary's cluster is what is backed up). `terraform test` covers it with mocked providers, mutation-checked (copy to the wrong vault,
 replicating deletions, a readable upload policy, a standby that backs up each fail the right test). Not verified: that AWS Backup accepts a Global-Database member or a cluster with these settings, the restore commands, the IAM sufficiency of the service-role managed policies for the copy, and the real `aws` and `age`.
 
+## 48. The drill is measured from the client's side, by a probe, not by the people running it
+
+The roadmap item was "apply the pair in staging and run the drill". Neither can be done from a laptop with no AWS account, and the item's own condition (a single region that has run for months) is unmet, so what could honestly be built was what makes the first attempt cheap and its result a number: a `staging-dr`
+environment (Terraform tfvars and backend, a GitOps environment rendered and CI-checked like the others, promotable from staging, synced automatically because a drill environment has no reason to wait for a person), a drill runbook with a record sheet, and `deploy/scripts/drill_probe.rb`.
+
+The probe reads a project and creates a task every second, from outside the cluster, and reports what a user would have felt: each window in which reads or writes failed (and what the failures were: connection errors, `503 read_only`, a gateway error), the time from the first failure to the first tick where both worked, and, at the end,
+which of the tasks the API **acknowledged** are no longer there. That last figure is the RPO in rows, measured, not inferred from replication lag. A drill measured by people with stopwatches and a feeling that "it was about ten minutes" teaches less than one with a log.
+It is plain Ruby standard library (nothing to install on the machine that runs it), never raises on a network error (a failover is made of them), and writes only tasks titled `drill-<run>-<n>` in a project the operator names.
+
+It ran against a live local server restarted into read-only mode and back (connection errors at each restart, 11 refused writes with reads working, 13 s to full service, 0 of 27 acknowledged writes lost), and the arithmetic of the report is covered by specs, with two mutations (an outage that ends a tick early; a refused write counted as acknowledged) each failing one.
+What it cannot tell you: anything about AWS. That is what the drill is for.
+

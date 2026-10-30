@@ -425,3 +425,33 @@ run "a_backup_copy_in_the_same_region_is_refused" {
   expect_failures = [var.backup_copy_region]
 }
 
+# --- The staging pair (envs/staging-dr.tfvars): the same code, to rehearse on ---
+
+run "the_staging_standby_is_named_for_staging_and_answers_to_stagings_name" {
+  command = apply
+
+  variables {
+    environment        = "staging"
+    region             = "us-west-2"
+    api_subdomain      = "api.staging"
+    frontend_subdomain = "app.staging"
+    dr_role            = "secondary"
+    peer_region        = "us-east-1"
+    peer_ready         = true
+    create_ecr         = false
+  }
+
+  assert {
+    condition     = local.name == "task-api-staging-dr" && local.app_env == "staging-dr" && local.peer_name == "task-api-staging"
+    error_message = "The staging standby is task-api-staging-dr and its peer is task-api-staging."
+  }
+  assert {
+    condition     = local.global_cluster_id == "task-api-staging-global" && local.api_domain == "api.staging.example.com"
+    error_message = "It joins staging's global cluster and serves staging's name."
+  }
+  assert {
+    condition     = length(aws_secretsmanager_secret.service) == 0 && length(aws_iam_role.github_deploy) == 0 && length(aws_rds_global_cluster.this) == 0
+    error_message = "A staging standby owns no secrets, deploy role or global cluster either."
+  }
+}
+

@@ -68,7 +68,7 @@ Files to copy and edit: `envs/prod-dr.tfvars` and `envs/prod-dr.backend.hcl` (th
 
 ## Building it (in this order)
 
-Every step is unrun. Do it in `staging` first: copy the two `prod-dr.*` files to `staging-dr.*` and use `environment = "staging"`.
+Every step is unrun. Do it in `staging` first: `envs/staging-dr.tfvars` and `envs/staging-dr.backend.hcl` exist for it (fill the `REPLACE_*` values), `staging.tfvars` has the primary's opt-in lines, and there is a `staging-dr` GitOps environment (rendered by `render_gitops.rb`, synced automatically, promotable from `staging`). Use `staging` wherever the steps below say `prod`.
 
 1. **Prerequisites in the standby region**: Bedrock model access, SES verified identity and production access, service quotas (Spot vCPUs, Elastic IPs), the state bucket for `prod-dr` ([setup guide](setup-guide.md) steps 1-2, in that region).
 2. **Primary, step 1**: set `dr_role = "primary"` and `peer_region` in `prod.tfvars`; `terraform apply`. It joins the database to a global cluster (no interruption), puts replicas of every secret in the standby region, and starts replicating images. `terraform output database_engine_version`; keep it.
@@ -100,7 +100,9 @@ Roughly doubles the fixed costs of the stack: a second Aurora instance (the seco
 
 ## The drill (do this before trusting any of it)
 
+[The failover drill runbook](../runbooks/failover-drill.md) is the procedure, with a probe that measures it from the client's side (`deploy/scripts/drill_probe.rb`: the time to full service, the answers it got, and the acknowledged writes that did not survive) and a sheet to record it on. In short:
+
 1. Create the standby in `staging`. Load data; confirm replication lag (`AuroraGlobalDBReplicationLag`) is stable.
-2. Planned switchover to the standby: measure the time to serve writes. Switch back.
+2. Planned switchover to the standby: measure the time to serve writes, and that no acknowledged write was lost. Switch back.
 3. Unplanned failover with `--allow-data-loss` after breaking the primary's health check; measure RPO (rows missing) and RTO (to a green health check and a successful sign-in, task create and attachment download).
 4. Write down what surprised you, fix it, and repeat quarterly.

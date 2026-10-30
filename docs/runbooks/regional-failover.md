@@ -6,6 +6,8 @@
 > database, scaling the standby up, promoting its secrets. **Terraform needs no change for a failover** (`dr_role` records how a stack was built, not who is serving), and nobody should
 > `terraform apply` either stack during one.
 
+Rehearse it: [the failover drill](failover-drill.md) is the procedure and the tool that measures it.
+
 **When:** the primary region is impaired in a way that will not recover quickly (an AWS regional event, a failed deploy you cannot roll back, corrupted data you
 cannot repair in place) and the cost of being down exceeds the cost of failing over. **Do not fail over** for a single bad deploy (roll back), a degraded dependency,
 or a short AWS blip: failover has a cost (possible data loss, hours of failback work) and a bad failover is worse than a short outage.
