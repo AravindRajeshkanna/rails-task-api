@@ -17,6 +17,10 @@ alert_emails            = ["oncall@example.com"]
 monthly_budget_usd      = 2000
 remediation_dry_run     = true
 
+# --- A daily copy of the database snapshots and the pg_dump bucket in another region (docs/runbooks/backup-and-restore.md) ---
+# Independent of multi-region below, and far cheaper: uncomment to turn it on.
+# backup_copy_region = "us-west-2"
+
 # --- Multi-region (docs/aws/multi-region.md): uncomment to make this stack the primary of a pair, in this order ---
 # 1. dr_role = "primary", peer_region = "us-west-2"          apply: joins the database to a global cluster, replicates secrets and images
 # 2. build the standby (envs/prod-dr.tfvars) and let its load balancer appear

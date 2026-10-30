@@ -565,3 +565,20 @@ switchover. It covers the API only: workers are scaled by the runbook.
 Alternatives: **no switch**, only the error mapping (rejected for the planned switchover, which should stop writes deliberately, not discover them); **a method check** (`POST` is not always a write; GraphQL); **a Rack-level `REQUEST_METHOD` filter** (same); **making the standby's
 database writable by a second primary** (not available).
 Not done: workers and Action Cable under a read-only database (jobs fail and retry until promotion), and exercising any of this against Aurora; it was checked against a local Postgres that refuses writes the same way (SQLSTATE 25006).
+
+## 47. A copy of the backups in another region: AWS Backup for the database, a replicated bucket for the dumps
+
+ADR 42 named this as the cheap first step of multi-region and the whole answer if an hour of downtime is acceptable. What it needs is not obvious, because Aurora's continuous backup (the 14 days of point-in-time recovery) **stays in the cluster's region**. Only snapshots can be copied out, and something has to take and copy them on a schedule.
+
+**AWS Backup**, not a hand-written job: a plan with a daily rule and a `copy_action` to a vault in the other region, selecting the cluster. Alternatives: **an EventBridge-scheduled Lambda calling `copy-db-cluster-snapshot`** (code to write, test and keep working, to do what a managed service does); **a cross-region read replica** (a running cluster, which is the warm standby of ADR 42 at a different price); **`pg_dump` for Aurora** (works, but
+a logical dump of a large database takes time and load that a storage snapshot does not). Each vault has a KMS key of its own region, because a copy is re-encrypted with the destination's. A failed backup or copy publishes to the alerts topic, since the failure that matters is the silent one.
+The consequence worth stating: **the recovery point of the copy is the snapshot schedule** (a day by default, set it lower if the objective is lower; each snapshot is charged), not Aurora's five minutes, and the recovery time is a restore plus whatever
+platform has to exist in that region.
+
+**The dumps** get the same treatment for the Kamal host, which has no other off-machine copy: a versioned, expiring bucket replicating to a bucket in the other region, with deletions deliberately **not** replicated, and an IAM policy that can add objects and nothing else, so the host that writes
+the history cannot read or erase it. The scripts that make the dumps real are `deploy/scripts/db_dump.sh` (a dump is read back and checked for the one table everything depends on before it is kept; optionally encrypted with age, so the bucket never holds plaintext; uploaded; a verified dump is kept if the upload fails because it is the only copy)
+and `db_restore_check.sh` (restores into a scratch database and reports the time and the row counts, which is the rehearsal the runbook asks for monthly). They were run against the 149,000-task database: 7 MB in about a second, restored in 4 s with every row and pgvector.
+
+Everything is off while `backup_copy_region` is empty, independent of `dr_role` (the cheap option must be usable without committing to the expensive one), and a standby creates none of it (the primary's cluster is what is backed up). `terraform test` covers it with mocked providers, mutation-checked (copy to the wrong vault,
+replicating deletions, a readable upload policy, a standby that backs up each fail the right test). Not verified: that AWS Backup accepts a Global-Database member or a cluster with these settings, the restore commands, the IAM sufficiency of the service-role managed policies for the copy, and the real `aws` and `age`.
+

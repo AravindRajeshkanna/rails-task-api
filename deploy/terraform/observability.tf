@@ -23,7 +23,7 @@ data "aws_iam_policy_document" "alerts_key" {
     resources = ["*"]
     principals {
       type        = "Service"
-      identifiers = ["cloudwatch.amazonaws.com", "events.amazonaws.com", "budgets.amazonaws.com", "costalerts.amazonaws.com"]
+      identifiers = ["cloudwatch.amazonaws.com", "events.amazonaws.com", "budgets.amazonaws.com", "costalerts.amazonaws.com", "backup.amazonaws.com"]
     }
   }
 }
@@ -51,7 +51,7 @@ data "aws_iam_policy_document" "alerts_topic" {
     resources = [aws_sns_topic.alerts.arn]
     principals {
       type        = "Service"
-      identifiers = ["cloudwatch.amazonaws.com", "events.amazonaws.com", "budgets.amazonaws.com", "costalerts.amazonaws.com"]
+      identifiers = ["cloudwatch.amazonaws.com", "events.amazonaws.com", "budgets.amazonaws.com", "costalerts.amazonaws.com", "backup.amazonaws.com"]
     }
     condition {
       test     = "StringEquals"

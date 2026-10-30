@@ -285,7 +285,7 @@ Copy [.env.example](.env.example) for the full list of environment variables.
 **Operations.**
 - Logs are JSON on stdout (`LOG_FORMAT=plain` to disable); every line carries the request id. Domain events log as `event=task.completed subject=... project_id=...`.
 - Set `SENTRY_DSN` to enable error tracking (no-op otherwise).
-- **Backups are not automated.** Schedule `pg_dump` of all four production databases (and the storage volume) on the host, and rehearse a restore.
+- **Backups are not scheduled.** Run `deploy/scripts/db_dump.sh` nightly for the primary database (the queue, cache and cable databases are disposable) and back up the storage volume; `deploy/scripts/db_restore_check.sh` rehearses the restore. On AWS, `backup_copy_region` adds a daily snapshot copy and a dump bucket in a second region ([runbook](docs/runbooks/backup-and-restore.md)).
 - Migrations run automatically (`db:prepare`) when a container starts; keep them backward compatible with the previous release so rolling deploys stay safe.
 
 ## Deploying to AWS (EKS)

@@ -277,7 +277,7 @@ curl -s -X POST $HOST/api/v1/ai/create_from_text -H "Authorization: Bearer $TOKE
 Repeat 4 to 11 with `envs/staging.tfvars` / `envs/prod.tfvars` and their own Argo cluster secret (`env: staging`, `env: prod`; one Argo CD
 can manage all three clusters: `argocd cluster add`). Promote with the **Promote** workflow (a pull request that copies
 image tags forward); merge it, then press *Sync* in Argo CD for production, which rolls out as a canary with automatic rollback.
-Production defaults: `single_nat_gateway = false`, two Aurora instances, deletion protection, 14-day backups, a restricted Kubernetes API CIDR, a budget.
+Production defaults: `single_nat_gateway = false`, two Aurora instances, deletion protection, 14-day backups, a restricted Kubernetes API CIDR, a budget. A daily copy of the database snapshots (and a bucket for `pg_dump` files) in a second region is off until you set `backup_copy_region` in the tfvars ([runbook](../runbooks/backup-and-restore.md#a-copy-in-another-region)).
 
 ## Day-2
 

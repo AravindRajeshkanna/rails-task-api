@@ -231,7 +231,7 @@ jobs:
           docker run --rm --entrypoint promtool -v "$PWD/tmp:/work" prom/prometheus:v3.1.0 check rules /work/rules.yml
 
       - name: Shell scripts
-        run: shellcheck deploy/docker/*.sh deploy/local/*.sh
+        run: shellcheck deploy/docker/*.sh deploy/local/*.sh deploy/scripts/*.sh
 
   # Build every image (no push) so a broken Dockerfile fails the pull request, not the deploy.
   images:

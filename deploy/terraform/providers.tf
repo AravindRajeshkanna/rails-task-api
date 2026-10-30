@@ -24,3 +24,18 @@ provider "aws" {
     }
   }
 }
+
+# Where the cross-region backup copy lives (backup_copy_region). With it empty it is the same region and nothing uses it.
+provider "aws" {
+  alias  = "backup_copy"
+  region = var.backup_copy_region != "" ? var.backup_copy_region : var.region
+
+  default_tags {
+    tags = {
+      Project     = "task-api"
+      Environment = var.environment
+      ManagedBy   = "terraform"
+    }
+  }
+}
+

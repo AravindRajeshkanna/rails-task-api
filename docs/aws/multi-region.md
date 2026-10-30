@@ -94,8 +94,8 @@ Roughly doubles the fixed costs of the stack: a second Aurora instance (the seco
 ## Before applying it
 
 1. Run **one** region in production for long enough to know its real traffic, its real failure modes, and that Terraform and Argo CD apply cleanly.
-2. Decide the RPO/RTO the business needs; if it is "an hour, some loss is fine", [backup and restore](../runbooks/backup-and-restore.md) into another region (cross-region
-   snapshot copy) is a fraction of the cost and complexity. That row is currently *not configured* there; adding it is the first, cheap step.
+2. Decide the RPO/RTO the business needs; if it is "an hour, some loss is fine", [backup and restore](../runbooks/backup-and-restore.md#a-copy-in-another-region) into another region (a daily
+   snapshot copied by AWS Backup, `backup_copy_region`) is a fraction of the cost and complexity, and it is built: set the variable. Its recovery point is the snapshot schedule (a day by default), its recovery time is a restore (an hour, if rehearsed), and nothing is running in the other region meanwhile.
 3. Apply it to a **non-production** environment first and run the drill below there. Expect surprises on the first apply.
 
 ## The drill (do this before trusting any of it)

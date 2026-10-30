@@ -180,12 +180,12 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | # | Item | Status | Implemented as |
 | --- | --- | --- | --- |
 | 1 | A read-only switch | ✅ | `ReadOnlyMode` middleware: a refused write is `503 read_only` with `Retry-After`; `READ_ONLY=true` refuses writes up front; the standby renders with it on and the production-size render turns it off. Making *reads* survive needed two more fixes (the session usage stamp, and Solid Cache on a read-only database). Checked against a Postgres that really refuses writes, not against Aurora ([ADR 46](decisions.md)) |
+| 2 | Cross-region snapshot copy | 🟡 | `backup_copy_region` in the Terraform: an AWS Backup plan (daily snapshot, copied to a vault in another region, alert on failure) and a replicated dump bucket with a write-only upload policy; `db_dump.sh` and `db_restore_check.sh` (a dump is verified before it is kept; the restore reports its time and row counts), run against the 149,000-task database. **Never applied**; `terraform test` against mocks, mutation-checked; `aws` and `age` not run ([ADR 47](decisions.md), [runbook](runbooks/backup-and-restore.md#a-copy-in-another-region)) |
 
 ## Next
 
 Ordered by what a real user would hit first.
 
-2. **Cross-region snapshot copy** of the database and the dumps: the cheap first step of the multi-region plan, and the whole answer if an hour of downtime is acceptable ([backup runbook](runbooks/backup-and-restore.md)).
 3. **Apply the multi-region pair for real**, in staging first, and run the drill, once a single region has run for a few months and an RTO/RPO is stated ([design](aws/multi-region.md#building-it-in-this-order)).
 4. **Per-person notification settings** (mute a kind or a project, a daily digest) on top of the inbox.
 5. **Cap the work of a broad ranked search** (rank only the most recent N matches) if one shows up in a p95; keyset pagination for other lists if any grows past what offset serves.

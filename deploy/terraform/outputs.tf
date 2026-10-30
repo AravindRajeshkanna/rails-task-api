@@ -47,3 +47,11 @@ output "peer_storage_bucket" {
   description = "The other region's bucket this stack replicates to"
   value       = local.dr_enabled ? "${local.peer_name}-storage-${local.account_id}" : null
 }
+
+# Cross-region backups (null unless backup_copy_region is set; docs/runbooks/backup-and-restore.md)
+output "backup_vault_name" { value = try(aws_backup_vault.local[0].name, null) }
+output "backup_copy_vault_arn" { value = try(aws_backup_vault.copy[0].arn, null) }
+output "dump_bucket" { value = try(aws_s3_bucket.dumps[0].bucket, null) }
+output "dump_copy_bucket" { value = try(aws_s3_bucket.dumps_copy[0].bucket, null) }
+output "dump_upload_policy_arn" { value = try(aws_iam_policy.dump_upload[0].arn, null) }
+
