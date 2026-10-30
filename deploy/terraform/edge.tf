@@ -220,15 +220,17 @@ resource "aws_route53_record" "api_standby" {
 }
 
 # Checks the primary load balancer directly (by its own name, so the answer cannot depend on the failover record it controls).
-# Route 53 does not validate the certificate, and /up is exempt from Rails' host check, so the Host header being the load
+# Route 53 does not validate the certificate, and the health checks are exempt from Rails' host check, so the Host header being the load
 # balancer's name does not matter. Three failures in a row, 30 seconds apart, is about a minute and a half to decide.
+# It asks /readyz, not /up: a region whose database cannot be reached answers /up happily and is exactly the failure this check is for. An Aurora writer
+# failover (30-60 seconds) is shorter than the three failures it takes, so a routine failover does not move DNS.
 resource "aws_route53_health_check" "api" {
   count = local.failover ? 1 : 0
 
   fqdn              = data.aws_lb.api[0].dns_name
   type              = "HTTPS"
   port              = 443
-  resource_path     = "/up"
+  resource_path     = "/readyz"
   request_interval  = 30
   failure_threshold = 3
   enable_sni        = true

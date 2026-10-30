@@ -38,7 +38,7 @@ observability with anomaly alarms and an AIOps loop, and Terraform + Helm + Argo
 | Platform | Docker Compose, `kind`, one Helm chart, Terraform (EKS, Karpenter, Aurora, SNS/SQS, WAF), Argo CD + Rollouts, KEDA, AIOps Lambdas ([deploy/](deploy/README.md)) |
 | Quality | RSpec (1,176 across the app, shared gems and Lambdas, with a line/branch coverage floor; 74 more in the services; 32 Node tests for the demo front end; 14 `terraform test` runs), Bullet raising on N+1, RuboCop with the Lint/Rails/Performance cops, Brakeman, bundler-audit, `strong_migrations`, `terraform validate`, Kubernetes schema checks ([docs/testing.md](docs/testing.md)) |
 | Performance | Measured, not guessed: `EXPLAIN` on 149k tasks, k6 load tests (nightly in CI), evidence-based indexes ([docs/performance.md](docs/performance.md)) |
-| Delivery | Dockerfile, Kamal 2 config (single host), EKS via GitOps (below), GitHub Actions, JSON logs, `/up` health check, optional Sentry |
+| Delivery | Dockerfile, Kamal 2 config (single host), EKS via GitOps (below), GitHub Actions, JSON logs, `/livez` and `/readyz` health checks (and `/up`), optional Sentry |
 
 ## Quick start
 

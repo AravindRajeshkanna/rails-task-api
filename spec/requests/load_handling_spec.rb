@@ -208,4 +208,39 @@ RSpec.describe "Load handling" do
       expect(Observability::Metrics::LOAD_SHED.get).to eq(before + 1)
     end
   end
+
+  describe "correlation: which organization a request was about" do
+    it "is on the access-log event and every other event of the request, as an id, and absent for a personal project" do
+      events = record_events { api :get, "/api/v1/projects/#{project.id}", as: user }
+      completed = events.events.find { |event| event[:name] == "action_controller.request_completed" }
+
+      expect(completed[:context]).to include(organization_id: organization.id, user_id: user.id)
+
+      personal = create(:project, owner: user)
+      events = record_events { api :get, "/api/v1/projects/#{personal.id}", as: user }
+      completed = events.events.find { |event| event[:name] == "action_controller.request_completed" }
+      expect(completed[:context]).not_to include(:organization_id)
+    end
+
+    it "is set as an attribute on the request's trace span, by id only" do
+      exporter = OpenTelemetry::SDK::Trace::Export::InMemorySpanExporter.new
+      provider = OpenTelemetry::SDK::Trace::TracerProvider.new
+      provider.add_span_processor(OpenTelemetry::SDK::Trace::Export::SimpleSpanProcessor.new(exporter))
+      Observability::Tracing.tracer_provider = provider
+
+      Observability::Tracing.in_span("request") do
+        api :get, "/api/v1/projects/#{project.id}", as: user
+      end
+
+      attributes = exporter.finished_spans.map(&:attributes).compact.reduce({}, :merge)
+      expect(attributes).to include("task_api.organization.id" => organization.id.to_s, "enduser.id" => user.id.to_s)
+      expect(attributes.values.join).not_to include(user.email_address)
+    ensure
+      Observability::Tracing.tracer_provider = nil
+    end
+
+    it "does not become a routable action" do
+      expect(Api::V1::TasksController.action_methods).not_to include("authorize")
+    end
+  end
 end

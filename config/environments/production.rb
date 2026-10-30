@@ -81,8 +81,8 @@ Rails.application.configure do
   allowed_hosts = ENV.fetch("ALLOWED_HOSTS", "").split(",").map(&:strip).compact_blank
   config.hosts = allowed_hosts if allowed_hosts.any?
 
-  # Skip DNS rebinding protection for the default health check endpoint.
-  config.host_authorization = { exclude: ->(request) { request.path.in?(%w[/up /metrics]) } }
+  # Skip DNS rebinding protection for the health checks (probes reach a pod by its IP) and the metrics scrape.
+  config.host_authorization = { exclude: ->(request) { request.path.in?(%w[/up /livez /readyz /metrics]) } }
 
   # Send mail through SMTP when configured; otherwise delivery errors are ignored.
   if ENV["SMTP_ADDRESS"].present?

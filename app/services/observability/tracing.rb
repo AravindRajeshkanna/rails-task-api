@@ -22,10 +22,13 @@ module Observability
       { trace_id: context.hex_trace_id, span_id: context.hex_span_id }
     end
 
-    # Adds low-cardinality identity attributes to the request's server span.
-    def annotate_request(user_id: nil)
+    # Adds low-cardinality identity attributes to the request's server span: who, and for which tenant (ids only, never names or emails).
+    def annotate_request(user_id: nil, organization_id: nil)
       span = OpenTelemetry::Trace.current_span
-      span.set_attribute("enduser.id", user_id.to_s) if user_id && span.recording?
+      return unless span.recording?
+
+      span.set_attribute("enduser.id", user_id.to_s) if user_id
+      span.set_attribute("task_api.organization.id", organization_id.to_s) if organization_id
     end
   end
 end

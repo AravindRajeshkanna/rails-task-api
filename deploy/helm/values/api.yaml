@@ -3,6 +3,12 @@ fullnameOverride: api
 port: 3000
 replicaCount: 2
 
+# Ready means it can reach the database (/readyz): a pod that cannot is taken out of rotation and left running. Alive means the process answers
+# (/livez, no dependencies): only then is a restart the cure. Kamal and the load balancer's default still have /up.
+probes:
+  path: /readyz
+  livenessPath: /livez
+
 env:
   RAILS_ENV: production
   RAILS_LOG_LEVEL: info
@@ -55,7 +61,7 @@ ingress:
     - { path: /cable, pathType: Prefix }
   annotations:
     alb.ingress.kubernetes.io/group.order: "50"
-    alb.ingress.kubernetes.io/healthcheck-path: /up
+    alb.ingress.kubernetes.io/healthcheck-path: /readyz
 
 networkPolicy:
   ingressFromPods: [ ]

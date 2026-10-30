@@ -2,6 +2,10 @@ Rails.application.routes.draw do
   # Load balancer / Kamal health check.
   get "up" => "rails/health#show", as: :rails_health_check
 
+  # Liveness (is the process alive: restart it if not) and readiness (can it serve: stop sending it traffic if not). HealthController.
+  get "livez" => "health#livez"
+  get "readyz" => "health#readyz"
+
   # Prometheus scrape endpoint; reachable from inside the cluster only (see Observability::MetricsApp).
   mount Observability::MetricsApp.new => "/metrics"
 

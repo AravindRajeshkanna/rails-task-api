@@ -224,8 +224,8 @@ run "primary_with_a_ready_standby_replicates_storage_and_fails_over_dns" {
     error_message = "Route 53 serves the primary while it is healthy and the standby when it is not."
   }
   assert {
-    condition     = length(aws_route53_health_check.api) == 1 && aws_route53_health_check.api[0].resource_path == "/up" && aws_route53_health_check.api[0].failure_threshold == 3
-    error_message = "The primary load balancer is health checked on /up."
+    condition     = length(aws_route53_health_check.api) == 1 && aws_route53_health_check.api[0].resource_path == "/readyz" && aws_route53_health_check.api[0].failure_threshold == 3
+    error_message = "The primary load balancer is health checked on /readyz (database included), not /up."
   }
 }
 
