@@ -9,8 +9,14 @@ RSpec.describe ServiceKit::CircuitBreaker do
     described_class.new(:dependency, failure_threshold: 3, window: 30, reset_timeout: 30, max_reset_timeout: 120, exceptions: [ down ], clock: -> { now.first })
   end
 
-  before { described_class.observer = ->(name, from, to) { transitions << [ name, from, to ] } }
-  after { described_class.observer = nil }
+  # The observer is global (an application installs its own at boot), so put back whatever was there.
+  around do |example|
+    previous = described_class.observer
+    described_class.observer = ->(name, from, to) { transitions << [ name, from, to ] }
+    example.run
+  ensure
+    described_class.observer = previous
+  end
 
   def fail_once = breaker.call { raise down, "boom" }
   def succeed = breaker.call { :ok }
