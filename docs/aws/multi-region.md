@@ -31,6 +31,7 @@ These are targets to verify in a drill, not measurements.
 | **Secrets** | Replicas | Secrets Manager multi-Region secrets (`replica` blocks), including the JWKS signing key, so tokens issued before the failover still verify | Replicas are read-only until promoted; rotating in the primary replicates |
 | **Events** | An SNS topic and SQS queues per region (they are regional and cheap) | The same Terraform; subscriptions are within a region | See below: this is where the outbox pays off |
 | **Bedrock, SES** | Enabled in region B | Model access and verified identities are per region; `bedrock_model_id` may be a different inference profile | Forgetting these is the classic failover surprise |
+| **The promotion window** | Reads work, writes are `503 read_only` | A read-only mode in the API (`READ_ONLY=true` on the standby until it is promoted, and any refused write becomes the 503); the cache skips writes meanwhile ([ADR 46](../decisions.md), [runbook](../runbooks/regional-failover.md#read-only-mode-what-clients-see-while-the-database-cannot-take-writes)) | Signing in is a write, so nobody new gets a session until promotion; rate limits are not counted; workers on a read-only database log errors until it is promoted |
 | **Observability** | Per-region Prometheus/CloudWatch, one Grafana | The same stack applied again | A regional outage takes that region's metrics with it; alarm from outside (Route 53 health check) |
 
 ## How the work done so far helps
@@ -58,6 +59,7 @@ side is serving after a failover, and no Terraform change is needed for the fail
 | DNS | `edge.tf` | the name becomes a Route 53 failover pair with a health check on the primary load balancer's `/up`, and an alarm | never owns the name or the certificate's validation record (it has a certificate of its own, issued by waiting) |
 | CI/CD | `github.tf` | the deploy role | none: CI pushes only to the primary's registry |
 | GitOps | `deploy/gitops/envs/prod-dr/`, `render_gitops.rb`, the prod ApplicationSet | | an environment `prod-dr` at standby size (one replica, no canary), same hostname, the primary's secret paths; `SIZE_AS=prod` renders it at production size |
+| Read-only API | `render_gitops.rb`, `api.yaml.tpl` | | `READ_ONLY=true` in the standby-size render; the production-size render (`SIZE_AS=prod`) turns it off |
 | Promotion | `.github/workflows/promote.yml` | | `prod` can be promoted into `prod-dr` (a pull request, then a human Sync) |
 | Tests | `deploy/terraform/tests/multi_region.tftest.hcl`, CI | | run on every pull request |
 
@@ -66,7 +68,7 @@ Files to copy and edit: `envs/prod-dr.tfvars` and `envs/prod-dr.backend.hcl` (th
 
 ## Building it (in this order)
 
-Every step is unrun. Do it in `staging` first: copy the two `prod-dr.*` files to `staging-dr.*` and use `environment = "staging"`.
+Every step is unrun. Do it in `staging` first: `envs/staging-dr.tfvars` and `envs/staging-dr.backend.hcl` exist for it (fill the `REPLACE_*` values), `staging.tfvars` has the primary's opt-in lines, and there is a `staging-dr` GitOps environment (rendered by `render_gitops.rb`, synced automatically, promotable from `staging`). Use `staging` wherever the steps below say `prod`.
 
 1. **Prerequisites in the standby region**: Bedrock model access, SES verified identity and production access, service quotas (Spot vCPUs, Elastic IPs), the state bucket for `prod-dr` ([setup guide](setup-guide.md) steps 1-2, in that region).
 2. **Primary, step 1**: set `dr_role = "primary"` and `peer_region` in `prod.tfvars`; `terraform apply`. It joins the database to a global cluster (no interruption), puts replicas of every secret in the standby region, and starts replicating images. `terraform output database_engine_version`; keep it.
@@ -92,13 +94,15 @@ Roughly doubles the fixed costs of the stack: a second Aurora instance (the seco
 ## Before applying it
 
 1. Run **one** region in production for long enough to know its real traffic, its real failure modes, and that Terraform and Argo CD apply cleanly.
-2. Decide the RPO/RTO the business needs; if it is "an hour, some loss is fine", [backup and restore](../runbooks/backup-and-restore.md) into another region (cross-region
-   snapshot copy) is a fraction of the cost and complexity. That row is currently *not configured* there; adding it is the first, cheap step.
+2. Decide the RPO/RTO the business needs; if it is "an hour, some loss is fine", [backup and restore](../runbooks/backup-and-restore.md#a-copy-in-another-region) into another region (a daily
+   snapshot copied by AWS Backup, `backup_copy_region`) is a fraction of the cost and complexity, and it is built: set the variable. Its recovery point is the snapshot schedule (a day by default), its recovery time is a restore (an hour, if rehearsed), and nothing is running in the other region meanwhile.
 3. Apply it to a **non-production** environment first and run the drill below there. Expect surprises on the first apply.
 
 ## The drill (do this before trusting any of it)
 
+[The failover drill runbook](../runbooks/failover-drill.md) is the procedure, with a probe that measures it from the client's side (`deploy/scripts/drill_probe.rb`: the time to full service, the answers it got, and the acknowledged writes that did not survive) and a sheet to record it on. In short:
+
 1. Create the standby in `staging`. Load data; confirm replication lag (`AuroraGlobalDBReplicationLag`) is stable.
-2. Planned switchover to the standby: measure the time to serve writes. Switch back.
+2. Planned switchover to the standby: measure the time to serve writes, and that no acknowledged write was lost. Switch back.
 3. Unplanned failover with `--allow-data-loss` after breaking the primary's health check; measure RPO (rows missing) and RTO (to a green health check and a successful sign-in, task create and attachment download).
 4. Write down what surprised you, fix it, and repeat quarterly.

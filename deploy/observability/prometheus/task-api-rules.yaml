@@ -78,6 +78,15 @@ spec:
             description: "Changes are not reaching the other services (email, Slack). Nothing is lost: events wait in the outbox."
             runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/event-outbox.md
 
+        - alert: TaskApiReadOnly
+          expr: sum(increase(taskapi_read_only_refusals_total[5m])) > 0
+          for: 15m
+          labels: { severity: ticket }
+          annotations:
+            summary: "Writes have been refused as read-only for 15 minutes"
+            description: "Planned during a switchover. Otherwise traffic reached a region whose database is not promoted yet, or a writer was demoted."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/regional-failover.md
+
         - alert: TaskApiNoWorkers
           expr: max(taskapi_queue_workers) == 0 and taskapi:queue_ready_jobs:total > 0
           for: 5m

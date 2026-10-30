@@ -21,7 +21,7 @@ observability with anomaly alarms and an AIOps loop, and Terraform + Helm + Argo
 
 | Area | Implementation |
 | --- | --- |
-| Resources | Users, Organizations (invitations, teams, audit log), Projects, Memberships, Tasks, Comments, Tags, Webhooks, Audit events, Activity, Analytics, Notifications (inbox), Search |
+| Resources | Users, Organizations (invitations, teams, audit log), Projects, Memberships, Tasks, Comments, Tags, Webhooks, Audit events, Activity, Analytics, Notifications (inbox, settings, mutes), Search |
 | Auth | Bearer-token sessions (digest-only storage), sign-up, sign-in/out, password reset |
 | Authorization | Pundit policies; project roles `member` / `admin`; owner-only deletes; organizations (`owner` / `admin` / `member`) whose owners and admins administer all of their projects, and whose projects only take their members; teams a project can grant a role to; access resolved in the policies, never copied |
 | API design | `/api/v1` namespace, shallow routes, [Alba](https://github.com/okuramasafumi/alba) serializers, [Pagy](https://github.com/ddnexus/pagy) pagination, filtering / sorting, substring and ranked full-text search, offset and cursor pagination, a read-only GraphQL endpoint, one error envelope |
@@ -36,7 +36,7 @@ observability with anomaly alarms and an AIOps loop, and Terraform + Helm + Argo
 | Observability | Structured events as JSON logs, Prometheus `/metrics`, OpenTelemetry → X-Ray, CloudWatch anomaly alarms, SNS → PagerDuty/Slack ([docs](docs/architecture/observability-and-aiops.md)) |
 | Services | Auth (JWT, rotating refresh tokens), AI, Notifications (SQS consumer), events as CloudEvents on SNS/SQS ([docs](docs/architecture/microservices.md)) |
 | Platform | Docker Compose, `kind`, one Helm chart, Terraform (EKS, Karpenter, Aurora, SNS/SQS, WAF), Argo CD + Rollouts, KEDA, AIOps Lambdas ([deploy/](deploy/README.md)) |
-| Quality | RSpec (1,036 across the app, shared gems and Lambdas, with a line/branch coverage floor; 72 more in the services), Bullet raising on N+1, RuboCop with the Lint/Rails/Performance cops, Brakeman, bundler-audit, `strong_migrations`, `terraform validate`, Kubernetes schema checks ([docs/testing.md](docs/testing.md)) |
+| Quality | RSpec (1,176 across the app, shared gems and Lambdas, with a line/branch coverage floor; 74 more in the services; 32 Node tests for the demo front end; 14 `terraform test` runs), Bullet raising on N+1, RuboCop with the Lint/Rails/Performance cops, Brakeman, bundler-audit, `strong_migrations`, `terraform validate`, Kubernetes schema checks ([docs/testing.md](docs/testing.md)) |
 | Performance | Measured, not guessed: `EXPLAIN` on 149k tasks, k6 load tests (nightly in CI), evidence-based indexes ([docs/performance.md](docs/performance.md)) |
 | Delivery | Dockerfile, Kamal 2 config (single host), EKS via GitOps (below), GitHub Actions, JSON logs, `/up` health check, optional Sentry |
 
@@ -96,6 +96,7 @@ Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it.
 | 409 | `stale_object`, `conflict` | `lock_version` out of date; uniqueness race |
 | 422 | `validation_failed` | Details are keyed by field |
 | 429 | `rate_limited` | Honour `Retry-After` |
+| 503 | `read_only`, `ai_unavailable`, `ai_not_configured` | `read_only`: a database promotion or maintenance is under way. Reads work, nothing was changed, retry the write after `Retry-After` |
 
 **Rate limits** (`429` + `Retry-After`): sign-up 10/hour per IP; sign-in and password reset 10 per 3 minutes per IP, and
 5 sign-ins per minute per account; everything under `/api` 300 per 5 minutes per IP and 600 per 5 minutes per token.
@@ -104,7 +105,7 @@ Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it.
 `pages`, `next`, `previous`) and responses carry `Link` (RFC 8288), `Total-Count`, `Total-Pages`,
 `Current-Page` and `Page-Limit` headers.
 
-**Cursor pagination** (optional, for long task lists). `GET /projects/:id/tasks?cursor=` returns the first page, and `?cursor=<meta.next_cursor>`
+**Cursor pagination** (optional, for long lists: the task list, both audit logs `GET /projects/:id/audit_events` and `GET /organizations/:id/audit_events`, and `GET /activity`). `GET /projects/:id/tasks?cursor=` returns the first page, and `?cursor=<meta.next_cursor>`
 the following ones (`meta` is `{limit, next_cursor, has_more}`; `Link` has `rel="next"`; there is no total). Unlike `page=`, a page costs the same at any depth
 and no task is skipped or repeated when others are added meanwhile. It works with every filter, and with sorts by `created_at`, `updated_at` and `title`
 (not relevance, `priority`, `status` or `due_on`); use the cursor with the filters and sort that produced it.
@@ -129,7 +130,8 @@ purged for good after 30 days.
 | Projects | `GET` `POST /projects` (`organization_id` creates one inside an organization) · `GET` `PATCH` `DELETE /projects/:id` · `POST /projects/:id/restore` |
 | Members | `GET` `POST /projects/:id/memberships` · `PATCH` `DELETE /memberships/:id` · `GET` `POST /projects/:id/teams` · `PATCH` `DELETE /projects/:id/teams/:id` (a team's access) |
 | Inbox | `GET /notifications` (`unread`, `project_id`, `kind`) · `PATCH` `DELETE /notifications/:id` · `POST /notifications/read_all` · live over `NotificationsChannel` |
-| GraphQL | `POST /graphql`: read-only, same access rules ([docs/graphql](docs/graphql/README.md)) |
+| Notification settings | `GET` `PATCH /notification_settings` (`digest` off/daily, `digest_hour`, `time_zone`) · `GET` `POST /notification_mutes`, `DELETE /notification_mutes/:id` (a kind, a project, or a kind in a project) |
+| GraphQL | `POST /graphql`: queries, plus five mutations that are the REST writes reached another way (same policies and model), same access rules ([docs/graphql](docs/graphql/README.md)) |
 | Search | `GET /search?q=` (all your projects) · `GET /projects/:id/tasks?search=` (one project) |
 | Tasks | `GET` `POST /projects/:id/tasks` · `GET` `PATCH` `DELETE /tasks/:id` · `POST /tasks/:id/restore` |
 | Comments | `GET` `POST /tasks/:id/comments` · `PATCH` `DELETE /comments/:id` |
@@ -250,7 +252,7 @@ Schedules live in [config/recurring.yml](config/recurring.yml).
 
 ```bash
 bundle exec rspec                                   # the app, ~8 s; accepts any file or directory
-bundle exec rspec spec gems deploy/lambda           # 1,036 (app + gems + Lambdas), what CI runs
+bundle exec rspec spec gems deploy/lambda           # 1,176 (app + gems + Lambdas), what CI runs
 for s in ai auth notifications; do (cd services/$s && bundle exec rspec); done   # the services
 bin/rails ai:eval                                   # score the configured model against the golden sets
 bin/ci                                              # rubocop + bundler-audit + brakeman + rspec with the coverage floor (as GitHub Actions)
@@ -284,7 +286,7 @@ Copy [.env.example](.env.example) for the full list of environment variables.
 **Operations.**
 - Logs are JSON on stdout (`LOG_FORMAT=plain` to disable); every line carries the request id. Domain events log as `event=task.completed subject=... project_id=...`.
 - Set `SENTRY_DSN` to enable error tracking (no-op otherwise).
-- **Backups are not automated.** Schedule `pg_dump` of all four production databases (and the storage volume) on the host, and rehearse a restore.
+- **Backups are not scheduled.** Run `deploy/scripts/db_dump.sh` nightly for the primary database (the queue, cache and cable databases are disposable) and back up the storage volume; `deploy/scripts/db_restore_check.sh` rehearses the restore. On AWS, `backup_copy_region` adds a daily snapshot copy and a dump bucket in a second region ([runbook](docs/runbooks/backup-and-restore.md)).
 - Migrations run automatically (`db:prepare`) when a container starts; keep them backward compatible with the previous release so rolling deploys stay safe.
 
 ## Deploying to AWS (EKS)
@@ -302,11 +304,11 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 ## Known limitations
 
 - People join an organization by invitation, and the API never says whether an address is registered. Two narrow exceptions: an administrator is told when an address already belongs to a *member of their own organization*, and adding a user directly to a project that has **no** organization (`POST /projects/:id/memberships`) still answers 404 for an unknown address. Both are listed in [security.md](docs/security.md).
-- `page=` is offset pagination: fine for this data shape, but a deep page of a huge project costs more (14 ms at row 49,000 of 50,000). The task list offers `cursor=` (keyset) for that; the other lists do not need it.
+- `page=` is offset pagination: fine for this data shape, but a deep page of a huge project costs more (14 ms at row 49,000 of 50,000). The task list, the audit logs and the activity feed offer `cursor=` (keyset) for that (the feed needed a different query as well, [performance.md](docs/performance.md#the-lists-that-only-grow-audit-logs-and-the-activity-feed)); the other lists do not grow without limit.
 - Active Storage defaults to local disk; on Kubernetes set `ACTIVE_STORAGE_SERVICE=amazon` (S3).
 - Image dimension analysis needs `libvips` at runtime (it is in the Docker image; locally `brew install vips`). Without it uploads still work, their dimensions are just not recorded. No image variants are generated.
-- The inbox has no per-person settings (every notification kind is on) and no digest; see "Next" in [docs/roadmap.md](docs/roadmap.md). Teams grant project access but are flat (no team roles, no nested teams), and a person with an administrator's implicit access to a project, or access only through a team, is not in `GET /projects/:id/memberships`: that lists direct members; `GET /projects/:id/teams` lists the teams.
-- GraphQL is read-only (writes are REST). A public demo is *supported* ([docs/demo.md](docs/demo.md): demo mode, a nightly reset, a Kamal destination) but not deployed; that is yours to run.
+- Notification settings are per person (mute a kind or a project, or take a daily digest instead of an email per event), but there is no per-channel choice beyond that (no Slack or push preferences, no per-event email toggle) and the digest is sent in the hour you pick, not instantly on a threshold; see [ADR 49](docs/decisions.md). Teams grant project access, have maintainers (who manage the plain members of their own team), and nest one level (a sub-team's members also have what its parent was granted; [ADR 52](docs/decisions.md), [53](docs/decisions.md)); there are no deeper levels, and a person with an administrator's implicit access to a project, or access only through a team, is not in `GET /projects/:id/memberships`: that lists direct members; `GET /projects/:id/teams` lists the teams.
+- GraphQL has five mutations (create, update, delete task; comment; mark a notification read) and no subscriptions; every other write is REST only. A public demo is *supported* ([docs/demo.md](docs/demo.md): demo mode, a nightly reset, a Kamal destination, and a small static front end in [demo/web](demo/web/README.md)) but not deployed or hosted; that is yours to run.
 - The platform code is validated statically and by CI (the four images build, Terraform validates, every Helm release renders and passes
   Kubernetes/CRD schema checks) and the services were exercised together locally with an AWS mock. The Compose stack, the `kind` script and
   the Terraform have **not been run against Docker or AWS**. Expect a round of small fixes on first contact.

@@ -216,3 +216,33 @@ variable "monthly_budget_usd" {
   type        = number
   default     = 0
 }
+
+# --- Backups: a copy in another region (docs/runbooks/backup-and-restore.md) ---
+variable "backup_copy_region" {
+  description = "Region that receives a daily copy of the database's snapshots (AWS Backup) and of the pg_dump bucket. Empty (the default) creates neither. It is independent of dr_role, and usually the region a standby would live in."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.backup_copy_region != var.region
+    error_message = "backup_copy_region must be a different region from this stack's own; a copy next to the original protects against less."
+  }
+}
+
+variable "backup_schedule" {
+  description = "When AWS Backup snapshots the database (an EventBridge cron expression, UTC). This, not the Aurora point-in-time window, is the recovery point of the copy in the other region."
+  type        = string
+  default     = "cron(0 3 * * ? *)"
+}
+
+variable "backup_retention_days" {
+  description = "How long snapshots stay in this region's vault, and, separately, in the other region's."
+  type        = number
+  default     = 35
+}
+
+variable "dump_retention_days" {
+  description = "How long pg_dump files are kept in the dump bucket (and its copy). Older versions of an overwritten file go after 30 days."
+  type        = number
+  default     = 90
+}
+

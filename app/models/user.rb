@@ -15,6 +15,8 @@ class User < ApplicationRecord
   has_many :owned_projects, class_name: "Project", foreign_key: :owner_id, inverse_of: :owner, dependent: :restrict_with_error
   has_many :assigned_tasks, class_name: "Task", foreign_key: :assignee_id, inverse_of: :assignee, dependent: :nullify
   has_many :comments, dependent: :destroy
+  has_one :notification_setting, dependent: :delete # the foreign keys cascade too; this keeps the association honest
+  has_many :notification_mutes, dependent: :delete_all
   has_many :ai_usages, dependent: :nullify
 
   normalizes :email_address, with: ->(email) { email.strip.downcase }

@@ -1,5 +1,5 @@
 class TeamMemberResource < ApplicationResource
-  attributes :id, :created_at
+  attributes :id, :role, :created_at
 
   one :user, resource: UserSummaryResource
 end

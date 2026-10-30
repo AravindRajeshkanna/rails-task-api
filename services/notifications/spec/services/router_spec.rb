@@ -21,6 +21,22 @@ RSpec.describe Notifications::Router do
       expect(sent.sole.bcc).to be_nil
     end
 
+    it "sends nothing, and still records the event, when the recipient muted it or takes a digest" do
+      event = assigned_event(email_enabled: false)
+
+      expect(router.dispatch(event)).to eq(:handled)
+      expect(router.dispatch(event)).to eq(:duplicate)
+      expect(sent).to be_empty
+      expect(Delivery.count).to eq(0)
+    end
+
+    it "sends as before when the event says nothing about it, or says yes" do
+      router.dispatch(assigned_event)
+      router.dispatch(assigned_event(email_enabled: true))
+
+      expect(sent.size).to eq(2)
+    end
+
     it "refuses events without a valid recipient" do
       event = assigned_event(email: "not-an-email")
 

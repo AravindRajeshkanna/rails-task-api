@@ -8,7 +8,8 @@ module Api
 
         events = project.audit_events.includes(:actor).order(created_at: :desc, id: :desc)
         events = events.where(auditable_type: params[:auditable_type]) if params[:auditable_type].present?
-        records, meta = paginate(events)
+        # ?cursor= (even empty) pages by keyset: constant cost however long the history, no total. Otherwise ?page=.
+        records, meta = params.key?(:cursor) ? paginate_by_cursor(events, params[:cursor]) : paginate(events)
         render_resource AuditEventResource, records, meta: meta
       end
     end

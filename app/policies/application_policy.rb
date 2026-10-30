@@ -54,9 +54,9 @@ class ApplicationPolicy
         direct.select(:project_id)
       end
 
-      # Projects granted to a team the user is in (with +role+, if given, as the team's role).
+      # Projects granted to a team the user is in, or to the parent of one (with +role+, if given, as the team's role).
       def team_project_ids(role)
-        granted = ProjectTeam.where(team_id: TeamMembership.where(user_id: user.id).select(:team_id))
+        granted = ProjectTeam.where(team_id: Team.granting_to(user.id).select(:id))
         granted = granted.where(role: role) if role
         granted.select(:project_id)
       end
@@ -81,11 +81,11 @@ class ApplicationPolicy
       "admin".in?(roles) ? "admin" : roles.first
     end
 
-    # The highest role among the teams the user is in that were granted the project, nil if none.
+    # The highest role among the teams the user is in, or whose sub-team they are in, that were granted the project, nil if none.
     def role_through_team(project)
       return unless project.organization_id
 
-      roles = ProjectTeam.where(project_id: project.id, team_id: TeamMembership.where(user_id: user.id).select(:team_id)).pluck(:role)
+      roles = ProjectTeam.where(project_id: project.id, team_id: Team.granting_to(user.id).select(:id)).pluck(:role)
       highest_role(*roles)
     end
 

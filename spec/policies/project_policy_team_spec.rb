@@ -112,4 +112,85 @@ RSpec.describe ProjectPolicy do
 
     expect(described_class::Scope.new(person, Project).resolve.where(id: project.id).to_a.size).to eq(1)
   end
+
+  describe "nested teams" do
+    let(:parent) { create(:team, organization: organization, name: "Engineering") }
+    let(:child) { create(:team, organization: organization, name: "Backend", parent: parent) }
+    let(:sibling) { create(:team, organization: organization, name: "Frontend", parent: parent) }
+    let(:in_child) { create(:team_membership, team: child).user }
+    let(:in_parent) { create(:team_membership, team: parent).user }
+    let(:in_sibling) { create(:team_membership, team: sibling).user }
+
+    it "gives the members of a sub-team what its parent was granted, without their being in the parent" do
+      create(:project_team, project: project, team: parent, role: "member")
+
+      expect_role(in_child, "member")
+      expect_role(in_sibling, "member")
+      expect_role(in_parent, "member")
+    end
+
+    it "does not run the other way: a grant to a sub-team reaches only that sub-team" do
+      create(:project_team, project: project, team: child, role: "member")
+
+      expect_role(in_child, "member")
+      expect_role(in_parent, nil)
+      expect_role(in_sibling, nil)
+    end
+
+    it "takes the highest role across the sub-team's own grant and its parent's" do
+      create(:project_team, project: project, team: child, role: "member")
+      create(:project_team, project: project, team: parent, role: "admin")
+      expect_role(in_child, "admin")
+
+      ProjectTeam.find_by!(project: project, team: parent).update!(role: "member")
+      ProjectTeam.find_by!(project: project, team: child).update!(role: "admin")
+      expect_role(in_child, "admin")
+      expect_role(in_sibling, "member")
+    end
+
+    it "ends when the team stops being a sub-team, or the person leaves it, or the grant goes" do
+      grant = create(:project_team, project: project, team: parent)
+      expect_role(in_child, "member")
+
+      child.update!(parent: nil)
+      expect_role(in_child, nil)
+
+      child.update!(parent: parent)
+      expect_role(in_child, "member")
+      TeamMembership.find_by!(team: child, user: in_child).destroy!
+      expect_role(in_child, nil)
+
+      create(:team_membership, team: child, user: in_child)
+      grant.destroy!
+      expect_role(in_child, nil)
+    end
+
+    it "lists the project once, whichever of the person's routes reach it" do
+      create(:project_team, project: project, team: parent, role: "member")
+      create(:project_team, project: project, team: child, role: "admin")
+      create(:team_membership, team: parent, user: in_child) # in both
+
+      rows = described_class::Scope.new(in_child, Project).resolve.where(id: project.id).to_a
+      expect(rows.size).to eq(1)
+      expect(rows.sole.current_role).to eq("admin")
+    end
+
+    it "makes the members of sub-teams people who can be given work, and not the members of a parent whose sub-team was granted" do
+      create(:project_team, project: project, team: parent)
+      expect(project.participants).to include(in_child, in_sibling, in_parent)
+
+      ProjectTeam.find_by!(project: project, team: parent).destroy!
+      create(:project_team, project: project, team: child)
+      expect(project.participants).to include(in_child)
+      expect(project.participants).not_to include(in_parent, in_sibling)
+    end
+
+    it "reaches the child resources of the project through the sub-team" do
+      create(:project_team, project: project, team: parent)
+      task = create(:task, project: project, creator: owner)
+
+      expect(TaskPolicy::Scope.new(in_child, Task).resolve).to contain_exactly(task)
+      expect(NotificationPolicy::Scope.new(in_child, Notification).resolve).to be_empty
+    end
+  end
 end

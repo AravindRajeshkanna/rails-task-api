@@ -54,8 +54,8 @@ These are the tests worth knowing about, because they turn a convention into a c
 
 | | Now | Floor |
 | --- | ---: | ---: |
-| Line | 94.3% | 92% |
-| Branch | 84.1% | 81% |
+| Line | 94.3% (94.26) | 92% |
+| Branch | 84.8% | 81% |
 
 The floor sits just under the current value, so it catches a drop (code arriving without specs), not a goal to chase.
 Override per run with `COVERAGE_MIN_LINE` / `COVERAGE_MIN_BRANCH`. The report is `coverage/index.html`; CI uploads it
@@ -69,7 +69,7 @@ which can only be exercised against the real service. The extracted services' su
 - **VCR is not used.** Outbound HTTP is webhook delivery (asserted with WebMock, against a stubbed DNS resolver) and AWS
   calls (Bedrock, SNS), which the AWS SDK's own `stub_responses` replaces with typed fixtures. Cassettes would record
   real responses, including whatever secrets and personal data they carry. Revisit if a plain HTTP API provider is added.
-- **No parallel test runner.** 950+ examples run in about 20 seconds; parallelism would add per-worker databases and make
+- **No parallel test runner.** 1,100+ examples run in about 25 seconds; parallelism would add per-worker databases and make
   coverage merging fiddly for no gain. Add `parallelize(workers: :number_of_processors)` (or `parallel_tests`) when the
   suite passes ~2 minutes.
 - **Time is controlled, never waited for**: `travel_to` / `travel`, never `sleep`.

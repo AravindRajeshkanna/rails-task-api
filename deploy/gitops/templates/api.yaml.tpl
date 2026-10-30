@@ -19,6 +19,7 @@ env:
   EVENTS_SNS_TOPIC_ARN: ${SNS_TOPIC_ARN}
   AI_PROVIDER: ""
   AWS_S3_BUCKET: ${STORAGE_BUCKET}
+  READ_ONLY: "${READ_ONLY}"        # true on the standby until its database is promoted (config/initializers/read_only_mode.rb)
 ingress:
   host: ${DOMAIN}
   annotations:

@@ -20,6 +20,10 @@ info:
     `Retry-After`). `503 ai_not_configured` means the server has no model provider; `503 ai_unavailable`
     means the provider is busy.
 
+    **Read-only mode.** While a database promotion or maintenance is under way, reads keep working and every write
+    answers `503 read_only` with `Retry-After`. Nothing was changed, so retry the request as it is. Existing tokens keep
+    working; signing in is a write and waits too.
+
     **Authorization.** Resources inside a project you do not belong to answer `404`, not `403`,
     so their existence is not disclosed. Owners and admins of an organization administer all of its
     projects without being added to each one.
@@ -704,6 +708,58 @@ components:
       - data
       - read
       - created_at
+    NotificationSetting:
+      type: object
+      description: 'How the caller hears about things beyond the inbox. With `digest`
+        `daily` there is no email per event: one summary of what is new and unread
+        arrives at `digest_hour` in `time_zone`.'
+      properties:
+        digest:
+          type: string
+          enum:
+          - 'off'
+          - daily
+        digest_hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        time_zone:
+          type: string
+          description: IANA name, e.g. Europe/Paris
+        last_digest_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - digest
+      - digest_hour
+      - time_zone
+    NotificationMute:
+      type: object
+      description: Silences a kind everywhere (no `project_id`), a project entirely
+        (no `kind`), or one kind in one project. A muted notification is not stored
+        in the inbox, emailed or put in the digest.
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+          nullable: true
+          enum:
+          - task.assigned
+          - task.due_soon
+          - task.completed
+          - comment.created
+          -
+        project_id:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - created_at
     SearchResult:
       type: object
       description: A task that matched a full-text search. Highlights wrap matched
@@ -766,6 +822,11 @@ components:
           type: integer
         name:
           type: string
+        parent_id:
+          type: integer
+          nullable: true
+          description: The team this one is a sub-team of. Its members have what the
+            parent was granted, on top of what this team was. Teams nest one level
         members_count:
           type: integer
           nullable: true
@@ -779,6 +840,7 @@ components:
       - id
       - organization_id
       - name
+      - parent_id
     TeamMember:
       type: object
       properties:
@@ -789,9 +851,17 @@ components:
         created_at:
           type: string
           format: date-time
+        role:
+          type: string
+          enum:
+          - member
+          - maintainer
+          description: A maintainer adds and removes the plain members of the team.
+            It gives no access to any project
       required:
       - id
       - user
+      - role
     ProjectTeam:
       type: object
       description: A team's access to a project, with the role each of its members
@@ -1318,22 +1388,45 @@ paths:
         required: false
         schema:
           type: integer
+      - name: cursor
+        in: query
+        required: false
+        allowEmptyValue: true
+        description: Switches to keyset pagination, which costs the same however long
+          the history is and has no total (`meta` is `{limit, next_cursor, has_more}`).
+          Send it empty for the first page, then `meta.next_cursor` of the previous
+          response (with the same filters). An invalid cursor is a 400. Replaces `page`.
+        schema:
+          type: string
       responses:
         '200':
-          description: A page of events
+          description: A page of events (`meta` has `page`, `count`...; with `cursor`,
+            `next_cursor` and `has_more` and no total)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      "$ref": "#/components/schemas/Activity"
-                  meta:
-                    "$ref": "#/components/schemas/PaginationMeta"
-                required:
-                - data
+                oneOf:
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/Activity"
+                    meta:
+                      "$ref": "#/components/schemas/PaginationMeta"
+                  required:
+                  - data
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/Activity"
+                    meta:
+                      "$ref": "#/components/schemas/KeysetMeta"
+                  required:
+                  - data
+                  - meta
         '400':
           description: Unknown `type`
           content:
@@ -1782,9 +1875,13 @@ paths:
       summary: Query the API with GraphQL
       tags:
       - GraphQL
-      description: 'A read-only GraphQL endpoint over the same data, with the same
-        access rules, as the REST API: every list starts from what you may see and
-        anything else is `null`. Writes are REST only. The schema is in `docs/graphql/schema.graphql`
+      description: 'A GraphQL endpoint over the same data, with the same access rules,
+        as the REST API: every list starts from what you may see and anything else
+        is `null`. Five mutations (`createTask`, `updateTask`, `deleteTask`, `createComment`,
+        `markNotificationRead`) are the REST writes reached another way: same policies,
+        same model, same audit trail; mistakes in the input come back in the payload''s
+        `errors`, everything else as a top-level error with `extensions.code` (`not_found`,
+        `forbidden`, `stale_object`); one mutation per request. The schema is in `docs/graphql/schema.graphql`
         (and by introspection). Limits: a query is at most 20 KB, 8 levels deep and
         1500 complexity points (a connection multiplies its children by the page size
         you ask for), a page is at most 100 items, one operation per request. Invalid
@@ -1995,6 +2092,177 @@ paths:
               properties:
                 project_id:
                   type: integer
+  "/api/v1/notification_settings":
+    get:
+      summary: My notification settings
+      tags:
+      - Notifications
+      description: The defaults (digest off) until something is changed.
+      security:
+      - bearer_auth: []
+      responses:
+        '200':
+          description: The settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/NotificationSetting"
+                required:
+                - data
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    patch:
+      summary: Change my notification settings
+      tags:
+      - Notifications
+      description: Any of `digest` (`off` or `daily`), `digest_hour` (0-23) and `time_zone`
+        (an IANA name). With a daily digest this app sends one summary a day instead
+        of an email per assignment or reminder; the inbox is unaffected. Refused (`403
+        demo_mode`) in the public demo.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/NotificationSetting"
+                required:
+                - data
+        '422':
+          description: Unknown digest, hour or time zone
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                digest:
+                  type: string
+                  enum:
+                  - 'off'
+                  - daily
+                digest_hour:
+                  type: integer
+                time_zone:
+                  type: string
+  "/api/v1/notification_mutes":
+    get:
+      summary: List what I muted
+      tags:
+      - Notifications
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: My mutes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/NotificationMute"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+    post:
+      summary: Mute a kind, a project, or a kind in a project
+      tags:
+      - Notifications
+      description: Give `kind`, `project_id`, or both. Muting stops the notification
+        being stored, emailed or put in the digest from now on; what is already in
+        the inbox stays. A project you cannot see is a `404`.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Muted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/NotificationMute"
+                required:
+                - data
+        '404':
+          description: Not a project of yours
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '422':
+          description: Nothing to mute, an unknown kind, or already muted
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum:
+                  - task.assigned
+                  - task.due_soon
+                  - task.completed
+                  - comment.created
+                project_id:
+                  type: integer
+  "/api/v1/notification_mutes/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    delete:
+      summary: Unmute
+      tags:
+      - Notifications
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Unmuted
+        '404':
+          description: Not yours
   "/api/v1/organizations":
     get:
       summary: List my organizations
@@ -2233,22 +2501,45 @@ paths:
         required: false
         schema:
           type: integer
+      - name: cursor
+        in: query
+        required: false
+        allowEmptyValue: true
+        description: Switches to keyset pagination, which costs the same however long
+          the history is and has no total (`meta` is `{limit, next_cursor, has_more}`).
+          Send it empty for the first page, then `meta.next_cursor` of the previous
+          response (with the same filters). An invalid cursor is a 400. Replaces `page`.
+        schema:
+          type: string
       responses:
         '200':
-          description: A page of audit events
+          description: A page of audit events (`meta` has `page`, `count`...; with
+            `cursor`, `next_cursor` and `has_more` and no total)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      "$ref": "#/components/schemas/AuditEvent"
-                  meta:
-                    "$ref": "#/components/schemas/PaginationMeta"
-                required:
-                - data
+                oneOf:
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/AuditEvent"
+                    meta:
+                      "$ref": "#/components/schemas/PaginationMeta"
+                  required:
+                  - data
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/AuditEvent"
+                    meta:
+                      "$ref": "#/components/schemas/KeysetMeta"
+                  required:
+                  - data
+                  - meta
         '400':
           description: Unknown auditable_type
           content:
@@ -2962,22 +3253,45 @@ paths:
         schema:
           type: string
         description: ":\n * `Project` \n * `Task` \n * `Membership` \n "
+      - name: cursor
+        in: query
+        required: false
+        allowEmptyValue: true
+        description: Switches to keyset pagination, which costs the same however long
+          the history is and has no total (`meta` is `{limit, next_cursor, has_more}`).
+          Send it empty for the first page, then `meta.next_cursor` of the previous
+          response (with the same filters). An invalid cursor is a 400. Replaces `page`.
+        schema:
+          type: string
       responses:
         '200':
-          description: Audit events
+          description: Audit events (`meta` has `page`, `count`...; with `cursor`,
+            `next_cursor` and `has_more` and no total)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      "$ref": "#/components/schemas/AuditEvent"
-                  meta:
-                    "$ref": "#/components/schemas/PaginationMeta"
-                required:
-                - data
+                oneOf:
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/AuditEvent"
+                    meta:
+                      "$ref": "#/components/schemas/PaginationMeta"
+                  required:
+                  - data
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/AuditEvent"
+                    meta:
+                      "$ref": "#/components/schemas/KeysetMeta"
+                  required:
+                  - data
+                  - meta
         '403':
           description: Not an admin
           content:
@@ -3149,22 +3463,33 @@ paths:
           type: integer
       responses:
         '200':
-          description: A page of tasks by cursor (`meta` has `next_cursor` and `has_more`,
-            no total)
+          description: A page of tasks (`meta` has `page`, `count`...; with `cursor`,
+            `next_cursor` and `has_more` and no total)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      "$ref": "#/components/schemas/Task"
-                  meta:
-                    "$ref": "#/components/schemas/KeysetMeta"
-                required:
-                - data
-                - meta
+                oneOf:
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/Task"
+                    meta:
+                      "$ref": "#/components/schemas/PaginationMeta"
+                  required:
+                  - data
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/Task"
+                    meta:
+                      "$ref": "#/components/schemas/KeysetMeta"
+                  required:
+                  - data
+                  - meta
         '400':
           description: Invalid filter, sort or cursor value
           content:
@@ -3651,6 +3976,11 @@ paths:
                 name:
                   type: string
                   maxLength: 100
+                parent_id:
+                  type: integer
+                  nullable: true
+                  description: Makes this a sub-team of another team of the organization
+                    (not of a sub-team)
               required:
               - name
   "/api/v1/organizations/{organization_id}/teams/{id}":
@@ -3684,9 +4014,11 @@ paths:
                 required:
                 - data
     patch:
-      summary: Rename a team
+      summary: Rename a team, or move it under another team (or out, with a null parent_id)
       tags:
       - Teams
+      description: 'Moving a team changes who has access to what: its members gain
+        what the new parent was granted and lose what the old one was.'
       security:
       - bearer_auth: []
       parameters: []
@@ -3710,8 +4042,9 @@ paths:
               properties:
                 name:
                   type: string
-              required:
-              - name
+                parent_id:
+                  type: integer
+                  nullable: true
     delete:
       summary: Delete a team
       tags:
@@ -3773,9 +4106,10 @@ paths:
       summary: Add someone to a team
       tags:
       - Teams
-      description: By user id; the person must be a member of the organization. A
+      description: 'By user id; the person must be a member of the organization. A
         person who is not, and an id that matches nobody, get the same `422`. Owners
-        and admins.
+        and admins, and the team''s maintainers for plain members: only an owner or
+        admin can add someone as a `maintainer`.'
       security:
       - bearer_auth: []
       parameters: []
@@ -3805,6 +4139,12 @@ paths:
               properties:
                 user_id:
                   type: integer
+                role:
+                  type: string
+                  enum:
+                  - member
+                  - maintainer
+                  default: member
               required:
               - user_id
   "/api/v1/organizations/{organization_id}/teams/{team_id}/members/{id}":
@@ -3824,11 +4164,58 @@ paths:
       required: true
       schema:
         type: integer
+    patch:
+      summary: Change a team member's role
+      tags:
+      - Teams
+      description: Make someone a maintainer of the team, or a plain member again.
+        Owners and admins of the organization only.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/TeamMember"
+                required:
+                - data
+        '403':
+          description: Not an owner or admin
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '422':
+          description: Not a role
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum:
+                  - member
+                  - maintainer
+              required:
+              - role
     delete:
       summary: Remove someone from a team
       tags:
       - Teams
-      description: They lose the access the team gave them to projects.
+      description: They lose the access the team gave them to projects. Owners and
+        admins, and a maintainer for a plain member.
       security:
       - bearer_auth: []
       responses:

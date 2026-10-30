@@ -2,7 +2,7 @@ name: Promote
 
 # Promote the images running in one environment to the next by opening a pull request. Review it, merge it, then
 # press Sync in Argo CD (staging syncs automatically; production and its standby region wait for a human).
-# Promote prod into prod-dr after prod is healthy, so the standby runs the same images (docs/aws/multi-region.md).
+# Promote prod into prod-dr (and staging into staging-dr) after the primary is healthy, so the standby runs the same images (docs/aws/multi-region.md).
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ on:
       to:
         description: Environment to promote into
         type: choice
-        options: [ staging, prod, prod-dr ]
+        options: [ staging, staging-dr, prod, prod-dr ]
         default: staging
 
 permissions:

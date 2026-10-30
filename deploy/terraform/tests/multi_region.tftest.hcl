@@ -1,10 +1,10 @@
-# Offline checks of the multi-region wiring: the plan for each role is computed against mocked AWS providers, so no
+# Offline checks of the multi-region wiring and of the cross-region backup copy: the plan for each role is computed against mocked AWS providers, so no
 # credentials are used and nothing is created. They prove the conditional logic (what each role creates and names), not
 # that AWS accepts it: that needs a real account (docs/aws/multi-region.md).
 #
 #   cd deploy/terraform && terraform init -backend=false && terraform test
 
-# One mock per provider configuration: the default region, and the peer region of the pair.
+# One mock per provider configuration: the default region, the peer region of the pair, and the region backups are copied to.
 mock_provider "aws" {
   # What a mock cannot invent: the identity, the partition, the zones, and anything that is parsed as JSON or as an ARN.
   mock_data "aws_caller_identity" {
@@ -70,6 +70,9 @@ mock_provider "aws" {
   mock_resource "aws_rds_cluster" {
     defaults = { arn = "arn:aws:rds:us-east-1:123456789012:cluster:mock" }
   }
+  mock_resource "aws_backup_vault" {
+    defaults = { arn = "arn:aws:backup:us-east-1:123456789012:backup-vault:mock" }
+  }
   mock_data "aws_eks_addon_version" {
     defaults = { version = "v1.0.0-eksbuild.1" }
   }
@@ -98,6 +101,20 @@ mock_provider "aws" {
 
 mock_provider "aws" {
   alias = "peer"
+}
+
+mock_provider "aws" {
+  alias = "backup_copy"
+
+  mock_resource "aws_backup_vault" {
+    defaults = { arn = "arn:aws:backup:us-west-2:123456789012:backup-vault:mock" }
+  }
+  mock_resource "aws_kms_key" {
+    defaults = { arn = "arn:aws:kms:us-west-2:123456789012:key/00000000-0000-0000-0000-000000000000" }
+  }
+  mock_resource "aws_s3_bucket" {
+    defaults = { arn = "arn:aws:s3:::mock-copy" }
+  }
 }
 
 mock_provider "random" {}
@@ -303,3 +320,138 @@ run "an_unknown_role_is_refused" {
 
   expect_failures = [var.dr_role]
 }
+
+# --- Cross-region backup copy (backup.tf) ---
+
+run "no_backup_copy_unless_asked_for" {
+  command = apply
+
+  assert {
+    condition     = length(aws_backup_plan.database) == 0 && length(aws_backup_vault.copy) == 0 && length(aws_s3_bucket.dumps) == 0 && length(aws_s3_bucket.dumps_copy) == 0
+    error_message = "With backup_copy_region empty nothing is created for backups."
+  }
+}
+
+run "backup_copy_snapshots_the_database_daily_and_copies_it_to_the_other_region" {
+  command = apply
+
+  variables {
+    backup_copy_region = "us-west-2"
+  }
+
+  assert {
+    condition     = aws_backup_vault.local[0].name == "task-api-prod-backups" && aws_backup_vault.copy[0].name == "task-api-prod-backups"
+    error_message = "A vault in each region, named alike."
+  }
+  assert {
+    condition     = one(aws_backup_plan.database[0].rule).schedule == "cron(0 3 * * ? *)" && one(aws_backup_plan.database[0].rule).target_vault_name == aws_backup_vault.local[0].name
+    error_message = "The plan snapshots daily into the local vault."
+  }
+  assert {
+    condition     = one(one(aws_backup_plan.database[0].rule).copy_action).destination_vault_arn == aws_backup_vault.copy[0].arn
+    error_message = "...and copies every recovery point to the vault in the other region."
+  }
+  assert {
+    condition     = one(one(aws_backup_plan.database[0].rule).lifecycle).delete_after == 35 && one(one(one(aws_backup_plan.database[0].rule).copy_action).lifecycle).delete_after == 35
+    error_message = "Both copies expire after backup_retention_days."
+  }
+  assert {
+    condition     = toset(aws_backup_selection.database[0].resources) == toset([module.db.cluster_arn])
+    error_message = "It backs up the Aurora cluster, and only that."
+  }
+  assert {
+    condition     = length(aws_backup_vault_notifications.local) == 1 && contains(aws_backup_vault_notifications.local[0].backup_vault_events, "COPY_JOB_FAILED")
+    error_message = "A failed backup or copy reaches the alerts topic."
+  }
+  assert {
+    condition     = aws_backup_vault.local[0].kms_key_arn == aws_kms_key.backup[0].arn && aws_backup_vault.copy[0].kms_key_arn == aws_kms_key.backup_copy[0].arn
+    error_message = "Each vault is encrypted with a key of its own region."
+  }
+}
+
+run "dumps_are_uploaded_write_only_and_replicated_without_their_deletions" {
+  command = apply
+
+  variables {
+    backup_copy_region = "us-west-2"
+  }
+
+  assert {
+    condition     = aws_s3_bucket.dumps[0].bucket == "task-api-prod-dumps-123456789012" && aws_s3_bucket.dumps_copy[0].bucket == "task-api-prod-dumps-copy-123456789012"
+    error_message = "A dump bucket and its copy."
+  }
+  assert {
+    condition     = one(aws_s3_bucket_replication_configuration.dumps[0].rule).destination[0].bucket == aws_s3_bucket.dumps_copy[0].arn && one(aws_s3_bucket_replication_configuration.dumps[0].rule).delete_marker_replication[0].status == "Disabled"
+    error_message = "Dumps replicate to the copy bucket, and a deletion does not."
+  }
+  assert {
+    condition     = aws_s3_bucket_versioning.dumps[0].versioning_configuration[0].status == "Enabled" && aws_s3_bucket_versioning.dumps_copy[0].versioning_configuration[0].status == "Enabled"
+    error_message = "Replication needs versioning on both sides."
+  }
+  assert {
+    condition     = one(aws_s3_bucket_lifecycle_configuration.dumps[0].rule).expiration[0].days == 90
+    error_message = "Dumps expire after dump_retention_days."
+  }
+  assert {
+    condition     = toset(one(data.aws_iam_policy_document.dump_upload[0].statement).actions) == toset(["s3:AbortMultipartUpload", "s3:PutObject"])
+    error_message = "The upload policy can add objects and nothing else: no read, list or delete."
+  }
+}
+
+run "a_standby_does_not_back_up_what_the_primary_backs_up" {
+  command = apply
+
+  variables {
+    region             = "us-west-2"
+    dr_role            = "secondary"
+    peer_region        = "us-east-1"
+    backup_copy_region = "us-east-1"
+  }
+
+  assert {
+    condition     = length(aws_backup_plan.database) == 0 && length(aws_s3_bucket.dumps) == 0
+    error_message = "Only the primary's cluster is backed up."
+  }
+}
+
+run "a_backup_copy_in_the_same_region_is_refused" {
+  command = plan
+
+  variables {
+    region             = "us-east-1"
+    backup_copy_region = "us-east-1"
+  }
+
+  expect_failures = [var.backup_copy_region]
+}
+
+# --- The staging pair (envs/staging-dr.tfvars): the same code, to rehearse on ---
+
+run "the_staging_standby_is_named_for_staging_and_answers_to_stagings_name" {
+  command = apply
+
+  variables {
+    environment        = "staging"
+    region             = "us-west-2"
+    api_subdomain      = "api.staging"
+    frontend_subdomain = "app.staging"
+    dr_role            = "secondary"
+    peer_region        = "us-east-1"
+    peer_ready         = true
+    create_ecr         = false
+  }
+
+  assert {
+    condition     = local.name == "task-api-staging-dr" && local.app_env == "staging-dr" && local.peer_name == "task-api-staging"
+    error_message = "The staging standby is task-api-staging-dr and its peer is task-api-staging."
+  }
+  assert {
+    condition     = local.global_cluster_id == "task-api-staging-global" && local.api_domain == "api.staging.example.com"
+    error_message = "It joins staging's global cluster and serves staging's name."
+  }
+  assert {
+    condition     = length(aws_secretsmanager_secret.service) == 0 && length(aws_iam_role.github_deploy) == 0 && length(aws_rds_global_cluster.this) == 0
+    error_message = "A staging standby owns no secrets, deploy role or global cluster either."
+  }
+}
+

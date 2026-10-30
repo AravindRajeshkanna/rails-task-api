@@ -38,6 +38,11 @@ class Session < ApplicationRecord
   def record_usage
     return if last_used_at && last_used_at > LAST_USED_RESOLUTION.ago
 
-    update_column(:last_used_at, Time.current) # rubocop:disable Rails/SkipsModelValidations -- bookkeeping, no callbacks wanted
+    # In a savepoint, so a refused write cannot abort a transaction the caller is in.
+    transaction(requires_new: true) do
+      update_column(:last_used_at, Time.current) # rubocop:disable Rails/SkipsModelValidations -- bookkeeping, no callbacks wanted
+    end
+  rescue ActiveRecord::StatementInvalid, ActiveRecord::ReadOnlyError => error
+    raise unless ReadOnlyMode.error?(error) # a read-only database must not make signed-in reads fail over a timestamp
   end
 end

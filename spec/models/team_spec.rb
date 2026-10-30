@@ -26,6 +26,72 @@ RSpec.describe Team do
 
     expect { grant.team.destroy! }.to change(TeamMembership, :count).by(-1).and change(ProjectTeam, :count).by(-1)
   end
+
+  describe "nesting" do
+    let(:organization) { create(:organization) }
+    let!(:parent) { create(:team, organization: organization) }
+
+    it "lets a team have a parent in the same organization" do
+      child = create(:team, organization: organization, parent: parent)
+
+      expect(child.parent).to eq(parent)
+      expect(parent.sub_teams).to contain_exactly(child)
+    end
+
+    it "gives the same answer for a parent that is another organization's as for one that does not exist" do
+      elsewhere = create(:team)
+      foreign = build(:team, organization: organization, parent_id: elsewhere.id)
+      missing = build(:team, organization: organization, parent_id: 0)
+
+      expect([ foreign, missing ]).to all(be_invalid)
+      expect(foreign.errors[:parent]).to eq(missing.errors[:parent]).and eq([ "must be another team of this organization" ])
+    end
+
+    it "nests one level: a sub-team cannot be a parent, and a parent cannot become a sub-team" do
+      child = create(:team, organization: organization, parent: parent)
+
+      grandchild = build(:team, organization: organization, parent: child)
+      expect(grandchild).to be_invalid
+      expect(grandchild.errors[:parent]).to eq([ "cannot be a sub-team: teams nest one level" ])
+
+      other = create(:team, organization: organization)
+      parent.parent = other
+      expect(parent).to be_invalid
+      expect(parent.errors[:parent].sole).to include("has sub-teams")
+    end
+
+    it "is not its own parent" do
+      parent.parent = parent
+
+      expect(parent).to be_invalid
+    end
+
+    it "cannot be deleted while it has sub-teams, and its sub-teams cannot lose it by accident" do
+      create(:team, organization: organization, parent: parent)
+
+      expect { parent.destroy! }.to raise_error(ActiveRecord::RecordNotDestroyed)
+      expect(parent.errors[:base].sole).to include("sub teams")
+      expect(described_class.exists?(parent.id)).to be(true)
+    end
+
+    it "cannot be deleted with sub-teams even bypassing the model: the database refuses" do
+      create(:team, organization: organization, parent: parent)
+
+      expect { described_class.transaction(requires_new: true) { parent.delete } }.to raise_error(ActiveRecord::InvalidForeignKey)
+    end
+
+    describe ".granting_to and .with_sub_teams" do
+      it "name the teams whose grants a person has, and the teams a grant reaches" do
+        child = create(:team, organization: organization, parent: parent)
+        sibling = create(:team, organization: organization, parent: parent)
+        person = create(:team_membership, team: child).user
+
+        expect(described_class.granting_to(person.id)).to contain_exactly(child, parent)
+        expect(described_class.with_sub_teams([ parent.id ])).to contain_exactly(parent, child, sibling)
+        expect(described_class.with_sub_teams([ child.id ])).to contain_exactly(child)
+      end
+    end
+  end
 end
 
 RSpec.describe TeamMembership do

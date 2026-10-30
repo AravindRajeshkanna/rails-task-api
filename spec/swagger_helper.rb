@@ -26,6 +26,10 @@ RSpec.configure do |config|
           `Retry-After`). `503 ai_not_configured` means the server has no model provider; `503 ai_unavailable`
           means the provider is busy.
 
+          **Read-only mode.** While a database promotion or maintenance is under way, reads keep working and every write
+          answers `503 read_only` with `Retry-After`. Nothing was changed, so retry the request as it is. Existing tokens keep
+          working; signing in is a write and waits too.
+
           **Authorization.** Resources inside a project you do not belong to answer `404`, not `403`,
           so their existence is not disclosed. Owners and admins of an organization administer all of its
           projects without being added to each one.

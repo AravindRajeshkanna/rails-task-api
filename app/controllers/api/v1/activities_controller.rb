@@ -12,9 +12,12 @@ module Api
         projects = policy_scope(Project).kept
         projects = projects.where(id: params[:project_id]) if params[:project_id].present?
 
-        events = AuditEvent.where(project_id: projects.reselect("projects.id"), auditable_type: types)
-                           .includes(:actor).order(created_at: :desc, id: :desc)
-        records, meta = paginate(events)
+        # ?cursor= (even empty) pages by keyset through ActivityFeed, which stays cheap however much history the caller's projects hold. Otherwise ?page=.
+        records, meta = if params.key?(:cursor)
+          paginate_by_cursor(->(after) { ActivityFeed.new(projects, types: types, after: after).call.includes(:actor) }, params[:cursor])
+        else
+          paginate(AuditEvent.where(project_id: projects.reselect("projects.id"), auditable_type: types).includes(:actor).order(created_at: :desc, id: :desc))
+        end
         render_resource ActivityResource, records, meta: meta
       end
 

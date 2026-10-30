@@ -47,6 +47,44 @@ RSpec.describe "Team policies" do
       expect(described_class.new(stranger, membership)).to forbid_actions(:index, :create, :destroy)
     end
 
+    describe "a maintainer of the team" do
+      let(:maintainer) { create(:team_membership, team: team, role: "maintainer").user }
+      let(:plain) { create(:team_membership, team: team) }
+      let(:fellow_maintainer) { create(:team_membership, team: team, role: "maintainer") }
+
+      it "adds and removes the plain members of their own team" do
+        expect(described_class.new(maintainer, plain)).to permit_actions(:index, :create, :destroy)
+        expect(described_class.new(maintainer, build(:team_membership, team: team))).to permit_action(:create)
+      end
+
+      it "cannot make a maintainer, change a role, remove another maintainer, or remove themselves" do
+        expect(described_class.new(maintainer, build(:team_membership, team: team, role: "maintainer"))).to forbid_action(:create)
+        expect(described_class.new(maintainer, plain)).to forbid_action(:update)
+        expect(described_class.new(maintainer, fellow_maintainer)).to forbid_actions(:update, :destroy)
+        expect(described_class.new(maintainer, TeamMembership.find_by!(user: maintainer))).to forbid_actions(:update, :destroy)
+      end
+
+      it "has nothing to do with any other team" do
+        elsewhere = create(:team_membership, team: create(:team, organization: organization))
+        maintainer # of `team`
+
+        expect(described_class.new(maintainer, elsewhere)).to forbid_actions(:create, :update, :destroy)
+      end
+
+      it "is nothing once they leave the organization, whatever the row still says" do
+        membership = TeamMembership.find_by!(user: maintainer)
+        OrganizationMembership.where(user: maintainer).delete_all
+
+        expect(described_class.new(maintainer, plain)).to forbid_actions(:index, :create, :destroy)
+        expect(membership).to be_maintainer
+      end
+
+      it "is not an administrator of the team itself, or of any project" do
+        expect(TeamPolicy.new(maintainer, team)).to permit_actions(:index, :show)
+        expect(TeamPolicy.new(maintainer, team)).to forbid_actions(:update, :destroy)
+      end
+    end
+
     it "scopes to the teams of the user's organizations" do
       create(:team_membership)
       membership

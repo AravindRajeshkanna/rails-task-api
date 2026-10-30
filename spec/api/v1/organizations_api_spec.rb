@@ -148,9 +148,11 @@ RSpec.describe "Organizations API", type: :request do
       parameter name: :auditable_type, in: :query, required: false, schema: { type: :string, enum: %w[Organization OrganizationMembership OrganizationInvitation] }
       parameter name: :page, in: :query, type: :integer, required: false
       parameter name: :limit, in: :query, type: :integer, required: false
+      parameter name: :cursor, in: :query, type: :string, required: false, allowEmptyValue: true,
+                description: "Switches to keyset pagination, which costs the same however long the history is and has no total (`meta` is `{limit, next_cursor, has_more}`). Send it empty for the first page, then `meta.next_cursor` of the previous response (with the same filters). An invalid cursor is a 400. Replaces `page`."
 
-      response "200", "A page of audit events" do
-        schema envelope.call(ref.call("AuditEvent"), list: true)
+      response "200", "A page of audit events (`meta` has `page`, `count`...; with `cursor`, `next_cursor` and `has_more` and no total)" do
+        schema OpenapiSchemas.listing(ref.call("AuditEvent"))
         run_test! { expect(data.pluck("auditable_type")).to include("Organization", "OrganizationMembership") }
       end
 

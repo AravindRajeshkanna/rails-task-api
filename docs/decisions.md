@@ -540,4 +540,149 @@ Replication Time Control prerequisites, the ECR creation template), that IAM is 
 
 Adding `count` to resources renames their addresses (`x` to `x[0]`), which for passwords, the signing key and IAM roles would mean destroying and recreating them in any stack applied from an earlier commit; `moved.tf` records the renames so nothing is replaced.
 
-Not done: cross-account pairs (the ECR rule, replication roles and the ACM validation record assume one account), a read-only switch for the promotion window, automating the failover steps, and rendering a second Grafana/Prometheus view across regions.
+Not done: cross-account pairs (the ECR rule, replication roles and the ACM validation record assume one account), (a read-only switch for the promotion window, since built: [ADR 46](#46-a-read-only-mode-for-the-promotion-window-and-what-it-took-to-make-reads-survive-it)), automating the failover steps, and rendering a second Grafana/Prometheus view across regions.
+
+## 46. A read-only mode for the promotion window, and what it took to make reads survive it
+
+The standby region's database is a read-only replica until a person promotes it, and Route 53 can send traffic there before that (ADR 42, 45). The roadmap's answer was "a few lines of middleware turning `PG::ReadOnlySqlTransaction` into
+`503 read_only`". The middleware is those few lines. What made reads actually survive was two other places that write on the way to answering a read, found by running the API against a database that really refused writes (a throwaway
+database with `default_transaction_read_only = on`):
+
+1. **`Session.authenticate` stamps `last_used_at`** (at most every five minutes per session). On a read-only database every signed-in read whose stamp was stale would have been a 503. The stamp is now skipped when the database refuses it, inside its own
+   savepoint so that a refusal cannot abort a transaction the caller is in.
+2. **Solid Cache gives up quietly on *transient* errors, and a read-only database is not one.** Rack::Attack's counters, `rate_limit` and cached project statistics all write to the cache, so every request would have raised, reads included, before reaching
+   the middleware. A small module prepended to `SolidCache::Store` treats a refused write like the errors it already tolerates (skip the write, miss the read). It overrides one private method of the gem; a spec builds a real Solid Cache in the test transaction, makes the database
+   read-only, and fails if the gem stops routing through that method. The cost: while it lasts nothing is rate-limited by the API (the WAF still is) and cached values are recomputed per request.
+
+**Two entrances, one answer.** `READ_ONLY=true` runs each request inside `ActiveRecord::Base.while_preventing_writes`, so a write fails before it reaches the database; and a Postgres `25006` from a real replica takes the same exit.
+(`ApplicationRecord.while_preventing_writes` looks like the narrower, safer call and does nothing: it is not a connection class here. The first draft used it and the specs caught it.) Both become the same `503 read_only` in the usual error envelope with
+`Retry-After: 30`, counted in `taskapi_read_only_refusals_total{source}`, and a request that changed anything was rolled back with the exception, so a client retries it unchanged. Reads, GraphQL queries (which are POSTs, hence the database-level check rather than
+an HTTP-method one) and existing tokens keep working. Signing in is a write and waits.
+
+The standby renders with `READ_ONLY=true`; the production-size render (`SIZE_AS=prod`), which the runbook already uses as the "scale up" step, turns it off, and `READ_ONLY=true|false` overrides either way, which also drains writes before a planned
+switchover. It covers the API only: workers are scaled by the runbook.
+
+Alternatives: **no switch**, only the error mapping (rejected for the planned switchover, which should stop writes deliberately, not discover them); **a method check** (`POST` is not always a write; GraphQL); **a Rack-level `REQUEST_METHOD` filter** (same); **making the standby's
+database writable by a second primary** (not available).
+Not done: workers and Action Cable under a read-only database (jobs fail and retry until promotion), and exercising any of this against Aurora; it was checked against a local Postgres that refuses writes the same way (SQLSTATE 25006).
+
+## 47. A copy of the backups in another region: AWS Backup for the database, a replicated bucket for the dumps
+
+ADR 42 named this as the cheap first step of multi-region and the whole answer if an hour of downtime is acceptable. What it needs is not obvious, because Aurora's continuous backup (the 14 days of point-in-time recovery) **stays in the cluster's region**. Only snapshots can be copied out, and something has to take and copy them on a schedule.
+
+**AWS Backup**, not a hand-written job: a plan with a daily rule and a `copy_action` to a vault in the other region, selecting the cluster. Alternatives: **an EventBridge-scheduled Lambda calling `copy-db-cluster-snapshot`** (code to write, test and keep working, to do what a managed service does); **a cross-region read replica** (a running cluster, which is the warm standby of ADR 42 at a different price); **`pg_dump` for Aurora** (works, but
+a logical dump of a large database takes time and load that a storage snapshot does not). Each vault has a KMS key of its own region, because a copy is re-encrypted with the destination's. A failed backup or copy publishes to the alerts topic, since the failure that matters is the silent one.
+The consequence worth stating: **the recovery point of the copy is the snapshot schedule** (a day by default, set it lower if the objective is lower; each snapshot is charged), not Aurora's five minutes, and the recovery time is a restore plus whatever
+platform has to exist in that region.
+
+**The dumps** get the same treatment for the Kamal host, which has no other off-machine copy: a versioned, expiring bucket replicating to a bucket in the other region, with deletions deliberately **not** replicated, and an IAM policy that can add objects and nothing else, so the host that writes
+the history cannot read or erase it. The scripts that make the dumps real are `deploy/scripts/db_dump.sh` (a dump is read back and checked for the one table everything depends on before it is kept; optionally encrypted with age, so the bucket never holds plaintext; uploaded; a verified dump is kept if the upload fails because it is the only copy)
+and `db_restore_check.sh` (restores into a scratch database and reports the time and the row counts, which is the rehearsal the runbook asks for monthly). They were run against the 149,000-task database: 7 MB in about a second, restored in 4 s with every row and pgvector.
+
+Everything is off while `backup_copy_region` is empty, independent of `dr_role` (the cheap option must be usable without committing to the expensive one), and a standby creates none of it (the primary's cluster is what is backed up). `terraform test` covers it with mocked providers, mutation-checked (copy to the wrong vault,
+replicating deletions, a readable upload policy, a standby that backs up each fail the right test). Not verified: that AWS Backup accepts a Global-Database member or a cluster with these settings, the restore commands, the IAM sufficiency of the service-role managed policies for the copy, and the real `aws` and `age`.
+
+## 48. The drill is measured from the client's side, by a probe, not by the people running it
+
+The roadmap item was "apply the pair in staging and run the drill". Neither can be done from a laptop with no AWS account, and the item's own condition (a single region that has run for months) is unmet, so what could honestly be built was what makes the first attempt cheap and its result a number: a `staging-dr`
+environment (Terraform tfvars and backend, a GitOps environment rendered and CI-checked like the others, promotable from staging, synced automatically because a drill environment has no reason to wait for a person), a drill runbook with a record sheet, and `deploy/scripts/drill_probe.rb`.
+
+The probe reads a project and creates a task every second, from outside the cluster, and reports what a user would have felt: each window in which reads or writes failed (and what the failures were: connection errors, `503 read_only`, a gateway error), the time from the first failure to the first tick where both worked, and, at the end,
+which of the tasks the API **acknowledged** are no longer there. That last figure is the RPO in rows, measured, not inferred from replication lag. A drill measured by people with stopwatches and a feeling that "it was about ten minutes" teaches less than one with a log.
+It is plain Ruby standard library (nothing to install on the machine that runs it), never raises on a network error (a failover is made of them), and writes only tasks titled `drill-<run>-<n>` in a project the operator names.
+
+It ran against a live local server restarted into read-only mode and back (connection errors at each restart, 11 refused writes with reads working, 13 s to full service, 0 of 27 acknowledged writes lost), and the arithmetic of the report is covered by specs, with two mutations (an outage that ends a tick early; a refused write counted as acknowledged) each failing one.
+What it cannot tell you: anything about AWS. That is what the drill is for.
+
+## 49. Notification settings: mutes decide what is written, the digest decides what is emailed
+
+The inbox (ADR 39) wrote everything and every kind of email went out. People need two controls, and they act at different points, so they are two things.
+
+**Mutes** (`notification_mutes`: a kind everywhere, a project entirely, or one kind in one project; `NULLS NOT DISTINCT` makes "this whole project" one row, not as many as you click) decide **what exists**. A muted notification is never written to the inbox, never emailed and so never in a digest. The alternative, writing it
+flagged "muted" and filtering on read, would keep every count and index honest about things nobody wants and make "unmute" ambiguous (do old ones appear?). Not writing it means unmuting affects what happens next, which is what people expect, and what is already in the inbox stays.
+
+**The digest** (`notification_settings`: `off` or `daily`, an hour, a time zone) decides **how email is delivered**, not whether the inbox is filled. `daily` replaces the email per event by one summary of what is new and unread, sent in the hour the person chose in *their* time zone (the job runs hourly; a person is due when
+their local hour matches and 20 hours have passed, which is robust to daylight-saving changes and to a run that is late). The digest is built from the inbox through the same policy scope as the inbox itself, so it needs no filtering of its own and cannot leak a project the person left. It is plain data handed to the mailer, not records, so a notification
+pruned between queueing and rendering cannot fail the job, and it is queued under a row lock with a re-check so two overlapping runs send one. It is sent by this app in either `NOTIFICATIONS_MODE`: the mailer infrastructure is already needed for password resets and invitations, and the inbox it summarizes lives here.
+
+**The Notification service.** In the production configuration the emails for assignments and reminders are not sent by this app but by the Notification service, which consumes the events and knows nothing about preferences. Rather than give it a copy of everyone's settings (state to synchronize), the event says so: `recipient.email_enabled`, computed from the settings at the moment the event is built (in the
+transaction of the change, ADR 41). It is a field added to an existing object, so consumers that ignore it keep working, and the service treats "absent" as yes. The cost is that a setting changed after an event was written does not apply to that event, which is at most a delivery delay long (seconds, or the length of an outage).
+
+**Cost.** Two indexed queries per event that notifies someone (`NotificationPreferences` loads settings and mutes for a whole batch at once; the daily reminder job does it once per 1,000 tasks, not once per task), nothing on requests that notify nobody.
+Not done: per-channel preferences beyond email-or-digest (Slack is a project announcement, not a personal channel), a threshold digest ("when five things are waiting"), muting a single task (mute the project or the kind), preferences in the GraphQL schema (it is read-only and the REST API covers them), and applying mutes retroactively to the inbox.
+
+## 50. Paging the lists that only grow: a cursor everywhere it pays, a different query for the feed, and no cap on ranked search
+
+The roadmap said two things: cap the work of a broad ranked search "if one shows up in a p95", and add keyset pagination to other lists "if any grows past what offset serves". Both were measured before anything was built (numbers in [performance.md](performance.md#the-lists-that-only-grow-audit-logs-and-the-activity-feed)).
+
+**Audit logs and the feed get `?cursor=`, reusing the task list's mechanism** (Pagy's keyset paginator, microsecond cutoffs, validated cursors). With 1,000,000 events in one project a first offset page costs 23 ms (23 of it the `COUNT(*)` for a total nobody reads) and the last 131 ms; keyset is 0.6 ms at every depth. Opt-in and additive, so clients that read `meta.count` keep working.
+**Not the other lists:** comments are bounded by one task's conversation, the inbox is pruned, memberships and projects are small.
+
+**The activity feed needed a different query, not just a cursor.** A cursor on the obvious query measured 108 ms against 109 ms for offset: PostgreSQL has no index that orders one table's rows across several projects, so for someone in eight projects it reads all 1.14 million events and sorts. Pagination was never the problem. `ActivityFeed` takes the newest 101 events of each project in index order and merges them
+(101 because a page can be at most 100 and so can need at most 101 from any single project), which is 1.3 ms at any depth, identical results (checked against the single query, including ties in the same instant), and a cost that grows with how many projects a person is in, not with how much they have done. It is used only with a cursor, because the cutoff has to go inside each project's lookup;
+`Pagination#paginate_by_cursor` takes a lambda for that, called after the cursor is validated, and Pagy's own `WHERE` on the outside is then redundant but harmless.
+Alternatives: a global `(created_at, id)` index (PostgreSQL would walk it and discard other tenants' events: fast only if most events are the caller's); a materialized per-user feed (storage and fan-out on write for a list that is read rarely); denormalizing events per member. All cost more than the lateral query and need a reason this one does not.
+
+**Ranked search is not capped.** Ranking only the newest 1,000 matches made a common word in a 50,000-task project 9 times faster (21 to 2.4 ms) and made no difference across projects (22 to 23 ms), which is the slow shape: there the time is finding the matches, not scoring them. It would also have changed what a search returns, for a saving that is not a problem anywhere
+(p95 195 ms against a 600 ms limit, on seed data in which every common word matches 59% of rows). The roadmap's lever was right about the mechanism and wrong about where it applies; the next lever, if cross-project search is ever the slow one, is to require a project for broad queries or to add an index that answers "newest matches first" across projects. Recorded so nobody builds the cap on the strength of the old note.
+
+## 51. Five GraphQL mutations that decide nothing (revisiting ADR 43)
+
+ADR 43 left mutations out because "a mutation type would duplicate every REST write and every validation", and the roadmap said to add them "only if a client needs them". No client does yet; they were built because the work was asked for, and the design is chosen so that being wrong costs a deletion: the five mutations together are about 180 lines, comments included, nothing in them is a rule, and REST is untouched.
+
+**Why they do not duplicate REST.** The REST writes turned out to be thin (build or find the record through the policy scope, `authorize`, `assign_attributes`, `save!`), because the rules are in the models and the policies. A mutation does exactly those steps and no others (`Mutations::BaseMutation`): the same `policy_scope`, the same `Pundit.authorize`, the same model save. So
+validation, optimistic locking (`lockVersion`, `stale_object`), the audit trail with the right actor, the inbox, the events other services consume and the webhooks are the REST behavior because they are the *same code*, not because they were reimplemented. A spec runs the same mistakes through both APIs and compares the answers (a blank title, an assignee outside the project, a too-long title, duplicate tags), and
+another asserts each mutation consults the policy by making it say no (the scope alone would not have caught a skipped `authorize`: every record a member can find, a member may update). Eleven deliberate breakages (a skipped scope, a skipped policy, validation or stale errors not mapped) each fail a spec.
+
+**Errors.** Mistakes in what the caller sent are the payload's `errors` (`field`, `message`), REST's 422 `details`; problems with the request are top-level errors with `extensions.code`: `not_found` for a record that is missing and for one you cannot see, alike (REST's 404), `forbidden` (403), `stale_object` (409). A refused write while the service is read-only is the same `503 read_only` as REST ([ADR 46](#46-a-read-only-mode-for-the-promotion-window-and-what-it-took-to-make-reads-survive-it)):
+the database refuses and the middleware answers, so the switch needed no GraphQL-specific code.
+
+**One mutation per request**, because the rate limit counts requests and a REST request is one write. Without it a single request could carry as many writes as its complexity budget allows (`mutation { a: createTask(...) b: createTask(...) ... }`), which would turn a 600-per-five-minutes limit into thousands of writes. A query analyzer counts the mutation root's fields (fragments included) and refuses the request before anything runs.
+
+**Why these five and no more.** Create, update and delete a task, comment, and mark a notification read: what a task-board client does all day. The rest of the write surface (projects, memberships, teams, organizations, invitations, tags, webhooks, attachments, AI) is administration, which REST serves as well and which has the sharper security properties (invitations answer identically for known and unknown addresses; uploads are multipart, which GraphQL
+does badly). Each further mutation is ~15 lines and a handful of examples, so adding one when a client needs it is cheap; adding all of them now would be a surface to defend for no one.
+
+**Subscriptions are still not built.** Action Cable already pushes the inbox (`NotificationsChannel`), a subscription would need its own stream authorization (a second place to forget a check), and nobody is subscribed. Not built either: persisted queries, batching, a GraphiQL page. Not verified: any real client, and mutation latency under load (a mutation costs what the REST write costs plus parsing).
+
+## 52. Team maintainers manage who is on their team, and nothing else
+
+A team (ADR 37) was managed entirely by the organization's owners and admins, which stops scaling when a hundred-person organization has twenty teams: the people who know who should be on "Payments" are not the organization's administrators. The roadmap asked for "team maintainers who manage membership". That is what a maintainer is, and the narrowness is the design.
+
+**What a maintainer can do:** add and remove the *plain members* of their own team. **What they cannot:** make anyone a maintainer, change a role, remove another maintainer or themselves, rename or delete the team, grant it a project, or touch any other team. A maintainer who could appoint maintainers could grow their own circle without anyone administering it, and one who could change roles could promote
+themselves back after an administrator demoted them; both are the privilege escalations this kind of feature ships with. So appointing is an administrator's act, and the policy spec states each "cannot" separately. (Plain members still cannot leave on their own, which was already the rule and is unchanged.)
+
+**What the role does not do: grant access.** A maintainer gets no project access beyond what the team was granted, so being appointed never widens what a person can read. It manages membership, and membership *is* access (a person added to a team receives that team's project grants), so a maintainer can indirectly give someone access to everything the team has. That is the trust a team maintainer carries, and it is bounded: a person has to be in the organization already (the API says
+the same thing for a stranger as for nobody), and only to teams the maintainer maintains.
+
+The role is a column on the membership (`member` or `maintainer`, a check constraint added NOT VALID and validated in a second migration, like every constraint on an existing table), changes are audited like every other membership change, and `maintainer?` is a lookup of that one row for that one team, so being a maintainer of one team confers nothing on another and nothing once the person has left the organization.
+Five deliberate breakages of the policy (maintainers manage nobody, can add maintainers, can change roles, are maintainers of every team, still count after leaving the organization) each fail a spec.
+
+## 53. Teams nest one level, and the rule is written once
+
+Organizations with departments want to grant a project to "Engineering" and have "Backend" and "Frontend" people get it without being added to Engineering twice. The roadmap's condition ("if organizations outgrow flat groups") has no evidence behind it yet; it was built because it was asked for, and because the cost and the risk could be measured and bounded, which is why it is shaped as it is.
+
+**One level.** A team has at most a parent; a parent has none. Arbitrary depth needs a recursive query in the policy scope, which every request runs; one level is a single extra join, and it covers departments and teams, which is the use anyone has described. The validation says why ("teams nest one level"), applies both ways (a sub-team cannot be a parent, and a parent with sub-teams cannot become a sub-team), and a team with sub-teams cannot be deleted (a
+validation and a foreign key with no `ON DELETE` action; the alternative, orphaning them, would silently change what their members can reach).
+**Downward only.** Members of a sub-team have what the parent was granted, on top of what the sub-team was. A grant to the sub-team reaches only the sub-team, and being in the parent means nothing for the sub-team's grants. The opposite reading (parent members inheriting sub-team grants) is how a department head would see every project of every team below them with no one deciding that; if that is wanted, the head can be granted it.
+**Same organization, one message.** A parent from another organization, one that does not exist, and the team itself get the same 422, so team ids cannot be probed across organizations.
+
+**The rule is written once.** Access through a team was already computed in four places that must agree: the scope behind every list (`member_project_ids`), the per-record role lookup, the SQL in `ProjectPolicy::Scope` that annotates `current_role`, and `Project#participants` (who can be given work). Nesting changes all four, so they now ask two methods of `Team` (`granting_to(user)`: the teams a person is in and their parents;
+`with_sub_teams(ids)`: a grant's teams and their sub-teams), and the spec that already checks the scope and the record lookup agree for every combination was extended to nested cases. Nine deliberate breakages (each of the four ignoring nesting, grants flowing the wrong way, the depth limit, the delete restriction, a parent from another organization) each fail a spec.
+
+**Cost.** Measured on the 149,000-task database with 60 teams, 61 grants and a user in five sub-teams and two departments: the scoped task page of the 50,000-task project went from 0.97 ms to 1.34 ms (+0.4 ms), the team-reachable project ids from 0.41 to 0.57 ms, the project list stayed at 1 ms. That is a cost every request pays whether or not anyone nests, in exchange for the rule being in one place; it is small beside a 20 ms request and was the reason to stop at one level.
+Not done: more than one level, a parent's maintainers managing its sub-teams' members (a maintainer manages their own team), grants to a parent being limited to some sub-teams, and listing a team's effective members (a sub-team's members are in `GET .../teams/:id/members` of the sub-team, not repeated under the parent).
+
+## 54. The demo front end is static files with no build step, and hosting stays the operator's
+
+The roadmap's last item was "hosting the demo, and a front end to point at it". Hosting needs a server, a domain and credentials, which only the operator has; ADR 44 already says what is provided (a mode, a reset, a Kamal destination). What can be built here is the client, and the choices about it are about what a throwaway demo should cost to keep.
+
+**No framework, no bundler, no dependencies.** Three modules and a stylesheet: an API client, the screens as pure functions from data to HTML, and the glue. A framework would be the first thing to rot in a repository that has no JavaScript toolchain otherwise (no Node version to pin, no lockfile, no `npm audit`, no dependency updates); static files in ES modules run in any current browser and are tested with Node's own runner. The cost is writing
+`innerHTML`, which is the classic way to ship cross-site scripting, so the screens are the only place markup is made, they are pure so they can be tested on their own, **every value that came from the API goes through one `esc()`**, and a test feeds hostile text through every screen and asserts no tag or attribute is injected. Task titles are other people's text, and in a shared demo that is the point.
+
+**The token is `sessionStorage`, and the page cannot be pointed elsewhere.** A bearer token in `localStorage` outlives the tab and is the prize for any script that ever runs on the page; in `sessionStorage` it is gone when the tab closes. The API address is in `config.js`, written at build time, and deliberately not read from the URL: a link that could say `?api=` would turn the demo's sign-in form into a way to collect passwords on someone else's server. A strict Content-Security-Policy (own scripts and styles only; the API over https, or a local one) is in `index.html`, and `build.sh` refuses an API address that is not https.
+
+**Found on the way: the API did not expose `X-Demo-Mode` to browsers** (CORS only exposes listed headers), so the banner it exists for could never have been shown by a front end on another origin. It is exposed now, with a spec.
+
+**What was checked, and what was not.** The client was run against a real demo server with the real demo dataset (sign in, the board, create and move a task, a stale `lock_version` as 409, a blank title as 422, comments, the inbox, the demo's 403, sign out); CORS was checked with real preflights from the front end's origin (allowed, `X-Demo-Mode` exposed, another origin refused); and the app's DOM wiring was driven with jsdom (real clicks, form submissions and hash changes) against the same server, once, with jsdom installed outside the repository. The
+repeatable tests (32, in CI) cover the client, the screens including hostile text, the app against a fake API, and the build script. **Not checked: how it looks.** The layout, the dark theme and the narrow-screen board have never been seen in a browser by whoever wrote them, so expect to adjust CSS. Not built: drag and drop, editing a task beyond moving it, search, a live inbox over Action Cable (polling every 30 s instead), and hosting.
+

@@ -16,7 +16,7 @@ module Api
 
           events = events.where(auditable_type: params[:auditable_type])
         end
-        records, meta = paginate(events)
+        records, meta = params.key?(:cursor) ? paginate_by_cursor(events, params[:cursor]) : paginate(events)
         render_resource AuditEventResource, records, meta: meta
       end
     end

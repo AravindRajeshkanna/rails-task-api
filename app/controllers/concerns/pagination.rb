@@ -24,9 +24,15 @@ module Pagination
     # Keyset pagination for a relation ordered by created_at, updated_at or title plus id (a unique
     # tie-breaker, last). +cursor+ is blank for the first page. Answers meta { limit, next_cursor, has_more }
     # and a Link header with rel="next". A cursor that was not issued by this endpoint is a 400.
+    #
+    # +relation+ may also be a lambda taking the decoded cutoff ([created_at, id], or nil on the first page) and returning the relation, for
+    # a list whose query must be told where to start to stay cheap (ActivityFeed); it is called after the cursor has been checked.
     def paginate_by_cursor(relation, cursor)
-      keys = relation.order_values.map { |node| node.value.name.to_s }
+      builder = relation.respond_to?(:call) ? relation : nil
+      keys = (builder ? builder.call(nil) : relation).order_values.map { |node| node.value.name.to_s }
       raise InvalidParameterError.new("cursor", "cursor is not valid; use meta.next_cursor from a previous response") unless valid_cursor?(cursor, keys)
+
+      relation = builder.call(cursor.blank? ? nil : cutoff_from(cursor)) if builder
 
       pagy, records = pagy(:keyset, relation, page: cursor.to_s, limit: DEFAULT_LIMIT, client_limit: MAX_LIMIT,
                                               tuple_comparison: true, pre_serialize: method(:serialize_cursor_values))
@@ -39,6 +45,12 @@ module Pagination
     # cutoff rounded down would skip the rows that fall between it and the real one.
     def serialize_cursor_values(attributes)
       attributes.transform_values! { |value| value.respond_to?(:iso8601) ? value.utc.iso8601(6) : value }
+    end
+
+    # The [created_at (a Time), id] a created_at/id cursor points after.
+    def cutoff_from(cursor)
+      created_at, id = Pagy::Keyset.decode(cursor)
+      [ Time.iso8601(created_at), id ]
     end
 
     def valid_cursor?(cursor, keys)

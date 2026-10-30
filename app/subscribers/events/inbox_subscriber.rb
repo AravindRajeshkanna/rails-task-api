@@ -3,8 +3,8 @@ module Events
   # Notification service turns into email and Slack, plus comments; email and the inbox are independent, and
   # the inbox works whichever NOTIFICATIONS_MODE is set, because it is stored here with the data it points at.
   #
-  # Who hears: the person themselves is never told about their own action, and nobody is told about a
-  # project they cannot (any longer) see.
+  # Who hears: the person themselves is never told about their own action, nobody is told about a
+  # project they cannot (any longer) see, and nobody is told about what they muted (NotificationMute).
   class InboxSubscriber < Subscriber
     HANDLED = %w[task.assigned task.due_soon task.completed comment.created].freeze
     EXCERPT = 140
@@ -16,8 +16,10 @@ module Events
         task, comment = subject.is_a?(Comment) ? [ subject.task, subject ] : [ subject, nil ]
         return unless task&.kept? && task.project.kept?
 
-        recipients(event[:name], task, comment).excluding(actor_id).each do |user_id|
-          deliver(user_id, event[:name], task, comment, actor_id)
+        user_ids = recipients(event[:name], task, comment).excluding(actor_id)
+        preferences = NotificationPreferences.new(user_ids)
+        user_ids.each do |user_id|
+          deliver(user_id, event[:name], task, comment, actor_id) if preferences.inbox?(user_id, event[:name], task.project_id)
         end
       rescue ActiveRecord::RecordNotFound
         nil # deleted since the event was emitted

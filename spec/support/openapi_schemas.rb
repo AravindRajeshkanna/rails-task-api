@@ -8,6 +8,13 @@ module OpenapiSchemas
     { type: :object, properties: properties, required: [ :data ] }
   end
 
+  # A list that pages by page number or, with `cursor`, by keyset: one 200 response (a second `response "200"` would silently replace the
+  # first in the generated document), whose `meta` says which. The two metas cannot both match, so oneOf is exact.
+  def self.listing(item)
+    keyset = { type: :object, properties: { data: { type: :array, items: item }, meta: ref("KeysetMeta") }, required: %i[data meta] }
+    { oneOf: [ envelope(item, list: true), keyset ] }
+  end
+
   USER_SUMMARY = {
     type: :object,
     properties: { id: { type: :integer }, name: { type: :string } },
@@ -262,6 +269,24 @@ module OpenapiSchemas
       },
       required: %i[id kind project_id task_id data read created_at]
     },
+    NotificationSetting: {
+      type: :object,
+      description: "How the caller hears about things beyond the inbox. With `digest` `daily` there is no email per event: one summary of what is new and unread arrives at `digest_hour` in `time_zone`.",
+      properties: {
+        digest: { type: :string, enum: %w[off daily] }, digest_hour: { type: :integer, minimum: 0, maximum: 23 },
+        time_zone: { type: :string, description: "IANA name, e.g. Europe/Paris" }, last_digest_at: { type: :string, format: "date-time", nullable: true }
+      },
+      required: %i[digest digest_hour time_zone]
+    },
+    NotificationMute: {
+      type: :object,
+      description: "Silences a kind everywhere (no `project_id`), a project entirely (no `kind`), or one kind in one project. A muted notification is not stored in the inbox, emailed or put in the digest.",
+      properties: {
+        id: { type: :integer }, kind: { type: :string, nullable: true, enum: [ "task.assigned", "task.due_soon", "task.completed", "comment.created", nil ] },
+        project_id: { type: :integer, nullable: true }, created_at: { type: :string, format: "date-time" }
+      },
+      required: %i[id created_at]
+    },
     SearchResult: {
       type: :object,
       description: "A task that matched a full-text search. Highlights wrap matched words in « » (plain text, not HTML).",
@@ -282,14 +307,18 @@ module OpenapiSchemas
       type: :object,
       properties: {
         id: { type: :integer }, organization_id: { type: :integer }, name: { type: :string },
+        parent_id: { type: :integer, nullable: true, description: "The team this one is a sub-team of. Its members have what the parent was granted, on top of what this team was. Teams nest one level" },
         members_count: { type: :integer, nullable: true }, created_at: { type: :string, format: "date-time" }, updated_at: { type: :string, format: "date-time" }
       },
-      required: %i[id organization_id name]
+      required: %i[id organization_id name parent_id]
     },
     TeamMember: {
       type: :object,
-      properties: { id: { type: :integer }, user: ref("UserSummary"), created_at: { type: :string, format: "date-time" } },
-      required: %i[id user]
+      properties: {
+        id: { type: :integer }, user: ref("UserSummary"), created_at: { type: :string, format: "date-time" },
+        role: { type: :string, enum: %w[member maintainer], description: "A maintainer adds and removes the plain members of the team. It gives no access to any project" }
+      },
+      required: %i[id user role]
     },
     ProjectTeam: {
       type: :object,

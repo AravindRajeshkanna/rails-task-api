@@ -261,9 +261,12 @@ RSpec.describe "Projects API", type: :request do
       produces "application/json"
       pagination_params.call(self)
       parameter name: :auditable_type, in: :query, type: :string, required: false, enum: %w[Project Task Membership]
+      parameter name: :cursor, in: :query, type: :string, required: false, allowEmptyValue: true,
+                description: "Switches to keyset pagination, which costs the same however long the history is and has no total (`meta` is `{limit, next_cursor, has_more}`). " \
+                             "Send it empty for the first page, then `meta.next_cursor` of the previous response (with the same filters). An invalid cursor is a 400. Replaces `page`."
 
-      response "200", "Audit events" do
-        schema envelope.call(ref.call("AuditEvent"), list: true)
+      response "200", "Audit events (`meta` has `page`, `count`...; with `cursor`, `next_cursor` and `has_more` and no total)" do
+        schema OpenapiSchemas.listing(ref.call("AuditEvent"))
         let(:auditable_type) { nil }
         run_test!
       end

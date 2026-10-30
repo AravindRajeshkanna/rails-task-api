@@ -21,6 +21,12 @@ RSpec.describe "CORS" do
     expect(response.headers["Access-Control-Expose-Headers"]).to include("Total-Count", "Link")
   end
 
+  it "exposes X-Demo-Mode and Retry-After, which the demo front end reads to show its banner and to wait out a refusal" do
+    get "/api/v1/projects", headers: auth_headers(create(:user)).merge("Origin" => "http://localhost:5173")
+
+    expect(response.headers["Access-Control-Expose-Headers"]).to include("X-Demo-Mode", "Retry-After")
+  end
+
   it "does not grant access to other origins" do
     options "/api/v1/projects", headers: {
       "Origin" => "https://evil.example",

@@ -6,12 +6,13 @@ class ProjectPolicy < ApplicationPolicy
     #
     # Each join yields at most one row per project (a user has one membership per project and per
     # organization, and the team grants are grouped per project), so a project never appears twice.
+    # %<granting>s is Team.granting_to(user): the teams they are in and those teams' parents (to_sql quotes the id).
     TEAM_ACCESS = <<~SQL.squish.freeze
       LEFT JOIN (
         SELECT project_teams.project_id,
                CASE WHEN bool_or(project_teams.role = 'admin') THEN 'admin' ELSE 'member' END AS role
         FROM project_teams
-        JOIN team_memberships ON team_memberships.team_id = project_teams.team_id AND team_memberships.user_id = ?
+        JOIN (%<granting>s) granting_teams ON granting_teams.id = project_teams.team_id
         GROUP BY project_teams.project_id
       ) team_access ON team_access.project_id = projects.id
     SQL
@@ -20,7 +21,7 @@ class ProjectPolicy < ApplicationPolicy
       scope.joins(sanitize("LEFT JOIN memberships ON memberships.project_id = projects.id AND memberships.user_id = ?"))
            .joins(sanitize("LEFT JOIN organization_memberships administered ON administered.organization_id = projects.organization_id " \
                            "AND administered.user_id = ? AND administered.role IN ('owner', 'admin')"))
-           .joins(sanitize(TEAM_ACCESS))
+           .joins(format(TEAM_ACCESS, granting: Team.granting_to(user.id).select(:id).to_sql))
            .where("memberships.id IS NOT NULL OR administered.id IS NOT NULL OR team_access.project_id IS NOT NULL")
            .select("projects.*", <<~SQL.squish)
              CASE WHEN administered.id IS NOT NULL OR memberships.role = 'admin' OR team_access.role = 'admin' THEN 'admin'

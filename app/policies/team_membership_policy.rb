@@ -1,4 +1,6 @@
-# Who is in a team. +record+ is a TeamMembership. Visible to the organization; changed by its owners and admins.
+# Who is in a team. +record+ is a TeamMembership. Visible to the organization. Owners and admins of the organization manage it all,
+# including who maintains the team; a maintainer of the team adds and removes its plain members, and nothing else: not other
+# maintainers, not roles, not themselves (leaving is an administrator's act, as for every plain member).
 class TeamMembershipPolicy < ApplicationPolicy
   class Scope < Scope
     def resolve
@@ -7,8 +9,9 @@ class TeamMembershipPolicy < ApplicationPolicy
   end
 
   def index? = actor_role.present?
-  def create? = administrator?
-  def destroy? = administrator?
+  def create? = administrator? || (maintainer? && record.member?)
+  def update? = administrator? # changing a role
+  def destroy? = administrator? || (maintainer? && record.member?)
 
   private
     def actor_role
@@ -16,4 +19,10 @@ class TeamMembershipPolicy < ApplicationPolicy
     end
 
     def administrator? = actor_role.in?(%w[owner admin])
+
+    def maintainer?
+      return @maintainer if defined?(@maintainer)
+
+      @maintainer = actor_role.present? && TeamMembership.maintainer.exists?(team_id: record.team_id, user_id: user.id)
+    end
 end

@@ -11,10 +11,10 @@ module Api
         render_resource TeamMemberResource, records, meta: meta
       end
 
-      # Adds a member of the organization by user id. A person who is not in the organization, and an id
-      # that matches nobody, get the same 422.
+      # Adds a member of the organization by user id, as a plain member unless `role: "maintainer"` is given (administrators only).
+      # A person who is not in the organization, and an id that matches nobody, get the same 422.
       def create
-        membership = @team.team_memberships.build(user: user_in_organization)
+        membership = @team.team_memberships.build(user: user_in_organization, role: params[:role].presence || "member")
         authorize membership
         if membership.user.nil?
           membership.errors.add(:user, "must be a member of the team's organization")
@@ -22,6 +22,14 @@ module Api
         end
         membership.save!
         render_resource TeamMemberResource, membership, status: :created
+      end
+
+      # PATCH with { role: "maintainer" | "member" }: administrators only.
+      def update
+        membership = policy_scope(@team.team_memberships).find(params[:id])
+        authorize membership
+        membership.update!(role: params.require(:role))
+        render_resource TeamMemberResource, membership
       end
 
       def destroy

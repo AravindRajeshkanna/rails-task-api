@@ -1,4 +1,4 @@
-# The Task API services: one Application per (cluster, service), all rendered from the same chart. dev and staging deploy automatically on every merge to main.
+# The Task API services: one Application per (cluster, service), all rendered from the same chart. dev, staging and the staging standby deploy automatically on every merge to main.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -14,7 +14,7 @@ spec:
               selector:
                 matchLabels: { taskapi/managed: "true" }
                 matchExpressions:
-                  - { key: env, operator: In, values: [ dev, staging ] }
+                  - { key: env, operator: In, values: [ dev, staging, staging-dr ] } # staging-dr: the staging standby, for rehearsing a failover (docs/runbooks/failover-drill.md)
           - list:
               elements:
                 - { service: api }

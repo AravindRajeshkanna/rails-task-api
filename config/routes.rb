@@ -33,6 +33,10 @@ Rails.application.routes.draw do
         post :read_all, on: :collection
       end
 
+      # What the caller wants to hear about: a daily digest instead of an email per event, and what they muted.
+      resource :notification_settings, only: %i[show update]
+      resources :notification_mutes, only: %i[index create destroy]
+
       # Full-text search across the caller's projects (inside one project: `?search=` on its task list).
       get "search", to: "search#index"
 
@@ -49,7 +53,7 @@ Rails.application.routes.draw do
         resources :invitations, controller: "organization_invitations", only: %i[index create destroy]
         resources :audit_events, controller: "organization_audit_events", only: :index
         resources :teams do
-          resources :members, controller: "team_memberships", only: %i[index create destroy]
+          resources :members, controller: "team_memberships", only: %i[index create update destroy]
         end
       end
       # Joining happens by redeeming an invitation (there is no "add by email"): the emailed token, as the invited address.

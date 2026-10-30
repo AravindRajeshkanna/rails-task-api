@@ -8,6 +8,28 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Added
+- CORS now exposes `X-Demo-Mode` to browsers (a front end can show a "this is a demo" banner), alongside the headers it already exposed.
+- **Nested teams.** `parent_id` on `POST|PATCH /api/v1/organizations/{id}/teams` (null to move a team out) and on team responses. A team can have a parent in the same organization; teams nest one
+  level. The members of a sub-team have the project access its parent was granted, on top of its own; a grant to a sub-team reaches only that sub-team. A team with sub-teams cannot be deleted
+  (`422`) or become a sub-team. Moving a team changes who has access to what.
+- **Team maintainers.** Team members have a `role`, `member` (default) or `maintainer`: `POST .../teams/{id}/members` accepts `role` (only owners and admins can add a maintainer),
+  and `PATCH .../teams/{id}/members/{member_id}` with `{ "role": ... }` changes it (owners and admins). A maintainer can add and remove the plain members of their own team; the
+  role grants no access to any project. Team member responses carry `role`.
+- **GraphQL mutations:** `createTask`, `updateTask`, `deleteTask`, `createComment`, `markNotificationRead`. Each is the REST write reached another way (same policies, same
+  validation, optimistic locking, audit log and events). Mistakes in the input come back in the payload's `errors`; a missing or invisible record, a forbidden action and a stale
+  `lockVersion` are top-level errors with `extensions.code` `not_found`, `forbidden` and `stale_object`. One mutation per request. No subscriptions. Additive: queries are unchanged.
+- `cursor` on `GET /api/v1/projects/{id}/audit_events`, `GET /api/v1/organizations/{id}/audit_events` and `GET /api/v1/activity`: keyset pagination as on the task list
+  (`?cursor=` first page, then `meta.next_cursor`; `meta` is `{limit, next_cursor, has_more}` with no total; an invalid cursor is `400`). The same cost at any depth of history.
+  `page=` is unchanged.
+- **Notification settings.** `GET|PATCH /api/v1/notification_settings` (`digest`: `off` or `daily`; `digest_hour` 0-23; `time_zone`, an IANA name) and
+  `GET|POST /api/v1/notification_mutes`, `DELETE /api/v1/notification_mutes/{id}` (give `kind`, `project_id`, or both). A muted notification is not stored in the inbox,
+  emailed, or put in the digest. With a daily digest there is no email per assignment or reminder: one summary of what is new and unread arrives at the chosen hour in the
+  chosen time zone. Updating the digest is refused (`403 demo_mode`) in the public demo.
+- Events for other services: `task.assigned` and `task.due_soon` carry `data.recipient.email_enabled`, false when the person muted it or takes a digest. The Notification
+  service sends no email for `false`; a consumer that ignores the field behaves as before (adding a field is compatible).
+- `503 read_only` (with `Retry-After`) for any write while the service is read-only: during a database promotion or planned maintenance. Reads, including
+  GraphQL queries and requests with an existing token, keep working. Nothing was changed by the refused request, so retry it as it is. Signing in is a write
+  and waits too.
 - `GET /api/v1/projects/{id}/analytics`: counts by status and priority, tasks created and completed per day/week/month, cycle time
   (median and 90th percentile), and workload per assignee. Query: `from`, `to` (ISO 8601), `interval` (`day|week|month`).
 - `GET /api/v1/activity`: what happened across all the caller's projects (projects, tasks, memberships), newest first.

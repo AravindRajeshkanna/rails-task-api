@@ -36,10 +36,10 @@ class Project < ApplicationRecord
     end
   end
 
-  # Everyone who can be given work here: direct members and the members of teams with access.
+  # Everyone who can be given work here: direct members and the members of teams with access (and of their sub-teams).
   def participants
     User.where(id: memberships.select(:user_id))
-        .or(User.where(id: TeamMembership.where(team_id: project_teams.select(:team_id)).select(:user_id)))
+        .or(User.where(id: TeamMembership.where(team_id: Team.with_sub_teams(project_teams.select(:team_id)).select(:id)).select(:user_id)))
   end
 
   def participant?(user_id) = participants.exists?(id: user_id)

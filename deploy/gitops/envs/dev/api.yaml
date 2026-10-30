@@ -19,6 +19,7 @@ env:
   EVENTS_SNS_TOPIC_ARN: arn:aws:sns:us-east-1:123456789012:task-api-dev-events
   AI_PROVIDER: ""
   AWS_S3_BUCKET: task-api-dev-storage
+  READ_ONLY: "false"        # true on the standby until its database is promoted (config/initializers/read_only_mode.rb)
 ingress:
   host: api.dev.taskapi.example.com
   annotations:

@@ -145,6 +145,77 @@ RSpec.describe "Teams" do
       expect(response).to have_http_status(:created)
     end
 
+    describe "nesting" do
+      let!(:engineering) { create_team("Engineering") }
+
+      it "creates a sub-team, shows its parent, and moves it between parents or out" do
+        api :post, "#{org_path}/teams", { name: "Backend", parent_id: engineering }, as: ada
+        expect(response).to have_http_status(:created)
+        expect(data).to include("name" => "Backend", "parent_id" => engineering)
+        backend = data["id"]
+
+        design = create_team("Design")
+        api :patch, "#{org_path}/teams/#{backend}", { parent_id: design }, as: ada
+        expect(data["parent_id"]).to eq(design)
+        expect(AuditEvent.where(auditable_type: "Team", auditable_id: backend, action: "update").last.audit_changes).to include("parent_id" => [ engineering, design ])
+
+        api :patch, "#{org_path}/teams/#{backend}", { parent_id: nil }, as: ada
+        expect(data["parent_id"]).to be_nil
+      end
+
+      it "refuses a parent that is another organization's, one that does not exist, a sub-team, and itself, in the usual way" do
+        elsewhere = create(:team)
+        api :post, "#{org_path}/teams", { name: "A", parent_id: elsewhere.id }, as: ada
+        foreign = [ response.status, error["details"] ]
+        api :post, "#{org_path}/teams", { name: "A", parent_id: 0 }, as: ada
+        expect([ response.status, error["details"] ]).to eq(foreign)
+        expect(foreign).to eq([ 422, { "parent" => [ "must be another team of this organization" ] } ])
+
+        api :post, "#{org_path}/teams", { name: "Backend", parent_id: engineering }, as: ada
+        backend = data["id"]
+        api :post, "#{org_path}/teams", { name: "Deep", parent_id: backend }, as: ada
+        expect(error["details"]["parent"]).to eq([ "cannot be a sub-team: teams nest one level" ])
+        api :patch, "#{org_path}/teams/#{engineering}", { parent_id: engineering }, as: ada
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(Team.where(name: "A")).to be_empty
+      end
+
+      it "cannot be deleted while it has sub-teams, and can once they are gone" do
+        api :post, "#{org_path}/teams", { name: "Backend", parent_id: engineering }, as: ada
+        backend = data["id"]
+
+        api :delete, "#{org_path}/teams/#{engineering}", as: ada
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(Team.exists?(engineering)).to be(true)
+
+        api :delete, "#{org_path}/teams/#{backend}", as: ada
+        api :delete, "#{org_path}/teams/#{engineering}", as: ada
+        expect(response).to have_http_status(:no_content)
+      end
+
+      it "lets a project granted to the parent be worked on by the sub-team's members, and by nobody the grant does not reach" do
+        api :post, "#{org_path}/teams", { name: "Backend", parent_id: engineering }, as: ada
+        backend = data["id"]
+        frontend_only = create_team("Support")
+        api :post, "#{org_path}/teams/#{backend}/members", { user_id: grace.id }, as: ada
+        api :post, "#{org_path}/teams/#{frontend_only}/members", { user_id: linus.id }, as: ada
+        project = create(:project, owner: ada, organization: organization)
+        task = create(:task, project: project, creator: ada)
+
+        api :get, "/api/v1/tasks/#{task.id}", as: grace
+        expect(response).to have_http_status(:not_found)
+
+        api :post, "/api/v1/projects/#{project.id}/teams", { team_id: engineering }, as: ada
+        api :get, "/api/v1/tasks/#{task.id}", as: grace
+        expect(response).to have_http_status(:ok)
+        api :patch, "/api/v1/tasks/#{task.id}", { assignee_id: grace.id }, as: ada # she can also be given work
+        expect(response).to have_http_status(:ok)
+
+        api :get, "/api/v1/tasks/#{task.id}", as: linus
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+
     it "is invisible to outsiders, and another organization's team is a 404 under this one" do
       team_id = create_team
       elsewhere = create(:team)
@@ -198,6 +269,74 @@ RSpec.describe "Teams" do
       api :post, "#{org_path}/teams/#{team_id}/members", {}, as: ada
 
       expect(response).to have_http_status(:bad_request)
+    end
+
+    describe "maintainers" do
+      let(:members_path) { "#{org_path}/teams/#{team_id}/members" }
+
+      def add(user, role: nil, as: ada)
+        api :post, members_path, { user_id: user.id, role: role }.compact, as: as
+        data["id"] if response.status == 201
+      end
+
+      before { add(grace, role: "maintainer") }
+
+      it "are named by an administrator, listed with their role, and audited when the role changes" do
+        id = add(linus)
+        expect(data).to include("role" => "member")
+
+        api :patch, "#{members_path}/#{id}", { role: "maintainer" }, as: ada
+        expect(response).to have_http_status(:ok)
+        expect(data).to include("role" => "maintainer")
+        expect(AuditEvent.where(auditable_type: "TeamMembership", auditable_id: id, action: "update").sole.audit_changes).to include("role" => %w[member maintainer])
+
+        api :get, members_path, as: linus
+        expect(data.to_h { [ _1.dig("user", "name"), _1["role"] ] }).to eq("Grace" => "maintainer", "Linus" => "maintainer")
+      end
+
+      it "add and remove the plain members of their team" do
+        id = add(linus, as: grace)
+        expect(response).to have_http_status(:created)
+        expect(TeamMembership.find(id)).to be_member
+
+        api :delete, "#{members_path}/#{id}", as: grace
+        expect(response).to have_http_status(:no_content)
+      end
+
+      it "cannot make anyone a maintainer, change a role, or remove a maintainer or themselves" do
+        api :post, members_path, { user_id: linus.id, role: "maintainer" }, as: grace
+        expect(response).to have_http_status(:forbidden)
+
+        plain = add(linus)
+        api :patch, "#{members_path}/#{plain}", { role: "maintainer" }, as: grace
+        expect(response).to have_http_status(:forbidden)
+
+        api :delete, "#{members_path}/#{TeamMembership.find_by!(user: grace).id}", as: grace
+        expect(response).to have_http_status(:forbidden)
+        expect(TeamMembership.find(plain)).to be_member
+        expect(TeamMembership.find_by!(user: grace)).to be_maintainer
+      end
+
+      it "are no use in another team, and a plain member is none at all" do
+        other_team = create_team("Design")
+        api :post, "#{org_path}/teams/#{other_team}/members", { user_id: linus.id }, as: grace
+        expect(response).to have_http_status(:forbidden)
+
+        plain = add(linus)
+        api :post, members_path, { user_id: ada.id }, as: linus
+        expect(response).to have_http_status(:forbidden)
+        expect(plain).to be_present
+      end
+
+      it "refuse an unknown role in the usual way, and give no access to any project" do
+        api :post, members_path, { user_id: linus.id, role: "boss" }, as: ada
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(error["details"]).to include("role")
+
+        project = create(:project, owner: ada, organization: organization)
+        expect(ProjectPolicy::Scope.new(grace, Project).resolve.where(id: project.id)).to be_empty
+        expect(ProjectPolicy.new(grace, project).show?).to be(false)
+      end
     end
   end
 

@@ -56,3 +56,6 @@
 # Load-testing tools: not needed to run the app, and the seeder is dev-only
 /loadtest/
 /lib/tasks/loadtest.rake
+
+# The demo front end is a separate static site (demo/web/README.md), not part of the API image
+/demo/
