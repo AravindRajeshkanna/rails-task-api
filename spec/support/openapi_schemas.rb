@@ -70,6 +70,16 @@ module OpenapiSchemas
       },
       required: %i[token expires_at user]
     },
+    UserSession: {
+      type: :object,
+      description: "One sign-in of the caller's. The token itself is never shown again after it was issued.",
+      properties: {
+        id: { type: :integer }, ip_address: { type: :string, nullable: true }, user_agent: { type: :string, nullable: true },
+        created_at: { type: :string, format: "date-time" }, last_used_at: { type: :string, format: "date-time", nullable: true },
+        expires_at: { type: :string, format: "date-time" }, current: { type: :boolean, description: "The sign-in this request used" }
+      },
+      required: %i[id created_at expires_at current]
+    },
     Project: {
       type: :object,
       properties: {

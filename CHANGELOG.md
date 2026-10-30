@@ -14,6 +14,9 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - `503 ai_unavailable` now carries a `Retry-After` that reflects the circuit breaker: 5 seconds for a single failure, and the rest of the pause (30 seconds, doubling to 5 minutes) once the AI dependency has been failing. After five consecutive failures AI calls fail at once instead of waiting out their timeout.
 
 ### Added
+- **Token rotation and sign-in management.** `POST /session/rotate` exchanges the token you are using for a new one (the old one stops working at once; 30 a hour). `GET /sessions` lists your
+  sign-ins (address, client, created, last used, `current`) and `DELETE /sessions/:id` ends one (someone else's is `404`). Not available when the Auth service issues tokens (`404`), and refused in the public demo.
+  A token that has not been used for 14 days now expires, ahead of its 30-day lifetime; a client that goes quiet for two weeks has to sign in again.
 - **Sparse fieldsets.** `fields=` on `GET /projects/{id}/tasks`, `GET /tasks/{id}` and `GET /projects`: a comma-separated list of the attributes and associations wanted (`id` is always included). Unrequested
   associations are not loaded. An unknown name is `400` with the valid names. Without `fields`, responses are unchanged.
 - **Idempotency keys.** The `Idempotency-Key` request header on every create endpoint (projects, tasks, comments, memberships, tags, webhooks, organizations and their invitations, teams

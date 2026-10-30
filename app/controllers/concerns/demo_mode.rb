@@ -13,6 +13,7 @@ module DemoMode
     api/v1/passwords#create api/v1/passwords#update
     api/v1/me#update api/v1/avatars#update
     api/v1/notification_settings#update
+    api/v1/user_sessions#index api/v1/user_sessions#destroy
     api/v1/attachments#create
     api/v1/webhooks#create api/v1/webhooks#update
     api/v1/organization_invitations#create

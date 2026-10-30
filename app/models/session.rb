@@ -2,13 +2,15 @@
 # its SHA-256 digest is persisted, so a database leak does not leak usable tokens.
 # Tokens are 32 random base58 characters (~190 bits), so an unsalted fast hash is safe.
 class Session < ApplicationRecord
-  TTL = 30.days
+  TTL = 30.days # absolute: a token is never good for longer than this, however often it is used
+  IDLE_TIMEOUT = 14.days # and a token nobody has used for this long is dead (ADR 66)
   LAST_USED_RESOLUTION = 5.minutes
 
   belongs_to :user
 
-  scope :active, -> { where(expires_at: Time.current..) }
-  scope :expired, -> { where(expires_at: ...Time.current) }
+  # Not past its lifetime, and used within the idle timeout (a session never used since it was created counts from its creation).
+  scope :active, -> { where(expires_at: Time.current..).where("COALESCE(sessions.last_used_at, sessions.created_at) > ?", IDLE_TIMEOUT.ago) }
+  scope :expired, -> { where(expires_at: ...Time.current).or(where("COALESCE(sessions.last_used_at, sessions.created_at) <= ?", IDLE_TIMEOUT.ago)) }
 
   # Returns [session, plaintext_token].
   def self.start_for!(user, ip_address: nil, user_agent: nil)
@@ -28,6 +30,15 @@ class Session < ApplicationRecord
 
     session = active.find_by(token_digest: digest(token))
     session&.tap(&:record_usage)
+  end
+
+  # Swaps this session for a new one with a new token, in one transaction: the old token stops working at once. Returns [session, plaintext_token].
+  def rotate!(ip_address: nil, user_agent: nil)
+    transaction do
+      replacement = self.class.start_for!(user, ip_address: ip_address, user_agent: user_agent)
+      destroy!
+      replacement
+    end
   end
 
   def self.digest(token)

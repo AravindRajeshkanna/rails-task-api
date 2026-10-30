@@ -19,7 +19,10 @@ Rails.application.routes.draw do
       # here they answer 404 so there is only ever one place that issues credentials.
       constraints(->(_request) { !ExternalAuth.enabled? }) do
         resources :registrations, only: :create
-        resource :session, only: %i[create destroy]
+        resource :session, only: %i[create destroy] do
+          post :rotate, on: :member
+        end
+        resources :sessions, only: %i[index destroy], controller: "user_sessions" # the caller's own sign-ins
         resources :passwords, only: %i[create update], param: :token
       end
 

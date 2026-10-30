@@ -75,7 +75,7 @@ curl -s "localhost:3000/api/v1/projects/1/tasks?priority=urgent,high&sort=-prior
 ## API conventions
 
 **Authentication.** `POST /api/v1/registrations` or `POST /api/v1/session` returns a token (valid 30 days).
-Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it.
+Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it, `POST /api/v1/session/rotate` swaps it for a fresh one (the old one stops working), and a token unused for 14 days expires early. `GET /api/v1/sessions` lists your sign-ins and `DELETE /api/v1/sessions/:id` ends one.
 
 **Envelope.** Successful responses are `{ "data": ..., "meta": ... }`; request bodies are flat JSON
 (`{"title": "..."}`). Timestamps are ISO 8601 in UTC.
@@ -134,7 +134,7 @@ purged for good after 30 days.
 
 | | |
 | --- | --- |
-| Auth | `POST /registrations` · `POST /session` · `DELETE /session` · `POST /passwords` · `PATCH /passwords/:token` |
+| Auth | `POST /registrations` · `POST /session` · `DELETE /session` · `POST /session/rotate` · `GET /sessions` · `DELETE /sessions/:id` · `POST /passwords` · `PATCH /passwords/:token` |
 | Account | `GET` `PATCH /me` · `PUT` `DELETE /me/avatar` |
 | Organizations | `GET` `POST /organizations` · `GET` `PATCH` `DELETE /organizations/:id` · `GET /organizations/:id/members` · `PATCH` `DELETE /organizations/:id/members/:member_id` · `GET` `POST /organizations/:id/invitations` · `DELETE /organizations/:id/invitations/:id` · `POST /invitations/accept` · `GET /organizations/:id/audit_events` (owners) · `GET` `POST /organizations/:id/teams` · `GET` `PATCH` `DELETE /organizations/:id/teams/:id` · `GET` `POST /organizations/:id/teams/:id/members` · `DELETE /organizations/:id/teams/:id/members/:member_id` |
 | Projects | `GET` `POST /projects` (`organization_id` creates one inside an organization) · `GET` `PATCH` `DELETE /projects/:id` · `POST /projects/:id/restore` |

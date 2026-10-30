@@ -74,6 +74,78 @@ RSpec.describe "Authentication & account API", type: :request do
     end
   end
 
+  path "/api/v1/session/rotate" do
+    post "Rotate the token" do
+      tags "Authentication"
+      description "Trades the token used for the request for a new one (same person and device, new secret, a fresh 30 days). The old token stops " \
+                  "working at once, so a token that leaked is useless after the next rotation. Limited to 30 a hour. A sign-in unused for 14 days " \
+                  "expires on its own, so a client that goes quiet has to sign in again. Not available when the Auth service issues tokens (404)."
+      security [ { bearer_auth: [] } ]
+      produces "application/json"
+      let(:Authorization) { auth_headers(create(:user))["Authorization"] }
+
+      response "201", "A new token; the one used for this request is dead" do
+        schema envelope.call(ref.call("Session"))
+        run_test! do
+          get "/api/v1/me", headers: { "Authorization" => request.headers["Authorization"] }
+          expect(response).to have_http_status(:unauthorized)
+        end
+      end
+
+      response "401", "Missing, invalid, expired or idle token" do
+        schema ref.call("Error")
+        let(:Authorization) { "Bearer nope" }
+        run_test!
+      end
+    end
+  end
+
+  path "/api/v1/sessions" do
+    get "My sign-ins" do
+      tags "Authentication"
+      description "Where the caller is signed in: when, from which address and client, last use, and which one this request used. Newest use first."
+      security [ { bearer_auth: [] } ]
+      produces "application/json"
+      parameter name: :limit, in: :query, type: :integer, required: false
+      let(:user) { create(:user) }
+      let(:Authorization) { auth_headers(user)["Authorization"] }
+      before { Session.start_for!(user, user_agent: "Old laptop") }
+
+      response "200", "The caller's live sign-ins" do
+        schema envelope.call(ref.call("UserSession"), list: true)
+        run_test! { expect(data.size).to eq(2) }
+      end
+
+      response "401", "Not signed in" do
+        schema ref.call("Error")
+        let(:Authorization) { nil }
+        run_test!
+      end
+    end
+  end
+
+  path "/api/v1/sessions/{id}" do
+    delete "End a sign-in" do
+      tags "Authentication"
+      description "Revokes one of the caller's own sign-ins (a lost phone, a forgotten laptop). Someone else's id answers 404."
+      security [ { bearer_auth: [] } ]
+      parameter name: :id, in: :path, type: :integer
+      let(:user) { create(:user) }
+      let(:Authorization) { auth_headers(user)["Authorization"] }
+      let(:id) { Session.start_for!(user).first.id }
+
+      response "204", "Ended" do
+        run_test!
+      end
+
+      response "404", "Not one of yours" do
+        schema ref.call("Error")
+        let(:id) { Session.start_for!(create(:user)).first.id }
+        run_test!
+      end
+    end
+  end
+
   path "/api/v1/passwords" do
     post "Request a password reset" do
       tags "Authentication"
