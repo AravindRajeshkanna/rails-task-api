@@ -145,3 +145,53 @@ tests:
         values: '0+588x500'
     alert_rule_test:
       - { eval_time: 8h, alertname: TaskApiLatencyBudgetBurnFast, exp_alerts: [] }
+
+  # The alerts above are blind if the API is not scraped. A pod whose scrape fails (403 from a wrong token shows up as up=0) is a ticket after 15 minutes;
+  # so is having no API pod scraped at all; a healthy fleet, a worker that happens to be down, and a short blip are not.
+  - name: a scrape that keeps failing is a ticket, and one healthy pod does not hide another's failure
+    interval: 1m
+    input_series:
+      - series: 'up{pod="api-7d9f-aaaaa"}'
+        values: '1x30'
+      - series: 'up{pod="api-7d9f-bbbbb"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TaskApiNotScraped
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: TaskApiNotScraped
+        exp_alerts:
+          - exp_labels: { severity: ticket, pod: api-7d9f-bbbbb }
+            exp_annotations:
+              summary: "Prometheus is not getting the API's metrics, so the SLO alerts cannot fire"
+              description: "A scrape of an API pod is failing, or no API pod is being scraped at all. Check the PodMonitor, the METRICS_TOKEN secret and the NetworkPolicy; a 403 means the token the scraper sends is not the one the pod demands."
+              runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/slo.md#when-the-numbers-stop-arriving
+
+  - name: no API pod being scraped at all is a ticket too
+    interval: 1m
+    input_series:
+      - series: 'up{pod="worker-5c4d-ccccc"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TaskApiNotScraped
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations:
+              summary: "Prometheus is not getting the API's metrics, so the SLO alerts cannot fire"
+              description: "A scrape of an API pod is failing, or no API pod is being scraped at all. Check the PodMonitor, the METRICS_TOKEN secret and the NetworkPolicy; a 403 means the token the scraper sends is not the one the pod demands."
+              runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/slo.md#when-the-numbers-stop-arriving
+
+  - name: a healthy fleet, and a blip shorter than the wait, do not alert
+    interval: 1m
+    input_series:
+      - series: 'up{pod="api-7d9f-aaaaa"}'
+        values: '1x30'
+      - series: 'up{pod="api-7d9f-bbbbb"}'
+        values: '1x10 0x5 1x15'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: TaskApiNotScraped
+        exp_alerts: []
+

@@ -16,6 +16,61 @@ Newest thinking wins; if a decision changes, edit its entry and say so.
 11. [Soft delete, audit log, and Active Job continuations](#11-soft-delete-audit-log-and-active-job-continuations)
 12. [Optimistic locking](#12-optimistic-locking)
 13. [Testing strategy: specs that double as API contracts](#13-testing-strategy-specs-that-double-as-api-contracts)
+14. [Inference lives in a gem, behind a gateway](#14-inference-lives-in-a-gem-behind-a-gateway)
+15. [The model's output is untrusted input](#15-the-models-output-is-untrusted-input)
+16. [Cost controls are part of the feature](#16-cost-controls-are-part-of-the-feature)
+17. [pgvector, not OpenSearch, for embeddings](#17-pgvector-not-opensearch-for-embeddings)
+18. [Amazon Lookout for Metrics was replaced](#18-amazon-lookout-for-metrics-was-replaced)
+19. [Observability is built on Rails 8.1 events, with a thin layer of standards](#19-observability-is-built-on-rails-81-events-with-a-thin-layer-of-standards)
+20. [Services share a small kit, not a framework](#20-services-share-a-small-kit-not-a-framework)
+21. [Strangler fig: Auth, then AI, then Notifications; Tasks and Projects stay](#21-strangler-fig-auth-then-ai-then-notifications-tasks-and-projects-stay)
+22. [Auth: short-lived JWTs, rotating refresh tokens, a local projection of users](#22-auth-short-lived-jwts-rotating-refresh-tokens-a-local-projection-of-users)
+23. [Events: CloudEvents on SNS, one SQS queue per consumer](#23-events-cloudevents-on-sns-one-sqs-queue-per-consumer)
+24. [EKS Pod Identity, not IRSA](#24-eks-pod-identity-not-irsa)
+25. [Karpenter, Spot by default, and a small on-demand system group](#25-karpenter-spot-by-default-and-a-small-on-demand-system-group)
+26. [Argo CD, ApplicationSets, and Terraform that stops at the cluster edge](#26-argo-cd-applicationsets-and-terraform-that-stops-at-the-cluster-edge)
+27. [The AIOps loop recommends freely and acts rarely](#27-the-aiops-loop-recommends-freely-and-acts-rarely)
+28. [What was left out on purpose](#28-what-was-left-out-on-purpose)
+29. [Strict RuboCop by extending omakase, not by switching to StandardRB](#29-strict-rubocop-by-extending-omakase-not-by-switching-to-standardrb)
+30. [Commands, queries and forms: where logic goes, and what was not added](#30-commands-queries-and-forms-where-logic-goes-and-what-was-not-added)
+31. [The database is the last line of defense, and migrations are written for a rolling deploy](#31-the-database-is-the-last-line-of-defense-and-migrations-are-written-for-a-rolling-deploy)
+32. [HTTP caching: revalidate by body hash; no hand-made ETags, no fragment caches](#32-http-caching-revalidate-by-body-hash-no-hand-made-etags-no-fragment-caches)
+33. [`secure_headers` with a deny-everything policy, because the API is never rendered](#33-secure_headers-with-a-deny-everything-policy-because-the-api-is-never-rendered)
+34. [Organizations: a tenant boundary resolved in the policies](#34-organizations-a-tenant-boundary-resolved-in-the-policies)
+35. [Joining an organization by invitation, with a signed token and no stored secret](#35-joining-an-organization-by-invitation-with-a-signed-token-and-no-stored-secret)
+36. [Organization history lives in the audit log, with its own key](#36-organization-history-lives-in-the-audit-log-with-its-own-key)
+37. [Teams: a second way into a project, resolved in the same two places](#37-teams-a-second-way-into-a-project-resolved-in-the-same-two-places)
+38. [Full-text search: a stored `tsvector`, ranked, next to (not instead of) substring search](#38-full-text-search-a-stored-tsvector-ranked-next-to-not-instead-of-substring-search)
+39. [The in-app inbox lives in the monolith, fed by the same events, independent of email](#39-the-in-app-inbox-lives-in-the-monolith-fed-by-the-same-events-independent-of-email)
+40. [Keyset pagination as an option on the task list, built on Pagy's keyset paginator](#40-keyset-pagination-as-an-option-on-the-task-list-built-on-pagys-keyset-paginator)
+41. [A transactional outbox for the events other services consume](#41-a-transactional-outbox-for-the-events-other-services-consume)
+42. [Multi-region is designed, not built](#42-multi-region-is-designed-not-built)
+43. [GraphQL: read-only, authorized by the policy scopes, with hard limits](#43-graphql-read-only-authorized-by-the-policy-scopes-with-hard-limits)
+44. [A public demo is a mode, a reset and a recipe; hosting is the operator's](#44-a-public-demo-is-a-mode-a-reset-and-a-recipe-hosting-is-the-operators)
+45. [Multi-region Terraform: one root module applied twice, and tested offline against mocks](#45-multi-region-terraform-one-root-module-applied-twice-and-tested-offline-against-mocks)
+46. [A read-only mode for the promotion window, and what it took to make reads survive it](#46-a-read-only-mode-for-the-promotion-window-and-what-it-took-to-make-reads-survive-it)
+47. [A copy of the backups in another region: AWS Backup for the database, a replicated bucket for the dumps](#47-a-copy-of-the-backups-in-another-region-aws-backup-for-the-database-a-replicated-bucket-for-the-dumps)
+48. [The drill is measured from the client's side, by a probe, not by the people running it](#48-the-drill-is-measured-from-the-clients-side-by-a-probe-not-by-the-people-running-it)
+49. [Notification settings: mutes decide what is written, the digest decides what is emailed](#49-notification-settings-mutes-decide-what-is-written-the-digest-decides-what-is-emailed)
+50. [Paging the lists that only grow: a cursor everywhere it pays, a different query for the feed, and no cap on ranked search](#50-paging-the-lists-that-only-grow-a-cursor-everywhere-it-pays-a-different-query-for-the-feed-and-no-cap-on-ranked-search)
+51. [Five GraphQL mutations that decide nothing (revisiting ADR 43)](#51-five-graphql-mutations-that-decide-nothing-revisiting-adr-43)
+52. [Team maintainers manage who is on their team, and nothing else](#52-team-maintainers-manage-who-is-on-their-team-and-nothing-else)
+53. [Teams nest one level, and the rule is written once](#53-teams-nest-one-level-and-the-rule-is-written-once)
+54. [The demo front end is static files with no build step, and hosting stays the operator's](#54-the-demo-front-end-is-static-files-with-no-build-step-and-hosting-stays-the-operators)
+55. [Idempotency keys: remember the answer, in the transaction of the write](#55-idempotency-keys-remember-the-answer-in-the-transaction-of-the-write)
+56. [Sparse fieldsets that skip the work, not just the bytes](#56-sparse-fieldsets-that-skip-the-work-not-just-the-bytes)
+57. [Index and write-path review: measure what each index costs, remove the one nothing reads](#57-index-and-write-path-review-measure-what-each-index-costs-remove-the-one-nothing-reads)
+58. [Fail fast when a dependency is down: circuit breakers, stale keys and jittered retries](#58-fail-fast-when-a-dependency-is-down-circuit-breakers-stale-keys-and-jittered-retries)
+59. [Worker pools are bulkheads: the queue a job runs in is a decision](#59-worker-pools-are-bulkheads-the-queue-a-job-runs-in-is-a-decision)
+60. [Read replicas: opt-in, read-your-writes, and never a reason for a request to fail](#60-read-replicas-opt-in-read-your-writes-and-never-a-reason-for-a-request-to-fail)
+61. [Caching is by key, not by delete](#61-caching-is-by-key-not-by-delete)
+62. [Fair shares and refusing work early: budgets by organization and endpoint, and load shedding](#62-fair-shares-and-refusing-work-early-budgets-by-organization-and-endpoint-and-load-shedding)
+63. [Liveness and readiness are different questions](#63-liveness-and-readiness-are-different-questions)
+64. [Alert on how fast the error budget is going, and test the alerts](#64-alert-on-how-fast-the-error-budget-is-going-and-test-the-alerts)
+65. [Capacity is arithmetic on measured numbers, with the database connection limit as the wall](#65-capacity-is-arithmetic-on-measured-numbers-with-the-database-connection-limit-as-the-wall)
+66. [Sessions expire when unused, can be rotated, and can be listed and ended](#66-sessions-expire-when-unused-can-be-rotated-and-can-be-listed-and-ended)
+67. [A person can be erased, and personal data has a retention that a job enforces](#67-a-person-can-be-erased-and-personal-data-has-a-retention-that-a-job-enforces)
+68. [A scrape that cannot authenticate is silent: send the token, and alert when the numbers stop](#68-a-scrape-that-cannot-authenticate-is-silent-send-the-token-and-alert-when-the-numbers-stop)
 
 ---
 
@@ -724,7 +779,7 @@ cost) is not measurable here. A review that deletes things to look tidy is a ris
 
 **Audit columns.** Tasks have `creator_id`; they deliberately have no `updated_by`. Who changed a record is answered by the append-only audit log (actor, action, before and after), which also says what was changed and survives later edits, whereas an `updated_by` column is only ever the last writer, is overwritten by the next one, and puts one more column on every update of a hot row. `deleted_at` is `discarded_at`, and the audit event for a deletion names who.
 
-**Multi-tenancy readiness.** A project belongs to at most one organization, and everything else reaches its tenant through its project (`tasks.project_id`), so the tenant of every row is one join away and every policy scope already starts from the caller's projects. `organization_id` is *not* copied onto tasks and comments: it would be a second source of truth on the largest tables for the sake of a shard key that the project already is (see the tenant map in the data-ownership document).
+**Multi-tenancy readiness.** A project belongs to at most one organization, and everything else reaches its tenant through its project (`tasks.project_id`), so the tenant of every row is one join away and every policy scope already starts from the caller's projects. `organization_id` is *not* copied onto tasks and comments: it would be a second source of truth on the largest tables for the sake of a shard key that the project already is (see the machine-checked tenant map in [data-lifecycle.md](architecture/data-lifecycle.md)).
 
 **Counts and consistency.** The cached project statistics are exact, not eventually consistent: tasks `touch` their project, which changes the cache key. The price was measured: a task write is 28% slower than it would be without the touch (780 against 1,077 creates per second with 8 writers), and, importantly, it does *not* serialize writers on one project (the same 780 per second whether the 8 share a project or not).
 Eventual consistency (a counter table, a debounced touch, a short TTL) is the right trade only when a single project sustains hundreds of task writes per second; the documented trigger, not a guess.
@@ -839,3 +894,11 @@ Two questions had no answer: "how does a person's data leave?" and "how long do 
 **Retention is enforced by jobs, with the numbers chosen, not measured:** webhook deliveries 30 days, concluded invitations 90, the Notification service's deliveries 90 and processed events 14, run from the consumer loop because it is that service's only long-lived process. Measured: purging 350,000 of a million deliveries, with the oldest rows at the highest ids (the worst order for the query), took 1.3 seconds in batches of 5,000 and needed no new index.
 **Did the tests prove it?** About twenty-five deliberate breakages across the erasure service, the retention jobs and the Notification service are each caught. Three were not at first, and each pointed at something real: a redundant line (leaving an organization already removes team memberships; deleted), an untested effect (the avatar purge), and the loop that was supposed to call the prune (no test ran the loop; there is one now).
 **Not done:** export of a person's data, erasure in the Auth service and by recipient in the Notification service, ownership transfer, any retention for the audit trail (a policy decision, and the one table that is both large and permanent), automatic re-application of erasures after a restore. [data-protection.md](data-protection.md) lists what is held, for how long and what erasure does not reach; [architecture/data-lifecycle.md](architecture/data-lifecycle.md) has the growth arithmetic, the archival plan and the machine-checked map of which tenant owns each table.
+
+## 68. A scrape that cannot authenticate is silent: send the token, and alert when the numbers stop
+
+Writing the secrets-rotation runbook meant following `METRICS_TOKEN` from Secrets Manager to the pod, and it led nowhere: the chart injects the token into the API's environment, `Observability::MetricsApp` then answers **403** to any `/metrics` request without it (the private-address allowance applies only when there is no token), and the PodMonitor sent no credentials. In a deployed cluster Prometheus would never have scraped the API. Every `taskapi_*` metric, including the ones the SLO burn-rate alerts of [ADR 64](#64-alert-on-how-fast-the-error-budget-is-going-and-test-the-alerts) read, would have been missing, and because an absent ratio cannot page those alerts would have said nothing. The promtool tests could not catch it (they feed synthetic series), CI's chart validation could not (the manifest was schema-valid), and nothing had run in a cluster. It was found by reading, which is not a method.
+
+**The fix has three parts.** The PodMonitor sends the token from the same Kubernetes Secret the pod reads it from (`metrics.tokenSecret`, a chart value, set for the API). A spec fails when a release's pods are given `METRICS_TOKEN` and its scraper is not configured to send it, and renders the chart (when `helm` is installed) to check the produced PodMonitor. And `TaskApiNotScraped` raises a ticket when a scrape of an API pod fails, or no API pod is scraped at all, for 15 minutes, with promtool tests for the failing pod, the missing fleet and the short blip; four deliberate breakages of the rule (the wrong state, no fleet handling, a one-minute wait, the wrong pods) are each caught.
+**Alternatives considered.** Dropping the token and relying on the private-address check plus the NetworkPolicy would also work and is one fewer secret to rotate; it was rejected because the NetworkPolicy admits the whole `observability` namespace and the token costs one line of chart. A ServiceMonitor for the Service instead of a PodMonitor changes nothing about authentication.
+**What it does not do.** The alert is a ticket, not a page: it is a fault in the monitoring and not yet user impact, with the cost that a pipeline blind for a night is noticed in the morning. The other services serve metrics with no token (their pods are given none) and are not covered by the alert. None of this has run against a real Prometheus; CI validates the rendered PodMonitor against its schema, and the first real test is the first deploy.

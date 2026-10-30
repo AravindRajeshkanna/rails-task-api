@@ -47,6 +47,18 @@ Written down so that nobody has to decide it during an incident:
 - **Budget spent**: no changes except those that improve reliability until it recovers, and a write-up of what spent it ([the failover drill](runbooks/failover-drill.md) has the template).
 - A burn caused by one of the *deliberate* refusals (`503 overloaded` in an overload, `503 read_only` in a promotion) still counts. If they keep spending the budget, the fix is capacity or the failover procedure, not the SLO.
 
+## When the numbers stop arriving
+
+Every alert on this page is computed from the API's own metrics. If Prometheus cannot scrape the API, those series stop, the ratios become absent, and an absent value cannot page: the alerts stay quiet precisely when nothing is watching. `TaskApiNotScraped` exists for that: it is a ticket when a scrape of an API pod has been failing for 15 minutes, or when no API pod is being scraped at all. Treat it as urgent even so: until it is fixed, the paging alerts cannot fire.
+
+Look first at the status of the target in Prometheus (`up{pod=~"api-.*"}`), then at the cause that was real once:
+
+- **403 on `/metrics`.** The pod demands `METRICS_TOKEN` (the chart gives it one) and the scraper did not send the matching token. The PodMonitor's `authorization` must point at the same Secret key the pod reads (`metrics.tokenSecret` in `deploy/helm/values/api.yaml`). When this was first written the PodMonitor sent nothing, so a deployed cluster would never have scraped the API at all; `spec/deploy/metrics_scrape_spec.rb` now fails if a release gives its pods the token and its scraper does not carry it.
+- **Timeouts.** The NetworkPolicy must allow Prometheus's namespace in (`ingressFromNamespaces: [observability]`).
+- **No targets.** The PodMonitor's labels must match the Prometheus the cluster runs (`release: kube-prometheus-stack`), and the pod names still start with `api-`; the alert selects on that prefix.
+
+The same reasoning is why the alerts are tested with synthetic data *and* why the scrape configuration is tested separately: the first proves the rules are right given the series, the second proves the series will arrive.
+
 ## What this does not cover
 
 Per-route or per-tenant objectives (one organization's bad day is inside the global number), a synthetic probe from outside (the numbers are the server's view: requests that never arrived are not in them, which is what [the failover drill's probe](runbooks/failover-drill.md) and the Route 53 health check are for), and the other services' SLOs (the Notification service's freshness is the outbox alarm; the AI service has its budget and its circuit breaker).

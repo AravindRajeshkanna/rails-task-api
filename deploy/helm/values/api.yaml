@@ -63,6 +63,10 @@ ingress:
     alb.ingress.kubernetes.io/group.order: "50"
     alb.ingress.kubernetes.io/healthcheck-path: /readyz
 
+# The API demands METRICS_TOKEN on /metrics (above), so Prometheus must send the same one from the same Secret.
+metrics:
+  tokenSecret: { name: api, key: METRICS_TOKEN }
+
 networkPolicy:
   ingressFromPods: [ ]
   egressToPods:
