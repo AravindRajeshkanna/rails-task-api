@@ -62,3 +62,6 @@ override.tf.json
 !/services/*/log/.keep
 !/services/*/tmp/.keep
 !/services/*/storage/.keep
+
+# The demo front end build (demo/web/build.sh)
+/demo/web/dist/

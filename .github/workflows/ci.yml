@@ -233,6 +233,23 @@ jobs:
       - name: Shell scripts
         run: shellcheck deploy/docker/*.sh deploy/local/*.sh deploy/scripts/*.sh
 
+  # The demo front end (demo/web): plain static files with no build step and no dependencies, tested with Node's own runner.
+  demo_web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test the client, the screens, the app and the build script
+        run: node --test "demo/web/test/*.test.mjs"
+
+      - name: Shell scripts
+        run: shellcheck demo/web/build.sh
+
   # Build every image (no push) so a broken Dockerfile fails the pull request, not the deploy.
   images:
     runs-on: ubuntu-latest

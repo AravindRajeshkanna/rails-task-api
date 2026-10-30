@@ -1,6 +1,6 @@
 # Roadmap and implementation record
 
-What was planned, what was built, where it lives, and what was deliberately left. Four roadmaps have been worked through, in order;
+What was planned, what was built, where it lives, and what was deliberately left. Five roadmaps have been worked through, in order;
 each section is a ledger, not a plan, so every line says what actually happened.
 
 | # | Roadmap | Delivered in | Result |
@@ -9,6 +9,7 @@ each section is a ledger, not a plan, so every line says what actually happened.
 | 2 | [AI-powered, AIOps-enabled microservices on AWS EKS](#roadmap-2-ai-aiops-and-microservices-on-eks) (phases 1-6) | [#5](https://github.com/AravindRajeshkanna/rails-task-api/pull/5) | AI features, observability, three extracted services, the platform to run it |
 | 3 | [Improve it further](#roadmap-3-improving-the-project-further) (phases 1-8) | [#6](https://github.com/AravindRajeshkanna/rails-task-api/pull/6) | Hardening, testing, performance, security, documentation, organizations, analytics |
 | 4 | [The "Next" list](#roadmap-4-the-next-list-of-roadmap-3) (ten items) | [#7](https://github.com/AravindRajeshkanna/rails-task-api/pull/7) | Invitations, organization audit, teams, full-text search, an inbox, keyset pagination, a transactional outbox, a nightly load test, GraphQL, a demo mode; multi-region as a design |
+| 5 | [The "Next" list of roadmap 4](#roadmap-5-the-next-list-of-roadmap-4) (eight items) | this pull request | A read-only mode, cross-region backup copies, a failover drill kit, notification settings, cursor paging for the audit logs and a fast activity feed, GraphQL mutations, team maintainers and nested teams, a demo front end; two items could not be finished here and one was measured and not built |
 
 **Status key.** ✅ done and verified as described · 🟡 done in part, or done differently on purpose (the note says how) · ⏭ deliberately not done (the note says why, and what would trigger it).
 
@@ -17,7 +18,7 @@ Terraform, Helm, Argo CD, Kamal) is validated statically and by CI (images build
 checks) but **has never been applied to AWS or run under Docker/Kubernetes**. The AI features run against the offline provider; **Bedrock has
 not been called**. Those boundaries are repeated where they matter.
 
-The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) (ADRs 1-44); user-visible changes are in [../CHANGELOG.md](../CHANGELOG.md).
+The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) (ADRs 1-54); user-visible changes are in [../CHANGELOG.md](../CHANGELOG.md).
 
 ---
 
@@ -77,7 +78,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | Integration tests for auth flows | ✅ | `authentication_spec` (pieces) and `authentication_journey_spec` (sign up → work → reset password → signed out everywhere) |
 | VCR or WebMock | 🟡 | WebMock ✅. VCR deliberately not added: outbound calls are webhooks and AWS SDK calls, which stub cleanly without cassettes that record real responses ([testing.md](testing.md#decisions)) |
 | SimpleCov with a CI floor | ✅ | `COVERAGE=1`; floor 92% line / 81% branch (raised from 91 / 79 as the suite grew) in `spec/spec_helper.rb`; CI uploads the report and prints it in the job summary |
-| Parallel testing if the suite grows | ⏭ | 1,036 examples run in ~20 s; parallelism would add cost for no gain. Trigger: suite past ~2 minutes ([testing.md](testing.md#decisions)) |
+| Parallel testing if the suite grows | ⏭ | 1,176 examples run in ~25 s; parallelism would add cost for no gain. Trigger: suite past ~2 minutes ([testing.md](testing.md#decisions)) |
 | *Found on the way* | ✅ | `rspec <file>` ran the whole suite because of a `--pattern` in `.rspec`; the gem and Lambda specs had hidden dependencies on the booted Rails app. Both fixed; every way of running the specs now works |
 
 ### Phase 3: Performance and scalability
@@ -175,7 +176,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 
 ## Roadmap 5: the "Next" list of roadmap 4
 
-*Goal: work through the eight items the previous roadmap ended with, in that order. One commit per item. Two of them cannot be finished from a laptop (an AWS account, a host); the rows say what was done and what is left.*
+*Goal: work through the eight items the previous roadmap ended with, in that order. One commit per item (two for item 7). Two of them cannot be finished from a laptop (an AWS account, a host); one was measured and not built; three were built without the evidence the roadmap asked for first. The rows say which.*
 
 | # | Item | Status | Implemented as |
 | --- | --- | --- | --- |
@@ -186,26 +187,32 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | 5 | Cap a broad ranked search; keyset for other growing lists | ✅ / not built | **Measured both.** Audit logs (project, organization) and `GET /activity` take `?cursor=` (1,000,000 events: first page 23 ms by offset, 0.6 ms by cursor). The feed needed a new query as well: a cursor on the obvious one was 108 ms against 109 ms, because PostgreSQL sorts every event of the caller's projects; `ActivityFeed` merges each project's newest events in index order: 1.3 ms at any depth, same results. **The ranked-search cap was not built**: 21 to 2.4 ms in one project, 22 to 23 ms across projects (the slow shape, where finding the matches is the cost), for a change in what a search returns ([ADR 50](decisions.md), [numbers](performance.md#the-lists-that-only-grow-audit-logs-and-the-activity-feed)) |
 | 6 | GraphQL mutations or subscriptions | ✅ / not built | Five mutations (`createTask`, `updateTask`, `deleteTask`, `createComment`, `markNotificationRead`) that are the REST writes reached another way: the same scope, policy and model, so nothing is decided twice; payload `errors` for mistakes, `extensions.code` for not found / forbidden / stale; one mutation per request so the rate limit still counts writes. Spec'd against REST (same input, same answers), against skipped scopes and policies (eleven breakages, each caught). **Built without a client that needs it** (the roadmap's condition is unmet). **Subscriptions not built** ([ADR 51](decisions.md)) |
 | 7 | Teams with roles; nested teams | ✅ | **Maintainers:** a team member is a `member` or a `maintainer`; a maintainer adds and removes the plain members of their own team and nothing else (cannot appoint, change roles, remove maintainers or themselves); no project access of its own ([ADR 52](decisions.md)). **Nesting, one level:** a sub-team's members have what its parent was granted; one rule in `Team.granting_to`/`with_sub_teams` behind all four places access is computed; +0.4 ms on the 1 ms scoped query. Both mutation-checked (5 and 9 breakages, each caught). Built without evidence that organizations outgrew flat groups ([ADR 53](decisions.md)) |
+| 8 | Hosting the demo; a front end to point at it | 🟡 | **Front end built:** `demo/web`, static files with no build step or dependencies (sign in, projects, a board, task details and comments, an inbox, a demo banner); `build.sh` writes it for your API; 32 tests in CI incl. hostile text through every screen; run against a real demo server and driven in jsdom (not repeatable from here). Found and fixed on the way: the API did not expose `X-Demo-Mode` to browsers. **Not hosted** (your server and domain) and **never looked at in a browser** ([ADR 54](decisions.md)) |
 
 ## Next
 
-Ordered by what a real user would hit first.
+What is left, ordered by what a real user would hit first. Each of these needs something this repository cannot supply (an AWS account, a host, a browser, a client, or evidence), which is why they are here and not done.
 
-3. **Apply the staging pair and run the first drill** ([runbook](runbooks/failover-drill.md)), then production's once a single region has run for a few months and an RTO/RPO is stated ([design](aws/multi-region.md#building-it-in-this-order)). Everything it needs is written; what is missing is an account and an afternoon.
-5. **If cross-project search ever becomes the slow endpoint**, require a project (or a short list) for a broad query, or add an index that answers "newest matches first" across projects. Capping the ranking was measured and does not help there ([ADR 50](decisions.md)).
-6. **More GraphQL mutations** (projects, memberships, tags, ...) and **subscriptions**, one at a time, when a client needs them ([ADR 51](decisions.md)); REST and Action Cable already cover both.
-8. **Hosting the demo**, and a front end to point at it.
+1. **Apply the staging pair and run the first drill** ([runbook](runbooks/failover-drill.md)), then production's once a single region has run for a few months and an RTO/RPO is stated ([design](aws/multi-region.md#building-it-in-this-order)). Everything it needs is written; what is missing is an account and an afternoon.
+2. **If cross-project search ever becomes the slow endpoint**, require a project (or a short list) for a broad query, or add an index that answers "newest matches first" across projects. Capping the ranking was measured and does not help there ([ADR 50](decisions.md)).
+3. **More GraphQL mutations** (projects, memberships, tags, ...) and **subscriptions**, one at a time, when a client needs them ([ADR 51](decisions.md)); REST and Action Cable already cover both.
+4. **Hosting the demo** (`demo/web/build.sh`, then `bin/kamal setup -d demo`; [docs/demo.md](demo.md)), and **looking at the front end in a browser**: its layout has never been seen.
 
 ## How this was verified
 
 | Claim | Evidence |
 | --- | --- |
-| The application behaves as documented | 1,036 examples across the app, shared gems and Lambdas (+72 in the three services), run with branch coverage in CI |
+| The application behaves as documented | 1,176 examples across the app, shared gems and Lambdas (+74 in the three services), run with branch coverage in CI (94.3% line, 84.8% branch); 32 Node tests for the demo front end; 14 `terraform test` runs |
 | Search, deep paging and the inbox are fast | `EXPLAIN (ANALYZE)` and in-process timings on a 149,000-task database, 300,000 synthetic notifications ([performance.md](performance.md), the ADRs) |
 | The outbox loses nothing | specs: rolled-back changes leave no event; a failing SNS keeps the event and delivers it exactly once when it returns; two relays never send the same row (including from four threads); a request through to a stubbed SNS |
 | Access is as documented | `tenant_isolation_spec` (every route, now including teams, invitations, search, the inbox, GraphQL), `project_policy_team_spec` (both role lookups agree for every combination), `graphql_spec` ("who can see what") |
 | The load-test script works | `loadtest/ci.sh` ran locally end to end: a passing run, and a deliberately overloaded one that exited 99, listed the breached thresholds and cleaned up |
 | Backups restore | `pg_dump` → `pg_restore` of the same database; row counts, constraints and the `vector` extension checked |
 | The multi-region wiring is right | `terraform test` (in CI): the whole configuration is planned and applied against mocked AWS providers for a single region, a primary before and after its standby is ready, and a standby; mutation-checked ([ADR 45](decisions.md)). Proves what each role creates, not that AWS accepts it |
+| Read-only mode keeps reads working | run against a Postgres that really refuses writes (`default_transaction_read_only`) and against `READ_ONLY=true` on a live server: reads 200, writes 503 `read_only`, nothing written; mutation-checked ([ADR 46](decisions.md)) |
+| The backup scripts and the failover probe work | `db_dump.sh` / `db_restore_check.sh` on the 149,000-task database (7 MB, restored in 4 s); `drill_probe.rb` against a live server restarted into read-only mode and back; specs for both, mutation-checked |
+| The activity feed and audit logs scale | 1,000,000 audit events in one project and 1.14 million across eight: offset 23-131 ms (feed 110-270 ms), cursor 0.6 ms, `ActivityFeed` 1.3 ms; identical results to the single query ([ADR 50](decisions.md)) |
+| Mutations and teams cannot be used to see or change what REST would refuse | `graphql_mutations_spec` (same input through both APIs, every policy consulted, eleven breakages caught), `project_policy_team_spec` (both role lookups agree, nested), 5 + 9 breakages of the team rules caught |
+| The demo front end works | 32 Node tests in CI; the real client against a live demo server; the real `app.js` driven in jsdom against it (once, outside this repository); CORS preflights from its origin |
 | Migrations are safe | `strong_migrations` accepted every migration but one: the full-text column, which rewrites `tasks` under a lock (3.7 s for 149,000 rows) and is marked `safety_assured` with that number ([runbook](runbooks/zero-downtime-migrations.md)) |
-| **Not verified** | Docker Compose, `kind`, any Terraform plan/apply against a real account (the multi-region pair is checked only offline, against mocks), Kamal deploys (the demo destination only passes `kamal config`), Bedrock with real credentials, the Aurora restore commands, hosting the demo |
+| **Not verified** | Docker Compose, `kind`, any Terraform plan/apply against a real account (the multi-region pair, the staging pair and the backup copy are checked only offline, against mocks), AWS Backup, the real `aws` and `age`, a failover drill of any kind, how the demo front end looks in a browser, Kamal deploys (the demo destination only passes `kamal config`), Bedrock with real credentials, the Aurora restore commands, hosting the demo |

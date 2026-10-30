@@ -8,6 +8,7 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Added
+- CORS now exposes `X-Demo-Mode` to browsers (a front end can show a "this is a demo" banner), alongside the headers it already exposed.
 - **Nested teams.** `parent_id` on `POST|PATCH /api/v1/organizations/{id}/teams` (null to move a team out) and on team responses. A team can have a parent in the same organization; teams nest one
   level. The members of a sub-team have the project access its parent was granted, on top of its own; a grant to a sub-team reaches only that sub-team. A team with sub-teams cannot be deleted
   (`422`) or become a sub-team. Moving a team changes who has access to what.

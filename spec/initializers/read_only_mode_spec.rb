@@ -3,7 +3,9 @@ require "rails_helper"
 # The cache in production is Solid Cache. The test environment uses a null store, so this builds a real Solid Cache in the test's own
 # transaction (the table is created inside it and disappears with the rollback) and then makes the database refuse writes.
 RSpec.describe ReadOnlyMode::CacheTolerance do
-  let(:store) { SolidCache::Store.new(namespace: "read-only-spec", error_handler: ->(**) { }) }
+  # expiry_method: :job, not the default thread: each write has a 2% chance (drawn from rand, so it depends on the seed) of starting a background
+  # DELETE, which on the test's one shared connection would run while the database is read-only and abort the test's transaction.
+  let(:store) { SolidCache::Store.new(namespace: "read-only-spec", expiry_method: :job, error_handler: ->(**) { }) }
 
   before do
     ActiveRecord::Migration.suppress_messages { load Rails.root.join("db/cache_schema.rb") }

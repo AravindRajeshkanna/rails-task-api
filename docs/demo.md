@@ -30,6 +30,12 @@ route that sends mail or stores files is *not* in it until someone adds it; `spe
 
 Run it locally the same way: `DEMO_MODE=true bin/rails demo:reset` **empties the database it is pointed at** (use a scratch database: `DATABASE_URL=postgres:///demo_scratch`), then start the server with `DEMO_MODE=true`.
 
+## The front end
+
+`demo/web` is a small web client for the API: sign in (the shared account is offered on the form), projects, a board per project, task details with comments, an inbox, and a banner on every screen saying it is a demo. Static files, no build step, no dependencies:
+[demo/web/README.md](../demo/web/README.md) has how to run it, how to host it (`API_URL=https://api.demo.example.com demo/web/build.sh`, then upload `dist/` anywhere that serves static files) and the security choices. Two settings tie it to the API: `CORS_ORIGINS` must list the origin that serves it
+(`config/deploy.demo.yml`), and the API exposes `X-Demo-Mode` to browsers so the banner can appear.
+
 ## What it does not do
 
 It is not a sandbox per visitor: everyone shares the accounts, so one visitor can delete another's work until the morning reset. It has no abuse monitoring beyond the API's rate limits and
