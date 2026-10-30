@@ -538,4 +538,6 @@ The tests were mutation-checked (breaking the secrets gating, the load-balancer 
 security-group rule description containing an apostrophe, which the AWS provider rejects, and certificate-validation records keyed by values unknown until apply (now keyed by the one domain). What mocks cannot prove: that AWS accepts the settings (global-database engine versions,
 Replication Time Control prerequisites, the ECR creation template), that IAM is sufficient, that timing works. Those are what the first apply and the drill are for, and why every document says *unapplied*.
 
+Adding `count` to resources renames their addresses (`x` to `x[0]`), which for passwords, the signing key and IAM roles would mean destroying and recreating them in any stack applied from an earlier commit; `moved.tf` records the renames so nothing is replaced.
+
 Not done: cross-account pairs (the ECR rule, replication roles and the ACM validation record assume one account), a read-only switch for the promotion window, automating the failover steps, and rendering a second Grafana/Prometheus view across regions.
