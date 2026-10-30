@@ -8,6 +8,9 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Added
+- **GraphQL mutations:** `createTask`, `updateTask`, `deleteTask`, `createComment`, `markNotificationRead`. Each is the REST write reached another way (same policies, same
+  validation, optimistic locking, audit log and events). Mistakes in the input come back in the payload's `errors`; a missing or invisible record, a forbidden action and a stale
+  `lockVersion` are top-level errors with `extensions.code` `not_found`, `forbidden` and `stale_object`. One mutation per request. No subscriptions. Additive: queries are unchanged.
 - `cursor` on `GET /api/v1/projects/{id}/audit_events`, `GET /api/v1/organizations/{id}/audit_events` and `GET /api/v1/activity`: keyset pagination as on the task list
   (`?cursor=` first page, then `meta.next_cursor`; `meta` is `{limit, next_cursor, has_more}` with no total; an invalid cursor is `400`). The same cost at any depth of history.
   `page=` is unchanged.

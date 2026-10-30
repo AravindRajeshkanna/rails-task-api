@@ -10,8 +10,11 @@ RSpec.describe "GraphQL API", type: :request do
   path "/api/v1/graphql" do
     post "Query the API with GraphQL" do
       tags "GraphQL"
-      description "A read-only GraphQL endpoint over the same data, with the same access rules, as the REST API: every list starts from what you may " \
-                  "see and anything else is `null`. Writes are REST only. The schema is in `docs/graphql/schema.graphql` (and by introspection). " \
+      description "A GraphQL endpoint over the same data, with the same access rules, as the REST API: every list starts from what you may " \
+                  "see and anything else is `null`. Five mutations (`createTask`, `updateTask`, `deleteTask`, `createComment`, `markNotificationRead`) " \
+                  "are the REST writes reached another way: same policies, same model, same audit trail; mistakes in the input come back in the payload's `errors`, " \
+                  "everything else as a top-level error with `extensions.code` (`not_found`, `forbidden`, `stale_object`); one mutation per request. " \
+                  "The schema is in `docs/graphql/schema.graphql` (and by introspection). " \
                   "Limits: a query is at most 20 KB, 8 levels deep and 1500 complexity points (a connection multiplies its children by the page size " \
                   "you ask for), a page is at most 100 items, one operation per request. Invalid or too-expensive queries are a `200` with an `errors` array, " \
                   "as GraphQL does; a malformed request is a `400` in the usual error envelope."

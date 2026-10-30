@@ -131,7 +131,7 @@ purged for good after 30 days.
 | Members | `GET` `POST /projects/:id/memberships` · `PATCH` `DELETE /memberships/:id` · `GET` `POST /projects/:id/teams` · `PATCH` `DELETE /projects/:id/teams/:id` (a team's access) |
 | Inbox | `GET /notifications` (`unread`, `project_id`, `kind`) · `PATCH` `DELETE /notifications/:id` · `POST /notifications/read_all` · live over `NotificationsChannel` |
 | Notification settings | `GET` `PATCH /notification_settings` (`digest` off/daily, `digest_hour`, `time_zone`) · `GET` `POST /notification_mutes`, `DELETE /notification_mutes/:id` (a kind, a project, or a kind in a project) |
-| GraphQL | `POST /graphql`: read-only, same access rules ([docs/graphql](docs/graphql/README.md)) |
+| GraphQL | `POST /graphql`: queries, plus five mutations that are the REST writes reached another way (same policies and model), same access rules ([docs/graphql](docs/graphql/README.md)) |
 | Search | `GET /search?q=` (all your projects) · `GET /projects/:id/tasks?search=` (one project) |
 | Tasks | `GET` `POST /projects/:id/tasks` · `GET` `PATCH` `DELETE /tasks/:id` · `POST /tasks/:id/restore` |
 | Comments | `GET` `POST /tasks/:id/comments` · `PATCH` `DELETE /comments/:id` |
@@ -308,7 +308,7 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 - Active Storage defaults to local disk; on Kubernetes set `ACTIVE_STORAGE_SERVICE=amazon` (S3).
 - Image dimension analysis needs `libvips` at runtime (it is in the Docker image; locally `brew install vips`). Without it uploads still work, their dimensions are just not recorded. No image variants are generated.
 - Notification settings are per person (mute a kind or a project, or take a daily digest instead of an email per event), but there is no per-channel choice beyond that (no Slack or push preferences, no per-event email toggle) and the digest is sent in the hour you pick, not instantly on a threshold; see [ADR 49](docs/decisions.md). Teams grant project access but are flat (no team roles, no nested teams), and a person with an administrator's implicit access to a project, or access only through a team, is not in `GET /projects/:id/memberships`: that lists direct members; `GET /projects/:id/teams` lists the teams.
-- GraphQL is read-only (writes are REST). A public demo is *supported* ([docs/demo.md](docs/demo.md): demo mode, a nightly reset, a Kamal destination) but not deployed; that is yours to run.
+- GraphQL has five mutations (create, update, delete task; comment; mark a notification read) and no subscriptions; every other write is REST only. A public demo is *supported* ([docs/demo.md](docs/demo.md): demo mode, a nightly reset, a Kamal destination) but not deployed; that is yours to run.
 - The platform code is validated statically and by CI (the four images build, Terraform validates, every Helm release renders and passes
   Kubernetes/CRD schema checks) and the services were exercised together locally with an AWS mock. The Compose stack, the `kind` script and
   the Terraform have **not been run against Docker or AWS**. Expect a round of small fixes on first contact.
