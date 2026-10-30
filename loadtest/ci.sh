@@ -44,11 +44,14 @@ trap cleanup EXIT
 step() { printf '\n== %s\n' "$*"; }
 
 # What the app in production mode needs to boot against a plain-HTTP scratch database. Rack::Attack is off or the
-# test would measure 429s (it is switched on in production by default, see config/initializers/rack_attack.rb).
+# test would measure 429s (it is switched on in production by default, see config/initializers/rack_attack.rb). Load shedding
+# is off or it would measure the runner: on a shared GitHub runner the same code answered with a p95 of 84 ms in one run and 210 ms in
+# another, and in the slow run the Puma backlog reached the shedding threshold and the expensive reads were refused with 503
+# (ADR 62), failing the 2xx checks. Shedding has its own tests; this one is about what the code costs when it is allowed to run.
 export SECRET_KEY_BASE="${SECRET_KEY_BASE:-$(ruby -rsecurerandom -e 'puts SecureRandom.hex(64)')}"
 export TASK_API_DATABASE_PASSWORD="${TASK_API_DATABASE_PASSWORD:-loadtest}"
 export DB_HOST="${PGHOST:-}"
-export FORCE_SSL=false ASSUME_SSL=false RACK_ATTACK_ENABLED=false RAILS_LOG_LEVEL=warn RAILS_MAX_THREADS=5
+export FORCE_SSL=false ASSUME_SSL=false RACK_ATTACK_ENABLED=false LOAD_SHEDDING=false RAILS_LOG_LEVEL=warn RAILS_MAX_THREADS=5
 
 step "Preparing scratch databases"
 for db in $SEED_DB $PRODUCTION_DBS; do dropdb --if-exists "$db"; done

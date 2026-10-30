@@ -841,6 +841,8 @@ checks, metrics, sign-in or any write: a refused write is lost work, a refused r
 | Shedding off | **9,482 ms** / 10,463 ms | all queued, median 8.3 s |
 | Shedding on | **44 ms** / 84 ms | 1,431 of 2,250 refused at once; the rest served in a median 43 ms |
 
+The nightly load test (`loadtest/ci.sh`) runs with shedding **off**, deliberately: on a shared CI runner the same code answered with a p95 of 84 ms in one run and 210 ms in another, and in the slow run the Puma backlog reached the threshold (2) at only 15 visits a second, so the expensive reads were refused and a third of the search, analytics and activity checks failed. A benchmark whose verdict depends on the runner's luck measures the runner. The threshold of 2 is a chosen number, not a measured one; this is the first evidence about it, and it says a slow, shared machine crosses it at light load.
+
 An earlier run of this experiment answered 500 to every request (a pending migration in the test database) and its numbers were thrown away: a load test that does not check its status codes measures a queue.
 
 **The spec caught a bug in the signal itself.** The first version read `Puma.stats_object`, which is not a public reader; the error was rescued (the signal failing must not fail a request), so the shedder would have silently never shed in production. A middleware that fails safe is also a middleware that fails silently, so the default signal now has a test, and `taskapi_puma_backlog` is exported so that "the shedder sees nothing" shows up on a dashboard.
