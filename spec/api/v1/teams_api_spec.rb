@@ -40,7 +40,10 @@ RSpec.describe "Teams API", type: :request do
       security [ { bearer_auth: [] } ]
       consumes "application/json"
       produces "application/json"
-      parameter name: :body, in: :body, schema: { type: :object, properties: { name: { type: :string, maxLength: 100 } }, required: [ :name ] }
+      parameter name: :body, in: :body, schema: {
+        type: :object, properties: { name: { type: :string, maxLength: 100 }, parent_id: { type: :integer, nullable: true, description: "Makes this a sub-team of another team of the organization (not of a sub-team)" } },
+        required: [ :name ]
+      }
 
       response "201", "Created" do
         schema envelope.call(ref.call("Team"))
@@ -80,12 +83,13 @@ RSpec.describe "Teams API", type: :request do
       end
     end
 
-    patch "Rename a team" do
+    patch "Rename a team, or move it under another team (or out, with a null parent_id)" do
       tags "Teams"
+      description "Moving a team changes who has access to what: its members gain what the new parent was granted and lose what the old one was."
       security [ { bearer_auth: [] } ]
       consumes "application/json"
       produces "application/json"
-      parameter name: :body, in: :body, schema: { type: :object, properties: { name: { type: :string } }, required: [ :name ] }
+      parameter name: :body, in: :body, schema: { type: :object, properties: { name: { type: :string }, parent_id: { type: :integer, nullable: true } } }
 
       response "200", "Renamed" do
         schema envelope.call(ref.call("Team"))

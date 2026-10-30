@@ -8,6 +8,9 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Added
+- **Nested teams.** `parent_id` on `POST|PATCH /api/v1/organizations/{id}/teams` (null to move a team out) and on team responses. A team can have a parent in the same organization; teams nest one
+  level. The members of a sub-team have the project access its parent was granted, on top of its own; a grant to a sub-team reaches only that sub-team. A team with sub-teams cannot be deleted
+  (`422`) or become a sub-team. Moving a team changes who has access to what.
 - **Team maintainers.** Team members have a `role`, `member` (default) or `maintainer`: `POST .../teams/{id}/members` accepts `role` (only owners and admins can add a maintainer),
   and `PATCH .../teams/{id}/members/{member_id}` with `{ "role": ... }` changes it (owners and admins). A maintainer can add and remove the plain members of their own team; the
   role grants no access to any project. Team member responses carry `role`.

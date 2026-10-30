@@ -307,9 +307,10 @@ module OpenapiSchemas
       type: :object,
       properties: {
         id: { type: :integer }, organization_id: { type: :integer }, name: { type: :string },
+        parent_id: { type: :integer, nullable: true, description: "The team this one is a sub-team of. Its members have what the parent was granted, on top of what this team was. Teams nest one level" },
         members_count: { type: :integer, nullable: true }, created_at: { type: :string, format: "date-time" }, updated_at: { type: :string, format: "date-time" }
       },
-      required: %i[id organization_id name]
+      required: %i[id organization_id name parent_id]
     },
     TeamMember: {
       type: :object,

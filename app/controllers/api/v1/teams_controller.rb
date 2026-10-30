@@ -49,7 +49,7 @@ module Api
           scope.select("teams.*", "(SELECT COUNT(*) FROM team_memberships WHERE team_memberships.team_id = teams.id) AS members_count")
         end
 
-        def team_params = params.permit(:name)
+        def team_params = params.permit(:name, :parent_id)
     end
   end
 end

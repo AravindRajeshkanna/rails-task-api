@@ -145,6 +145,77 @@ RSpec.describe "Teams" do
       expect(response).to have_http_status(:created)
     end
 
+    describe "nesting" do
+      let!(:engineering) { create_team("Engineering") }
+
+      it "creates a sub-team, shows its parent, and moves it between parents or out" do
+        api :post, "#{org_path}/teams", { name: "Backend", parent_id: engineering }, as: ada
+        expect(response).to have_http_status(:created)
+        expect(data).to include("name" => "Backend", "parent_id" => engineering)
+        backend = data["id"]
+
+        design = create_team("Design")
+        api :patch, "#{org_path}/teams/#{backend}", { parent_id: design }, as: ada
+        expect(data["parent_id"]).to eq(design)
+        expect(AuditEvent.where(auditable_type: "Team", auditable_id: backend, action: "update").last.audit_changes).to include("parent_id" => [ engineering, design ])
+
+        api :patch, "#{org_path}/teams/#{backend}", { parent_id: nil }, as: ada
+        expect(data["parent_id"]).to be_nil
+      end
+
+      it "refuses a parent that is another organization's, one that does not exist, a sub-team, and itself, in the usual way" do
+        elsewhere = create(:team)
+        api :post, "#{org_path}/teams", { name: "A", parent_id: elsewhere.id }, as: ada
+        foreign = [ response.status, error["details"] ]
+        api :post, "#{org_path}/teams", { name: "A", parent_id: 0 }, as: ada
+        expect([ response.status, error["details"] ]).to eq(foreign)
+        expect(foreign).to eq([ 422, { "parent" => [ "must be another team of this organization" ] } ])
+
+        api :post, "#{org_path}/teams", { name: "Backend", parent_id: engineering }, as: ada
+        backend = data["id"]
+        api :post, "#{org_path}/teams", { name: "Deep", parent_id: backend }, as: ada
+        expect(error["details"]["parent"]).to eq([ "cannot be a sub-team: teams nest one level" ])
+        api :patch, "#{org_path}/teams/#{engineering}", { parent_id: engineering }, as: ada
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(Team.where(name: "A")).to be_empty
+      end
+
+      it "cannot be deleted while it has sub-teams, and can once they are gone" do
+        api :post, "#{org_path}/teams", { name: "Backend", parent_id: engineering }, as: ada
+        backend = data["id"]
+
+        api :delete, "#{org_path}/teams/#{engineering}", as: ada
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(Team.exists?(engineering)).to be(true)
+
+        api :delete, "#{org_path}/teams/#{backend}", as: ada
+        api :delete, "#{org_path}/teams/#{engineering}", as: ada
+        expect(response).to have_http_status(:no_content)
+      end
+
+      it "lets a project granted to the parent be worked on by the sub-team's members, and by nobody the grant does not reach" do
+        api :post, "#{org_path}/teams", { name: "Backend", parent_id: engineering }, as: ada
+        backend = data["id"]
+        frontend_only = create_team("Support")
+        api :post, "#{org_path}/teams/#{backend}/members", { user_id: grace.id }, as: ada
+        api :post, "#{org_path}/teams/#{frontend_only}/members", { user_id: linus.id }, as: ada
+        project = create(:project, owner: ada, organization: organization)
+        task = create(:task, project: project, creator: ada)
+
+        api :get, "/api/v1/tasks/#{task.id}", as: grace
+        expect(response).to have_http_status(:not_found)
+
+        api :post, "/api/v1/projects/#{project.id}/teams", { team_id: engineering }, as: ada
+        api :get, "/api/v1/tasks/#{task.id}", as: grace
+        expect(response).to have_http_status(:ok)
+        api :patch, "/api/v1/tasks/#{task.id}", { assignee_id: grace.id }, as: ada # she can also be given work
+        expect(response).to have_http_status(:ok)
+
+        api :get, "/api/v1/tasks/#{task.id}", as: linus
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+
     it "is invisible to outsiders, and another organization's team is a 404 under this one" do
       team_id = create_team
       elsewhere = create(:team)

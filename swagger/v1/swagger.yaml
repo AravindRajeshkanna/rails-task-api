@@ -822,6 +822,11 @@ components:
           type: integer
         name:
           type: string
+        parent_id:
+          type: integer
+          nullable: true
+          description: The team this one is a sub-team of. Its members have what the
+            parent was granted, on top of what this team was. Teams nest one level
         members_count:
           type: integer
           nullable: true
@@ -835,6 +840,7 @@ components:
       - id
       - organization_id
       - name
+      - parent_id
     TeamMember:
       type: object
       properties:
@@ -3970,6 +3976,11 @@ paths:
                 name:
                   type: string
                   maxLength: 100
+                parent_id:
+                  type: integer
+                  nullable: true
+                  description: Makes this a sub-team of another team of the organization
+                    (not of a sub-team)
               required:
               - name
   "/api/v1/organizations/{organization_id}/teams/{id}":
@@ -4003,9 +4014,11 @@ paths:
                 required:
                 - data
     patch:
-      summary: Rename a team
+      summary: Rename a team, or move it under another team (or out, with a null parent_id)
       tags:
       - Teams
+      description: 'Moving a team changes who has access to what: its members gain
+        what the new parent was granted and lose what the old one was.'
       security:
       - bearer_auth: []
       parameters: []
@@ -4029,8 +4042,9 @@ paths:
               properties:
                 name:
                   type: string
-              required:
-              - name
+                parent_id:
+                  type: integer
+                  nullable: true
     delete:
       summary: Delete a team
       tags:
