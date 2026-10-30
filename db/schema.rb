@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_31_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_31_100000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -296,7 +296,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_31_090000) do
     t.index ["project_id", "status"], name: "index_tasks_on_project_id_and_status"
     t.index ["project_id"], name: "index_tasks_on_project_id"
     t.index ["search_vector"], name: "index_tasks_on_search_vector", using: :gin
-    t.index ["title"], name: "index_tasks_on_title", opclass: :gin_trgm_ops, using: :gin
     t.check_constraint "char_length(btrim(title::text)) > 0", name: "tasks_title_present"
     t.check_constraint "comments_count >= 0 AND lock_version >= 0", name: "tasks_counters_non_negative"
     t.check_constraint "priority = ANY (ARRAY[0, 1, 2, 3])", name: "tasks_priority_valid"
