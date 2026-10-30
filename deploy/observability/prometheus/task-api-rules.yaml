@@ -69,6 +69,15 @@ spec:
             description: "Jobs (emails, webhooks, embeddings) are not being picked up."
             runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/queue-backlog.md
 
+        - alert: TaskApiEventOutboxStuck
+          expr: max(taskapi_outbox_oldest_pending_event_age_seconds) > 300
+          for: 5m
+          labels: { severity: page }
+          annotations:
+            summary: "The oldest unpublished event is {{ $value | humanizeDuration }} old"
+            description: "Changes are not reaching the other services (email, Slack). Nothing is lost: events wait in the outbox."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/event-outbox.md
+
         - alert: TaskApiNoWorkers
           expr: max(taskapi_queue_workers) == 0 and taskapi:queue_ready_jobs:total > 0
           for: 5m

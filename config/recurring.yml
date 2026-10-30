@@ -5,6 +5,15 @@ production:
     command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
     schedule: every hour at minute 12
 
+  # Sends outbox events to SNS. Normally woken right after a commit; this finds anything a wake-up missed.
+  outbox_relay:
+    class: OutboxRelayJob
+    schedule: every minute
+
+  prune_outbox:
+    class: PurgeOutboxJob
+    schedule: every day at 4:30am
+
   due_soon_reminders:
     class: DueSoonRemindersJob
     schedule: every day at 8am
@@ -12,6 +21,15 @@ production:
   purge_discarded_records:
     class: PurgeDiscardedJob
     schedule: every day at 3am
+
+  prune_notifications:
+    class: PurgeNotificationsJob
+    schedule: every day at 3:30am
+
+  # No-op unless DEMO_MODE=true (the public demo): wipes and reloads its data.
+  reset_demo:
+    class: ResetDemoJob
+    schedule: every day at 5am
 
   prune_expired_sessions:
     command: "Session.expired.delete_all"

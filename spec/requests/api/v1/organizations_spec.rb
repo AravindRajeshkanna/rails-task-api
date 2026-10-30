@@ -12,8 +12,14 @@ RSpec.describe "Organizations" do
     data.fetch("id")
   end
 
+  # How people join: an admin invites the address, the invitee redeems the mailed token. The token is
+  # rendered into the email, so the spec asks the invitation for one the way the mailer does.
   def add_member(org_id, user, role: nil, as:)
-    api :post, "/api/v1/organizations/#{org_id}/members", { email_address: user.email_address, role: role }.compact, as: as
+    api :post, "/api/v1/organizations/#{org_id}/invitations", { email_address: user.email_address, role: role }.compact, as: as
+    return unless response.status == 201
+
+    token = OrganizationInvitation.find(data.fetch("id")).generate_token_for(:acceptance)
+    api :post, "/api/v1/invitations/accept", { token: token }, as: user
   end
 
   describe "the whole lifecycle" do
@@ -24,9 +30,11 @@ RSpec.describe "Organizations" do
       # Ada adds Grace as an admin and Linus as a plain member.
       add_member(org_id, grace, role: "admin", as: ada)
       expect(response).to have_http_status(:created)
-      expect(data).to include("role" => "admin", "user" => { "id" => grace.id, "name" => "Grace" })
+      expect(data).to include("name" => "Acme", "role" => "admin")
       add_member(org_id, linus, as: ada)
       expect(data["role"]).to eq("member")
+      api :get, "/api/v1/organizations/#{org_id}/members", as: ada
+      expect(data.map { _1.dig("user", "name") }).to contain_exactly("Ada", "Grace", "Linus")
 
       # Linus creates a project in the organization. He is its owner and admin; nobody else is a member of it.
       api :post, "/api/v1/projects", { name: "Relaunch", organization_id: org_id }, as: linus
@@ -88,7 +96,7 @@ RSpec.describe "Organizations" do
       expect(data.sole["role"]).to eq("member")
     end
 
-    it "lets an admin add plain members but not other admins" do
+    it "lets an admin invite plain members but not other admins" do
       newcomer = create(:user)
 
       add_member(org_id, newcomer, role: "admin", as: grace)
@@ -162,6 +170,20 @@ RSpec.describe "Organizations" do
 
       expect(response).to have_http_status(:not_found)
       expect(Project.where(name: "Sneaky")).not_to exist
+    end
+
+    it "answers the same for an unknown address as for a registered stranger when adding to its project" do
+      org_id = create_organization(as: ada)
+      api :post, "/api/v1/projects", { name: "Private", organization_id: org_id }, as: ada
+      project_id = data.fetch("id")
+
+      api :post, "/api/v1/projects/#{project_id}/memberships", { email_address: stranger.email_address }, as: ada
+      registered = [ response.status, error["code"], error["details"] ]
+      api :post, "/api/v1/projects/#{project_id}/memberships", { email_address: "nobody@example.com" }, as: ada
+      unknown = [ response.status, error["code"], error["details"] ]
+
+      expect(registered).to eq([ 422, "validation_failed", { "user" => [ "must be a member of the project's organization" ] } ])
+      expect(unknown).to eq(registered)
     end
 
     it "cannot be moved into (or out of) an organization afterwards" do

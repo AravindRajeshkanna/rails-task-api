@@ -3,7 +3,7 @@
 #   * Anomaly-detection alarms learn each metric's normal daily/weekly shape, so "latency is unusual for a
 #     Tuesday morning" fires without hand-tuned thresholds. Static alarms back them up where a hard limit exists.
 #   * Metrics come from the ALB, SQS and Aurora (AWS-native) and from the app's CloudWatch EMF log lines
-#     (namespace TaskApi: QueueDepth, OldestJobAgeSeconds, FailedJobs; see PublishQueueMetricsJob).
+#     (namespace TaskApi: QueueDepth, OldestJobAgeSeconds, FailedJobs, OutboxOldestAgeSeconds; see PublishQueueMetricsJob).
 # Amazon Lookout for Metrics, which the roadmap names, was discontinued by AWS in October 2025;
 # CloudWatch anomaly detection is its replacement here (docs/decisions.md).
 
@@ -298,7 +298,7 @@ resource "aws_cloudwatch_metric_alarm" "queue_depth_anomaly" {
       metric_name = "QueueDepth"
       period      = 60
       stat        = "Maximum"
-      dimensions  = { Environment = var.environment }
+      dimensions  = { Environment = local.app_env }
     }
   }
   metric_query {
@@ -314,7 +314,7 @@ resource "aws_cloudwatch_metric_alarm" "queue_backlog" {
   alarm_description   = "More than ${var.queue_depth_alarm_threshold} jobs waiting. Runbook: docs/runbooks/queue-backlog.md"
   namespace           = "TaskApi"
   metric_name         = "QueueDepth"
-  dimensions          = { Environment = var.environment }
+  dimensions          = { Environment = local.app_env }
   statistic           = "Maximum"
   period              = 60
   evaluation_periods  = 10
@@ -331,7 +331,24 @@ resource "aws_cloudwatch_metric_alarm" "queue_latency" {
   alarm_description   = "The oldest waiting job is over 5 minutes old: workers are not keeping up or are not running. Runbook: docs/runbooks/queue-backlog.md"
   namespace           = "TaskApi"
   metric_name         = "OldestJobAgeSeconds"
-  dimensions          = { Environment = var.environment }
+  dimensions          = { Environment = local.app_env }
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 5
+  datapoints_to_alarm = 5
+  threshold           = 300
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_actions
+  ok_actions          = local.alarm_actions
+}
+
+resource "aws_cloudwatch_metric_alarm" "outbox_stuck" {
+  alarm_name          = "${local.name}-event-outbox-stuck"
+  alarm_description   = "An event has waited over 5 minutes to be published to SNS: the other services are not hearing about changes. Nothing is lost (it is in the outbox). Runbook: docs/runbooks/event-outbox.md"
+  namespace           = "TaskApi"
+  metric_name         = "OutboxOldestAgeSeconds"
+  dimensions          = { Environment = local.app_env }
   statistic           = "Maximum"
   period              = 60
   evaluation_periods  = 5
@@ -348,7 +365,7 @@ resource "aws_cloudwatch_metric_alarm" "failed_jobs" {
   alarm_description   = "Jobs have exhausted their retries and need a human."
   namespace           = "TaskApi"
   metric_name         = "FailedJobs"
-  dimensions          = { Environment = var.environment }
+  dimensions          = { Environment = local.app_env }
   statistic           = "Maximum"
   period              = 300
   evaluation_periods  = 6
@@ -418,8 +435,8 @@ resource "aws_cloudwatch_dashboard" "overview" {
           properties = {
             title = "Job backlog and queue latency", region = var.region, period = 60, stat = "Maximum"
             metrics = [
-              ["TaskApi", "QueueDepth", "Environment", var.environment],
-              ["TaskApi", "OldestJobAgeSeconds", "Environment", var.environment, { yAxis = "right" }]
+              ["TaskApi", "QueueDepth", "Environment", local.app_env],
+              ["TaskApi", "OldestJobAgeSeconds", "Environment", local.app_env, { yAxis = "right" }]
             ]
           }
         },

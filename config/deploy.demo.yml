@@ -1,0 +1,41 @@
+# Kamal destination for the PUBLIC DEMO: a separate small server, a separate database, and DEMO_MODE=true
+# (sign-up, uploads, webhooks, password reset, invitations and AI are refused; the data is wiped and reloaded
+# every night). Read docs/demo.md first; this file only changes what differs from config/deploy.yml.
+#
+#   bin/kamal setup  -d demo      # first time
+#   bin/kamal deploy -d demo
+#   bin/kamal app exec -d demo --reuse "DEMO_MODE=true bin/rails demo:reset"    # load the demo data now, instead of at 5am
+#
+# Replace every CHANGE_ME_DEMO_*. NEVER point this at a server or database that holds real data: the nightly reset EMPTIES it.
+
+service: task_api_demo
+image: CHANGE_ME/task_api
+
+servers:
+  web:
+    - CHANGE_ME_DEMO_SERVER_IP
+
+proxy:
+  ssl: true
+  host: CHANGE_ME_DEMO_API_DOMAIN # e.g. demo-api.example.com
+
+env:
+  clear:
+    DEMO_MODE: true
+    DB_HOST: task_api_demo-db
+    APP_BASE_URL: https://CHANGE_ME_DEMO_API_DOMAIN
+    ALLOWED_HOSTS: CHANGE_ME_DEMO_API_DOMAIN
+    FRONTEND_URL: https://CHANGE_ME_DEMO_APP_DOMAIN
+    CORS_ORIGINS: https://CHANGE_ME_DEMO_APP_DOMAIN
+    MAIL_FROM: Task API demo <no-reply@CHANGE_ME_DEMO_API_DOMAIN>
+
+volumes:
+  - "task_api_demo_storage:/rails/storage"
+
+accessories:
+  db:
+    host: CHANGE_ME_DEMO_SERVER_IP
+    env:
+      clear:
+        POSTGRES_USER: task_api
+        POSTGRES_DB: task_api_production

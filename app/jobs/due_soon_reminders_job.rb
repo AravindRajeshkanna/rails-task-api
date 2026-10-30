@@ -12,6 +12,9 @@ class DueSoonRemindersJob < ApplicationJob
         .where(project_id: Project.kept.select(:id))
         .includes(:assignee, :project)
         .find_each do |task|
+      # A fixed id per task and due date: running the job twice records each reminder once.
+      Events::Outbox.record("task.due_soon", subject: task, project_id: task.project_id,
+                                              id: Digest::UUID.uuid_v5(Digest::UUID::URL_NAMESPACE, "task-api/due_soon/#{task.id}/#{task.due_on}"))
       Rails.event.notify("task.due_soon", subject: task.to_global_id.to_s, project_id: task.project_id)
       TaskMailer.due_soon(task).deliver_later if Rails.configuration.x.notifications.mode == "local"
     end

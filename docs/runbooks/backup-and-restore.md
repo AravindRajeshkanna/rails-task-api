@@ -14,7 +14,7 @@ recovery; recovery time objective (how long to be back) **under an hour**, which
 | Encryption | At rest (`storage_encrypted`); TLS required | Depends on the host's disk; encrypt the backup (below) |
 | Final snapshot on delete | Prod only (`skip_final_snapshot = !is_prod`) | n/a |
 | Accidental deletion | Prod has `deletion_protection` on | The `postgres_data` Docker volume |
-| Cross-region copy | Not configured (see the roadmap's multi-region note) | Copy the dumps off the host |
+| Cross-region copy | Not configured; the cheap first step of [the multi-region plan](../aws/multi-region.md#before-building-it) | Copy the dumps off the host |
 
 Backups protect against deleting or corrupting data, not against everything: a `DELETE` that you notice a day later is recoverable
 from point-in-time recovery **only into a new cluster**, from which you copy the rows back. Plan for that, not for an in-place undo.

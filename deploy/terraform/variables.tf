@@ -12,6 +12,45 @@ variable "region" {
   default = "us-east-1"
 }
 
+# --- Multi-region (docs/aws/multi-region.md) ---
+variable "dr_role" {
+  description = "How this stack takes part in a two-region pair. none: a single region (the default; nothing below applies). primary: the active region, which replicates its data to the standby. secondary: the warm standby in another region, built from this same code in its own state. It describes how the stack was built, not which side is serving traffic after a failover."
+  type        = string
+  default     = "none"
+  validation {
+    condition     = contains(["none", "primary", "secondary"], var.dr_role)
+    error_message = "dr_role must be none, primary or secondary."
+  }
+}
+
+variable "peer_region" {
+  description = "The other region of the pair: the standby's for a primary, the primary's for a secondary. Required unless dr_role is none."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.dr_role == "none" || (var.peer_region != "" && var.peer_region != var.region)
+    error_message = "When dr_role is primary or secondary, peer_region must name a region other than this stack's own."
+  }
+}
+
+variable "peer_ready" {
+  description = "Set true once the OTHER stack exists. For the primary: the standby's bucket and load balancer exist, which turns on S3 replication to it and the DNS failover records. For the standby: the primary's bucket exists, which turns on replication back for failback. Leave false on the first apply."
+  type        = bool
+  default     = false
+}
+
+variable "db_engine_version" {
+  description = "Pin the Aurora PostgreSQL version (for example 17.5). Empty takes the latest 17.x, which is right for a single region. The members of a global database must match, so set the standby to the primary's (terraform output database_engine_version)."
+  type        = string
+  default     = ""
+}
+
+variable "dr_s3_replication_time_control" {
+  description = "S3 Replication Time Control: replicates 99.99% of objects within 15 minutes, with metrics and an SLA, for an extra per-GB fee. False replicates on a best-effort basis (usually seconds, no guarantee)."
+  type        = bool
+  default     = true
+}
+
 # --- DNS and TLS ---
 variable "root_domain" {
   description = "A Route 53 public hosted zone you already own, e.g. example.com."

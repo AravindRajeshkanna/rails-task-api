@@ -1,0 +1,106 @@
+name: Load test
+
+# Builds an ephemeral production-mode environment on the runner (a PostgreSQL service, ~150,000 seeded tasks, the
+# app on localhost), runs the k6 script against it and fails if any threshold in loadtest/k6/api.js is breached.
+# Nightly, on demand, and on pull requests that change the load test itself. See loadtest/README.md.
+
+on:
+  schedule:
+    - cron: "17 2 * * *" # nightly, off the hour so it does not queue with everyone else's
+  workflow_dispatch:
+    inputs:
+      rate:
+        description: "Visits per second"
+        default: "15"
+      duration:
+        description: "How long to hold that rate"
+        default: "90s"
+  pull_request:
+    paths:
+      - "loadtest/**"
+      - "lib/tasks/loadtest.rake"
+      - ".github/workflows/loadtest.yml"
+
+concurrency:
+  group: loadtest-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write # only to open an issue when the nightly run fails
+
+jobs:
+  k6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: --health-cmd="pg_isready" --health-interval=10s --health-timeout=5s --health-retries=5
+
+    env:
+      CI: true
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      # A pull request only needs to prove the harness works; the nightly run holds the real rate for longer.
+      RATE: ${{ inputs.rate || (github.event_name == 'pull_request' && '10' || '15') }}
+      DURATION: ${{ inputs.duration || (github.event_name == 'pull_request' && '30s' || '90s') }}
+
+    steps:
+      - name: Install packages
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpq-dev libvips
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Set up k6
+        uses: grafana/setup-k6-action@v1
+
+      # A shared runner is sometimes ten times slower than it was last night (seen: every endpoint, including the trivial ones).
+      # So a breach is checked once more on a fresh environment; two in a row are a finding, one is probably the runner.
+      - name: Seed, boot, load test
+        run: |
+          loadtest/ci.sh || {
+            echo "::warning::The load test breached a threshold; running it once more to rule out a noisy runner."
+            loadtest/ci.sh
+          }
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loadtest-results
+          path: |
+            tmp/loadtest/summary.json
+            tmp/loadtest/report.md
+            tmp/loadtest/k6.log
+            tmp/loadtest/server.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Open or update the tracking issue (nightly only)
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly load test is failing"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body="The nightly load test failed: a latency or error threshold in \`loadtest/k6/api.js\` was breached, or the run itself broke. Report and logs: $run_url (artifact \`loadtest-results\`). What the numbers mean: docs/performance.md."
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "Failed again: $run_url"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

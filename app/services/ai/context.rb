@@ -10,7 +10,7 @@ module Ai
     def clip(text, max) = text.to_s.squish.truncate(max, omission: "…")
 
     def members(project)
-      project.memberships.includes(:user).limit(100).map { |membership| { id: membership.user_id, name: membership.user.name } }
+      project.participants.order(:id).limit(100).map { |user| { id: user.id, name: user.name } }
     end
 
     def tag_names(project) = project.tags.order(:name).limit(200).pluck(:name)

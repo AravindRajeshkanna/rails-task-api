@@ -1,7 +1,6 @@
-# Managing who is in an organization. +record+ is an OrganizationMembership (an existing one, or a
-# new one built from the request, with the role being granted).
+# Managing who is in an organization. +record+ is an OrganizationMembership. People join through an
+# invitation (OrganizationInvitationPolicy), so there is nothing to authorize about adding them here.
 #
-#   add     owners grant any role; admins add plain members
 #   change  owners only (admins cannot promote themselves or each other)
 #   remove  owners remove anyone; admins remove plain members; anyone can leave
 class OrganizationMembershipPolicy < ApplicationPolicy
@@ -12,10 +11,6 @@ class OrganizationMembershipPolicy < ApplicationPolicy
   end
 
   def index? = actor_role.present?
-
-  def create?
-    actor_role == "owner" || (actor_role == "admin" && record.member?)
-  end
 
   def update? = actor_role == "owner"
 

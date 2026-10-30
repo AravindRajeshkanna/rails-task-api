@@ -181,6 +181,15 @@ RSpec.describe "Projects" do
       expect(response).to have_http_status(:unprocessable_content)
     end
 
+    it "throttles adding people, so the endpoint cannot be used to probe addresses at speed" do
+      allow(Rails.cache).to receive(:increment).and_return(61)
+
+      api :post, "/api/v1/projects/#{project.id}/memberships", { email_address: newcomer.email_address }, as: admin
+
+      expect(response).to have_http_status(:too_many_requests)
+      expect(project.members).not_to include(newcomer)
+    end
+
     it "forbids members from adding people" do
       api :post, "/api/v1/projects/#{project.id}/memberships", { email_address: newcomer.email_address }, as: member
 

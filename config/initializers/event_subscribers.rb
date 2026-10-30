@@ -10,10 +10,11 @@ Rails.application.config.after_initialize do
 
   Rails.event.subscribe(Events::MetricsSubscriber.new)
 
-  # Publish domain events for the other services when a topic is configured (EVENTS_SNS_TOPIC_ARN).
-  if Rails.configuration.x.events.sns_topic_arn.present?
-    Rails.event.subscribe(Events::SnsSubscriber.new) { |event| event[:name].match?(/\A(task|project|comment)\./) }
-  end
+  # Events for the other services do not go through here: they are written to the transactional outbox, inside
+  # the transaction of the change, and sent by OutboxRelayJob (see Events::Outbox).
+
+  # The in-app inbox, fed by the events people should hear about.
+  Rails.event.subscribe(Events::InboxSubscriber.new) { |event| Events::InboxSubscriber::HANDLED.include?(event[:name]) }
 
   Rails.event.subscribe(Events::BroadcastSubscriber.new) do |event|
     event[:name].start_with?("task.", "comment.", "project.")

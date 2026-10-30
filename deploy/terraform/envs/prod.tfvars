@@ -16,3 +16,11 @@ api_public_access_cidrs = ["203.0.113.0/24"] # your VPN / office: the Kubernetes
 alert_emails            = ["oncall@example.com"]
 monthly_budget_usd      = 2000
 remediation_dry_run     = true
+
+# --- Multi-region (docs/aws/multi-region.md): uncomment to make this stack the primary of a pair, in this order ---
+# 1. dr_role = "primary", peer_region = "us-west-2"          apply: joins the database to a global cluster, replicates secrets and images
+# 2. build the standby (envs/prod-dr.tfvars) and let its load balancer appear
+# 3. peer_ready = true                                       apply: S3 replication and the DNS failover records
+# dr_role     = "primary"
+# peer_region = "us-west-2"
+# peer_ready  = false

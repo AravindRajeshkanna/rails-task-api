@@ -233,7 +233,7 @@ Services publish CloudEvents 1.0 to one SNS topic; each consumer owns a queue (w
 a filter on the event type. Delivery is at-least-once, so consumers deduplicate on the event id in the same transaction
 as their work. Notification events carry everything a message needs, so the consumer never calls back. Publishing
 goes through a background job with retries (not inside the request transaction); a transactional outbox is the next
-step if an event must never be lost across a database commit and an SNS outage.
+step if an event must never be lost across a database commit and an SNS outage (done: [ADR 41](decisions.md)).
 
 ## 24. EKS Pod Identity, not IRSA
 
@@ -263,7 +263,7 @@ two named objects, and a **dry run until explicitly enabled**. Neither can be tr
 
 ## 28. What was left out on purpose
 
-- **GraphQL**, a **public demo**, and an actual **deploy**: the roadmap's Phase 7 items were out of scope; deployment is
+- **GraphQL**, a **public demo**, and an actual **deploy**: the roadmap's Phase 7 items were out of scope then (GraphQL and a demo mode came later, [ADR 43](decisions.md) and [44](decisions.md)); deployment is
   yours to run from the guide.
 - **Service mesh** (Istio/App Mesh): mTLS and traffic policy are not needed for five services behind NetworkPolicies and
   signed tokens; App Mesh is also being retired by AWS. Revisit past ~10 services.
@@ -345,5 +345,199 @@ Rules that keep the boundary meaningful: a project's organization is fixed at cr
 tenant line); a project of an organization only accepts members of that organization (a model validation, so only a bulk insert that skips
 validations gets past it); removing someone from the organization removes their project memberships there and is refused while they still
 own one of its projects; the organization keeps at least one owner (changes to owners take a row lock on the organization, so two owners cannot leave at the same moment) and cannot be deleted while it has projects; only owners delete and
-restore its projects and grant roles above `member`. **Teams** (sub-groups inside an organization) are not built; they would be a
-second kind of principal on projects and are the next step if per-team access is needed ([roadmap](roadmap.md)).
+restore its projects and grant roles above `member`. **Teams** (sub-groups inside an organization) were added later: [ADR 37](decisions.md).
+
+## 35. Joining an organization by invitation, with a signed token and no stored secret
+
+Adding a member by typing the email of an existing user tells the administrator whether that address is registered: `404` for an unknown
+one, `201` or `422` for a known one. The fix is to stop answering the question. An *invitation* is addressed to an email address, not to a
+user: the administrator gets the same `201` whichever it is, the address receives a link, and the only way to become a member is to present
+that link while signed in as that address.
+
+Mechanics that were chosen: the token is Rails' `generates_token_for` (signed, expires with the invitation, and bound to the row's accepted
+and revoked state), so there is no token column to leak, no digest to compare, and the job queue never holds a secret: the mailer renders the
+token when it runs, and a resend simply renders a fresh one. Redeeming requires the token *and* that the signed-in user's address matches the
+invitation, because an unverified sign-up can claim any address and a forwarded mail should not be a way in; every failure (unknown, expired,
+used, revoked, someone else's) is one `404`, so the endpoint reveals nothing about which invitations exist. One open invitation per address and
+organization is a partial unique index; inviting again refreshes it, which makes "resend" and "change the role" the same call. Both ends are
+throttled, because inviting is a way to make this server send mail to strangers, and redeeming is a way to guess tokens.
+
+What was not done: the direct "add by email" to a *personal* project (no organization) is unchanged, because it is the original contract and
+inviting people to a personal project is a different feature; inside an organization's project the answer for an unknown address now equals
+the answer for a registered stranger. The remaining differences are listed under "Known gaps" in [security.md](security.md).
+
+## 36. Organization history lives in the audit log, with its own key
+
+Project and task changes already went to `audit_events`, found by `project_id`. Organization changes (a rename, an invitation, someone joining,
+a role change, a removal) belong to no project, so the table gets a second optional key, `organization_id`, rather than a second table: the
+append-only guarantee, the actor, the `[old, new]` change format and the pagination are all reused, and `Auditable` only learned two things
+(`audit_organization_id`, and an opt-in `audit_destruction`). A member leaving is the event this history exists for, so deletions are
+recorded for organization memberships and, since it was the same gap, project memberships; a record destroyed *as part of* a cascade (an
+organization or a project being deleted, a user being deleted) writes nothing, because its trail is being unlinked in the same transaction and
+the rows would point at nothing. The history is for **owners**, not admins: it names who promoted whom and holds the invited addresses, and
+relaxing that later is a one-line policy change whereas tightening it is a breaking one. The activity feed is unaffected: it reads events through
+projects, and these have none. The migration is the zero-downtime shape from the migrations runbook (nullable column, `NOT VALID` key
+validated next, concurrent partial index, since nearly every row belongs to a project).
+
+## 37. Teams: a second way into a project, resolved in the same two places
+
+A team is a named set of an organization's members, and a *grant* (`ProjectTeam`) gives all of them a role in one project. The alternative was
+copying the team into project memberships and keeping the copies in sync, which is the design ADR 34 rejected for organization admins, for the
+same reason: copies drift, and a missed callback leaves a former team member with access. So a grant is data of its own, and access is *derived*
+where it is already decided: `ProjectPolicy::Scope` (one more grouped join that yields at most one row per project, so lists never duplicate),
+`member_project_ids` (which every child resource scopes through, so tasks, comments, tags, webhooks and the channel followed without changes) and
+`role_in` (the per-record lookup). The role is the **highest** of a person's routes in. That rule exposed a latent inconsistency, which is fixed:
+the per-record lookup used to take the first route that answered, so an organization admin who was also a plain project member was an admin in
+lists and a member on a single project. `project_policy_team_spec` now asserts both lookups agree for every combination.
+
+Rules that keep it sound: a team belongs to one organization and its members must be in that organization (validated when added, and ended
+by `OrganizationMembership` whenever someone leaves, by any route, since a team membership outliving the organization membership would be a back
+door); only a project of the team's own organization can be granted, and a project's organization never changes; names are unique per
+organization ignoring case (a unique index on `lower(name)`); teams are managed by organization owners and admins, and a project's admins grant
+them. Adding to a team is by `user_id`, and a user outside the organization gets the same `422` as an id that matches nobody, so teams add no
+way to learn who is registered; the same goes for granting a team from another organization. **Participants** (direct members plus team members)
+are who a task can be assigned to and who the AI assignee suggestions rank, because a team that can see a project but cannot be given work in it
+would be a trap. Measured on the 149,000-task database: the whale project's task page costs the same with the extra branch (0.7 ms against 0.8 ms).
+
+What teams are not: they have no roles of their own, cannot nest, and cannot be granted to a personal project (a project without an organization has no
+teams to grant). Projects of an organization still cannot be given to a person outside it, with or without a team.
+
+## 38. Full-text search: a stored `tsvector`, ranked, next to (not instead of) substring search
+
+Substring search (`?q=`) cannot use an index for the description, matches letters rather than words, and cannot rank. Full-text search is
+`websearch_to_tsquery` against a `tsvector` that PostgreSQL maintains itself: a **stored generated column** over title (weight A) and
+description (weight B), indexed with GIN. A generated column rather than a trigger or a callback, because it is correct for every write including
+bulk inserts and never drifts, and it is visible in `schema.rb`. The price is that adding it rewrites the table under a lock (3.7 s for 149,000
+rows), so that migration is the one marked `safety_assured`, with the measurement beside it and the alternative in the migrations runbook.
+`websearch_to_tsquery` because it accepts anything a person types (quotes, `or`, `-`) and never raises a syntax error. The language is fixed to
+English in the expression; supporting more would mean a language column and a new vector.
+
+`q` keeps its meaning: it is a documented contract, and substring is still the right tool for fragments like part of an id or a code. The new
+behavior is `search=` on a project's task list and `GET /search` across every project the caller can see. Results come only through
+`policy_scope(Task)`, so team and organization access apply and nothing else leaks; the ranking SQL is built with Arel from a quoted value,
+the highlight SQL from sanitized fragments, and the term is capped at 200 characters. Highlights are **plain text with « » around matches**,
+never HTML: there is nothing to inject, and clients escape fields like any other.
+
+What it is not: no stemming for languages other than English, no typo tolerance or synonyms (that is a search engine's job), nothing for comments
+or attachments, and a broad term in a very large project costs about 20 ms because every match is scored ([performance.md](performance.md)).
+
+## 39. The in-app inbox lives in the monolith, fed by the same events, independent of email
+
+Email and Slack are delivery: stateless, at-least-once, deduplicated by event id, which is why the Notification service owns them. An inbox is
+*state*: one row per person per event, with read/unread, listed and counted on every page load. It belongs next to the data it points at (the
+task, its project, the access rules that decide who may still see it), and putting it in the Notification service would mean that service
+re-implementing project visibility or calling back into the monolith, which ADR 23 deliberately designs out (events carry everything, consumers never call back). So the monolith writes it, from the domain events it
+already emits (`task.assigned`, `task.due_soon`, `task.completed`, plus `comment.created`), through one more `Rails.event` subscriber. That keeps it
+working in `NOTIFICATIONS_MODE=local` and `remote` alike, and means a single-host Kamal deployment has an inbox too; email stays on its own switch.
+
+Decisions that matter: **nobody is told about their own action**, and the recipient must be able to see the project *when the event happens*;
+afterwards the policy scope hides notifications of a project you have left or that is archived, so the inbox never outlives the access. Each
+notification carries a snapshot of the task title, project name and (clipped) comment, so listing is one indexed query with no joins to tasks and
+an old item still reads sensibly (what it points at may since have been renamed). Reminders have a unique `dedupe_key` per person, task and due date,
+so re-running the daily job cannot double-notify. Foreign keys cascade, so purging a deleted task or project, or deleting a user, needs no callback.
+Read items are pruned after 30 days and unread after 180 (`PurgeNotificationsJob`), which bounds the table. New items are pushed to the person's
+own Action Cable stream. Measured on 300,000 rows over 500 users: first page 0.8 ms, unread count 0.5 ms (a partial index on `read_at IS NULL`).
+
+Not built: per-kind preferences or muting, digests, mentions, and counts per project; each is an addition to this table and subscriber rather than a redesign.
+
+## 40. Keyset pagination as an option on the task list, built on Pagy's keyset paginator
+
+Offset pagination is simple, gives a total, and is the default everywhere. Its cost is linear in the offset (13.8 ms at row 49,000 of one project,
+[performance.md](performance.md)) and it repeats or skips rows when others are inserted or removed between requests. Keyset pagination
+(`WHERE (created_at, id) < (cutoff)`) has neither problem and no total. It is offered where lists get long, the task list, as `?cursor=`: the **presence**
+of the parameter selects it (empty for the first page), so existing clients and `page=` are untouched, and `meta` says `next_cursor`/`has_more` instead of
+pretending to a total.
+
+Pagy 43 has a keyset paginator, so this is built on it instead of a hand-rolled cursor. Two of its edges are handled here rather than hidden. Its default
+JSON encoding of a cutoff keeps only milliseconds, which would skip rows that fall between the rounded cutoff and the real one, so values are serialized to
+microseconds (`pre_serialize`) and a spec forces rows a few microseconds apart across a page boundary. And it compares whatever the cursor contains, so the
+cursor is **validated before use** (a list of the right length whose elements have the right types) and anything else is a `400`; the values are bound,
+never interpolated, so a forged cursor can only move the window inside rows the caller was already allowed to see. What it cannot do, the endpoint refuses
+(`400`, saying why): sorts by relevance (an expression), `priority` and `status` (enums, which Pagy would compare as labels against integer columns) and
+`due_on` (nullable). Cursors are not signed and not tied to the query that issued them; using one with other filters gives that other query's page from that
+point, which is the client's choice, not an exposure. The other list endpoints keep offset only, because none can get long enough to matter yet.
+
+## 41. A transactional outbox for the events other services consume
+
+Until now an event was published after commit by enqueuing a job. Two ways to lose one: the process dies between the commit and the enqueue, and an SNS
+outage outlasts the job's retries (it then sits in the failed jobs, which nobody reads). The fix is the standard one: write the event to a table **in the
+same transaction as the change** and publish from the table afterwards. The event then exists if and only if the change committed, and a publisher that
+fails simply tries again later.
+
+How it works: `EventEmitting#queue_event` (and the assignment and reminder paths) call `Events::Outbox.record`, which builds the CloudEvents envelope **at
+that moment** and inserts it into `outbox_events`. A snapshot, because an event that is sent an hour later during an outage should say what happened, not
+how the task looks then (the assignee's email in `task.assigned`, for instance). That forces a rule: the envelope must see everything the save wrote, so
+`Task` queues its events in `after_save` below `has_many_attached` (Active Storage saves attachments in its own `after_save`, after `after_create`), and a spec
+fails if tags or attachments are missing from the snapshot. `OutboxRelayJob` is woken after the commit and swept every minute; it leases a batch of rows
+(`FOR UPDATE SKIP LOCKED` plus a `locked_until`), sends them, and marks them published. A failure keeps the row with its error and backs off exponentially to
+15 minutes; one bad row never holds up the others; a relay that dies loses only its lease. The reminder's id is derived from the task and due date, so re-running
+the daily job is a no-op. Published rows are deleted after a week; pending ones never are.
+
+What it does not do: **order**. SNS standard topics do not order, and the relay's batches and retries reorder further, so consumers use the envelope's `time` and
+the current state, and deduplicate on `id` (the Notification service already did, which is why at-least-once was safe before and still is). **Exactly once**
+is not available over SNS. Webhooks, Action Cable and the inbox stay on the in-process path, because they are local, fast and tolerate a lost message
+(a client reloads); only the cross-service stream earned a table. Cost: one insert and an envelope build per event inside the write transaction, about 2.8 ms
+(the build used to happen right after the commit, so request time is about the same, but row locks are held a little longer). The signal to watch is the age of the
+oldest unpublished event (`taskapi_outbox_oldest_pending_event_age_seconds`, alarm at 5 minutes), because a growing count with a young oldest event is just load.
+
+## 42. Multi-region is designed, not built
+
+> **Superseded in part by [ADR 45](decisions.md):** the Terraform was built afterwards, at the owner's request. The reasoning below for why it was *not* built first still stands, and the caveat (nothing has been applied) is unchanged.
+
+The roadmap listed multi-region as the last item, with the condition "only after a single region has run in anger". That condition still holds: the single-region platform has
+never been applied to an AWS account. A second region built now would be Terraform written for a primary nobody has run, validated only by `terraform validate`, and its first
+real test would be the incident it exists for. Unrun infrastructure is not a smaller version of working infrastructure; it is a liability that looks like an asset (a runbook
+that has never been rehearsed fails in the same ways an untested backup does). So this ships as a **plan and a procedure**: [the design](aws/multi-region.md), [the failover runbook](runbooks/regional-failover.md),
+both explicit that nothing in them has been run.
+
+What the design commits to: active/passive warm standby (active/active would need conflict-free writes that nothing here has), Aurora Global Database for the data with an honest RPO
+of seconds rather than zero, S3/ECR/Secrets Manager replication, a second EKS cluster from the same Terraform root, and a manual (or deliberately gated) failover. What already helps, and
+was built for other reasons: the transactional outbox (unpublished events replicate with the database), idempotent consumers, tokens in the database and keys in Secrets Manager. What would
+change in the code is small (a read-only switch is the one candidate); what would change in Terraform is the bulk, listed in the design. The cheaper alternative, cross-region snapshot copy,
+is named as the first step and as the right answer if an hour of downtime is acceptable. Revisit when a region has run for a few months and the business states an RTO/RPO.
+
+## 43. GraphQL: read-only, authorized by the policy scopes, with hard limits
+
+The roadmap called GraphQL optional "when there is a consumer". There is not one yet; it was built because the cost of the design is low and its risks are knowable, and because the
+alternative (wondering whether it could be done safely) is worse than a small, tested endpoint. The decisions that keep it safe: **read-only**: a mutation type would duplicate every REST write
+and every validation, and the REST API already has the idempotency, locking and audit behavior; clients that need both use both. **Authorization is the policy scope**: a field resolves from `Pundit.policy_scope!`, so the answer to "what
+may this person see" is the one code path REST uses, and a record you cannot see is `null` (REST's 404), indistinguishable from a missing one. There are no `authorized?` hooks per type, because a hook can be forgotten on the next type and a
+scope cannot be skipped by starting from one. **Hard limits** (20 KB, depth 8, 1,500 complexity, page 100, one operation, auth required) because GraphQL lets a client ask for a graph, and an unbounded graph is the standard way to
+take an API down. **No N+1** for people, tags and projects (the dataloader batches them, and a spec fixes the statement count); comments per task are the one honest exception, bounded by complexity. The user type has no
+email field at all (only `Viewer`, i.e. yourself, does), so the only way to leak an address would be to add one.
+
+Versioning follows the REST contract: additive changes only, and the schema is committed (`docs/graphql/schema.graphql`) and compared to the code by a spec so a change cannot slip by unreviewed. It lives under `/api/v1`, so
+it carries the same `API-Version` headers and deprecation story. Not built: mutations, subscriptions (Action Cable already pushes events), persisted queries, a GraphiQL page (the introspection endpoint serves tools that want one).
+
+## 44. A public demo is a mode, a reset and a recipe; hosting is the operator's
+
+A public instance has three problems a private one does not: strangers can create accounts, strangers can use the server's resources for their own ends (mail, storage, outbound HTTP, a paid model), and strangers
+leave a mess. `DEMO_MODE` answers them in the smallest way that keeps the demo honest: refuse, with an explicit list, exactly the routes that send mail, store files, call arbitrary addresses, spend AI budget or create accounts
+(the list is data, checked against the real routes), reset everything every night, and let everything else be the real API. The shared, published password is a decision, not an oversight: a demo that needs sign-up needs an email
+service, and a demo with private accounts needs everything this one deliberately does not have.
+
+Two safeguards against the obvious accident: the reset **refuses to run unless `DEMO_MODE` is on** (so the nightly job and the rake task cannot wipe a real instance, which is what ships in `recurring.yml` for every environment), and the deployment is a Kamal
+*destination* with its own service name, server and database, so it cannot share state with the real deployment by default. What was not done, because it cannot be done from a repository: hosting it, a domain, a front end (there is none here), abuse monitoring beyond rate limits.
+`docs/demo.md` is the recipe.
+
+## 45. Multi-region Terraform: one root module applied twice, and tested offline against mocks
+
+ADR 42 declined to write Terraform for a second region before the first had run. It was written anyway when asked for, so the useful question became how to write it so that its mistakes show up *before* an account does.
+Two decisions follow from that.
+
+**One root module, two states, a `dr_role`.** The alternative, a separate `terraform-dr/` module, would duplicate network, EKS, WAF, messaging and observability and then drift. Instead the standby is this code applied with `dr_role = "secondary"`, `region`, and
+`-dr` on every name (so the account-global names cannot collide), and the few things that differ are `count`s on the role: no secrets, signing key, SES user or deploy role in the standby; a secondary member of the global database with its own
+KMS key; a replication rule in one direction on the primary and in the other on the standby, so failback is a switchover; Route 53 failover records owned by the primary's stack only. Alternatives rejected: **Aurora Global Database vs a
+cross-region read replica**: global is the managed path with a promotion API and typically sub-second lag; **active/active**: nothing here is conflict-free; **automatic database failover**: a wrong automatic promotion loses data, a slow human one loses minutes, and
+only the second can be undone, so DNS fails over by health check but the database and the scale-up stay manual. `dr_role` records how a stack was *built*, never who is *serving*: after a failover the roles swap in AWS and no Terraform change is needed or wanted.
+The standby's state bucket is in the standby's region, because state that lives only in the failed region is state you cannot use during the failure.
+
+**`terraform test` with mocked providers, in CI.** `terraform validate` cannot see most of what this change is about: whether the right resources exist for each role. A test file plans and applies the whole configuration against mocked AWS providers
+(no credentials, nothing created) for a single region, a primary before and after its standby is ready, and a standby, and asserts what each creates, what it is named, and which bucket it replicates to; invalid role combinations must fail validation.
+The tests were mutation-checked (breaking the secrets gating, the load-balancer condition and the replication target each failed the right test). Building them found two defects in the existing single-region code that a real `terraform plan` would have hit: a
+security-group rule description containing an apostrophe, which the AWS provider rejects, and certificate-validation records keyed by values unknown until apply (now keyed by the one domain). What mocks cannot prove: that AWS accepts the settings (global-database engine versions,
+Replication Time Control prerequisites, the ECR creation template), that IAM is sufficient, that timing works. Those are what the first apply and the drill are for, and why every document says *unapplied*.
+
+Adding `count` to resources renames their addresses (`x` to `x[0]`), which for passwords, the signing key and IAM roles would mean destroying and recreating them in any stack applied from an earlier commit; `moved.tf` records the renames so nothing is replaced.
+
+Not done: cross-account pairs (the ECR rule, replication roles and the ACM validation record assume one account), a read-only switch for the promotion window, automating the failover steps, and rendering a second Grafana/Prometheus view across regions.

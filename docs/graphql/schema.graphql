@@ -1,0 +1,488 @@
+type Comment {
+  body: String!
+  createdAt: ISO8601DateTime!
+  id: ID!
+  user: User!
+}
+
+"""
+The connection type for Comment.
+"""
+type CommentConnection {
+  """
+  A list of edges.
+  """
+  edges: [CommentEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Comment]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+}
+
+"""
+An edge in a connection.
+"""
+type CommentEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Comment
+}
+
+"""
+An ISO 8601-encoded date
+"""
+scalar ISO8601Date @specifiedBy(url: "https://tools.ietf.org/html/rfc3339")
+
+"""
+An ISO 8601-encoded datetime
+"""
+scalar ISO8601DateTime @specifiedBy(url: "https://tools.ietf.org/html/rfc3339")
+
+"""
+Represents untyped JSON
+"""
+scalar JSON
+
+type Notification {
+  actor: User
+  createdAt: ISO8601DateTime!
+
+  """
+  A snapshot: task_title, project_name and as relevant due_on and comment_excerpt
+  """
+  data: JSON!
+  id: ID!
+
+  """
+  task.assigned, task.due_soon, task.completed or comment.created
+  """
+  kind: String!
+  projectId: ID!
+  read: Boolean!
+  readAt: ISO8601DateTime
+  taskId: ID!
+}
+
+"""
+The connection type for Notification.
+"""
+type NotificationConnection {
+  """
+  A list of edges.
+  """
+  edges: [NotificationEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Notification]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+}
+
+"""
+An edge in a connection.
+"""
+type NotificationEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Notification
+}
+
+"""
+Information about pagination in a connection.
+"""
+type PageInfo {
+  """
+  When paginating forwards, the cursor to continue.
+  """
+  endCursor: String
+
+  """
+  When paginating forwards, are there more items?
+  """
+  hasNextPage: Boolean!
+
+  """
+  When paginating backwards, are there more items?
+  """
+  hasPreviousPage: Boolean!
+
+  """
+  When paginating backwards, the cursor to continue.
+  """
+  startCursor: String
+}
+
+type Project {
+  createdAt: ISO8601DateTime!
+  description: String
+  id: ID!
+  name: String!
+  organizationId: ID
+  owner: User!
+
+  """
+  The caller's role in the project (admin or member). Null where it was not looked up (a project reached through a task).
+  """
+  role: String
+
+  """
+  Newest first, unless `sort` or `search` says otherwise
+  """
+  tasks(
+    """
+    Returns the elements in the list that come after the specified cursor.
+    """
+    after: String
+
+    """
+    `me`, `unassigned` or a user id
+    """
+    assignee: String
+
+    """
+    Returns the elements in the list that come before the specified cursor.
+    """
+    before: String
+
+    """
+    Returns the first _n_ elements from the list.
+    """
+    first: Int
+
+    """
+    Returns the last _n_ elements from the list.
+    """
+    last: Int
+    overdue: Boolean
+    priority: [TaskPriority!]
+
+    """
+    Full-text; best match first unless `sort` is given
+    """
+    search: String
+
+    """
+    As REST: comma-separated columns, `-` for descending
+    """
+    sort: String
+    status: [TaskStatus!]
+    tag: [String!]
+  ): TaskConnection!
+  updatedAt: ISO8601DateTime!
+}
+
+"""
+The connection type for Project.
+"""
+type ProjectConnection {
+  """
+  A list of edges.
+  """
+  edges: [ProjectEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Project]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+}
+
+"""
+An edge in a connection.
+"""
+type ProjectEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Project
+}
+
+type Query {
+  """
+  The signed-in person
+  """
+  me: Viewer!
+
+  """
+  Your inbox, newest first
+  """
+  notifications(
+    """
+    Returns the elements in the list that come after the specified cursor.
+    """
+    after: String
+
+    """
+    Returns the elements in the list that come before the specified cursor.
+    """
+    before: String
+
+    """
+    Returns the first _n_ elements from the list.
+    """
+    first: Int
+
+    """
+    Returns the last _n_ elements from the list.
+    """
+    last: Int
+    unread: Boolean
+  ): NotificationConnection!
+
+  """
+  Null if it does not exist or you cannot see it
+  """
+  project(id: ID!): Project
+
+  """
+  Projects you belong to (directly, through a team, or by administering their organization), newest first
+  """
+  projects(
+    """
+    Returns the elements in the list that come after the specified cursor.
+    """
+    after: String
+
+    """
+    Returns the elements in the list that come before the specified cursor.
+    """
+    before: String
+
+    """
+    Returns the first _n_ elements from the list.
+    """
+    first: Int
+
+    """
+    Returns the last _n_ elements from the list.
+    """
+    last: Int
+    organizationId: ID
+  ): ProjectConnection!
+
+  """
+  Full-text search of tasks across your projects, best match first
+  """
+  search(
+    """
+    Returns the elements in the list that come after the specified cursor.
+    """
+    after: String
+
+    """
+    Returns the elements in the list that come before the specified cursor.
+    """
+    before: String
+
+    """
+    Returns the first _n_ elements from the list.
+    """
+    first: Int
+
+    """
+    Returns the last _n_ elements from the list.
+    """
+    last: Int
+    projectId: ID
+
+    """
+    Words are stemmed; "quoted phrases", or and -excluded work. At most 200 characters
+    """
+    query: String!
+  ): SearchResultConnection!
+
+  """
+  Null if it does not exist or you cannot see it
+  """
+  task(id: ID!): Task
+  unreadNotificationsCount: Int!
+}
+
+type SearchResult {
+  """
+  One fragment around the best match
+  """
+  descriptionHighlight: String
+
+  """
+  Higher is better; title matches count for more
+  """
+  rank: Float!
+  task: Task!
+  titleHighlight: String
+}
+
+"""
+The connection type for SearchResult.
+"""
+type SearchResultConnection {
+  """
+  A list of edges.
+  """
+  edges: [SearchResultEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [SearchResult]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+}
+
+"""
+An edge in a connection.
+"""
+type SearchResultEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: SearchResult
+}
+
+type Task {
+  assignee: User
+
+  """
+  Oldest first
+  """
+  comments(
+    """
+    Returns the elements in the list that come after the specified cursor.
+    """
+    after: String
+
+    """
+    Returns the elements in the list that come before the specified cursor.
+    """
+    before: String
+
+    """
+    Returns the first _n_ elements from the list.
+    """
+    first: Int
+
+    """
+    Returns the last _n_ elements from the list.
+    """
+    last: Int
+  ): CommentConnection!
+  commentsCount: Int!
+  completedAt: ISO8601DateTime
+  createdAt: ISO8601DateTime!
+  creator: User!
+  description: String
+  dueOn: ISO8601Date
+  id: ID!
+
+  """
+  Send it back when updating over REST (optimistic locking)
+  """
+  lockVersion: Int!
+  overdue: Boolean!
+  priority: TaskPriority!
+  project: Project!
+  projectId: ID!
+  status: TaskStatus!
+  tags: [String!]!
+  title: String!
+  updatedAt: ISO8601DateTime!
+}
+
+"""
+The connection type for Task.
+"""
+type TaskConnection {
+  """
+  A list of edges.
+  """
+  edges: [TaskEdge]
+
+  """
+  A list of nodes.
+  """
+  nodes: [Task]
+
+  """
+  Information to aid in pagination.
+  """
+  pageInfo: PageInfo!
+}
+
+"""
+An edge in a connection.
+"""
+type TaskEdge {
+  """
+  A cursor for use in pagination.
+  """
+  cursor: String!
+
+  """
+  The item at the end of the edge.
+  """
+  node: Task
+}
+
+enum TaskPriority {
+  HIGH
+  LOW
+  MEDIUM
+  URGENT
+}
+
+enum TaskStatus {
+  DONE
+  IN_PROGRESS
+  TODO
+}
+
+type User {
+  id: ID!
+  name: String!
+}
+
+type Viewer {
+  emailAddress: String!
+  id: ID!
+  name: String!
+}

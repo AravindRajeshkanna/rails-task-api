@@ -10,6 +10,7 @@ class Project < ApplicationRecord
 
   has_many :memberships, dependent: :destroy
   has_many :members, through: :memberships, source: :user
+  has_many :project_teams, dependent: :destroy
   has_many :tasks, dependent: :destroy
   has_many :tags, dependent: :destroy
   has_many :webhooks, dependent: :destroy
@@ -34,6 +35,14 @@ class Project < ApplicationRecord
       )
     end
   end
+
+  # Everyone who can be given work here: direct members and the members of teams with access.
+  def participants
+    User.where(id: memberships.select(:user_id))
+        .or(User.where(id: TeamMembership.where(team_id: project_teams.select(:team_id)).select(:user_id)))
+  end
+
+  def participant?(user_id) = participants.exists?(id: user_id)
 
   def audit_project_id = id
   def event_project_id = id

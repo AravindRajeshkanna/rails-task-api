@@ -8,16 +8,40 @@ not tell you, are in [docs/performance.md](../docs/performance.md).
 `k6/api.js` simulates people visiting the API at a fixed **arrival rate** (the open model: visitors turn up
 whether or not the server keeps up, which is how real traffic behaves). A visit is:
 
-- **85% browsing:** list projects, list a project's tasks (default order, filtered and sorted, text search),
-  open a task, load analytics, load the activity feed.
+- **85% browsing:** list projects, list a project's tasks (default order, by cursor, filtered and sorted, substring
+  and full-text search), search across projects, open a task, load analytics, load the activity feed.
 - **15% writing:** create a task, update it, comment on it.
 - **20% of visits go to one "whale" project** holding 50,000 tasks, because the queries that are fine at a
   thousand rows and slow at fifty thousand are the ones worth finding.
 
-Thresholds fail the run (exit code 99) if reads go over p95 400 ms / p99 1 s, writes over p95 600 ms, or more
-than 1% of requests fail.
+Thresholds fail the run (exit code 99) if reads go over p95 400 ms / p99 1 s, writes over p95 600 ms, a few named
+endpoints go over their own limits (the 50,000-task list, analytics, search), more than 1% of requests fail, or more than 2% of
+visitors are turned away (`dropped_iterations`: the server could not keep up).
 
-## Run it
+## In CI: nightly
+
+`.github/workflows/loadtest.yml` runs the whole thing every night (02:17 UTC), on demand (*Actions → Load test → Run workflow*, with a rate and a
+duration), and on pull requests that touch the load test itself (a short run, to prove the harness works). It uses `loadtest/ci.sh`, which builds an
+ephemeral production-mode environment on the runner (a PostgreSQL service, the ~150,000-task data set, the app on localhost), warms the process,
+runs k6, writes a latency table to the job summary, uploads `summary.json`, the k6 log and the server log as the `loadtest-results` artifact, and
+exits non-zero if any threshold above is breached. A failed **nightly** run opens (or comments on) an issue titled "Nightly load test is failing".
+
+The same script runs on your machine. It drops and recreates the databases `task_api_loadtest_ci` and `task_api_production*` (and creates a
+`task_api` database role if there is none), so it insists on `LOADTEST_CONFIRM=yes`:
+
+```sh
+LOADTEST_CONFIRM=yes RATE=10 DURATION=30s loadtest/ci.sh
+LOADTEST_CONFIRM=yes USERS=100 PROJECTS=20 TASKS_PER_PROJECT=300 WHALE_TASKS=5000 RATE=5 DURATION=20s loadtest/ci.sh   # a quick smoke run
+```
+
+**Reading a CI result.** A runner shares two or more cores between k6, the app and PostgreSQL, so absolute numbers are not comparable with the table in
+[performance.md](../docs/performance.md) (measured on a laptop) and vary run to run. What the nightly run guards is the *thresholds*, set about ten
+times above normal, so that a breach means something changed (a query lost its index, an N+1 appeared), not that the runner had a bad night. The
+workflow therefore re-runs a breach once on a fresh environment, and only two in a row fail the job. (Observed: the same code, one night with a 7 ms median for
+the activity feed and another, on a slower runner, with 75 ms, a tenfold swing, with every threshold still holding except a strict dropped-visitors one, which is why it is now 2% and not zero.)
+Two failed nightly runs in a row is a regression: bisect the commits since the last green run.
+
+## Run it by hand
 
 You need k6 (`brew install k6`) and a database of its own. **Never point this at a database you care about**:
 the seeder refuses to run in production, but it will happily fill a development database.

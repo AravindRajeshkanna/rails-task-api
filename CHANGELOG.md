@@ -13,8 +13,43 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - `GET /api/v1/activity`: what happened across all the caller's projects (projects, tasks, memberships), newest first.
   Filters: `project_id`, `type`.
 - **Organizations.** `GET|POST /api/v1/organizations`, `GET|PATCH|DELETE /api/v1/organizations/{id}` and
-  `GET|POST /api/v1/organizations/{id}/members`, `PATCH|DELETE /api/v1/organizations/{id}/members/{member_id}`.
+  `GET /api/v1/organizations/{id}/members`, `PATCH|DELETE /api/v1/organizations/{id}/members/{member_id}`.
   Roles `owner`, `admin`, `member`. Owners and admins administer every project of the organization.
+- `cursor` on `GET /api/v1/projects/{id}/tasks`: keyset pagination (`?cursor=` first page, then `meta.next_cursor`; `meta` is `{limit, next_cursor, has_more}` with no
+  total). Same cost at any depth, stable while tasks are added or removed. For sorts by `created_at`, `updated_at` or `title`; relevance, `priority`, `status` and
+  `due_on` stay with `page=`. An invalid cursor is `400`. `page=` is unchanged.
+- Events for other services (the SNS topic) are now written to a transactional outbox in the same transaction as the change and published by a relay: they can
+  no longer be lost to a crash after commit or to an SNS outage, and are still delivered at least once (deduplicate on `id`). `data` is a snapshot at the time of
+  the change. Not an API change, but consumers of the topic should note delivery can be late and out of order during an outage. (Listed here because it is
+  a guarantee these consumers can now rely on.)
+- **GraphQL (read-only).** `POST /api/v1/graphql` with `{ query, variables, operationName }`: `me`, `projects`, `project`, `task`, `search`, `notifications`, with
+  connections, the REST task filters, and the same access rules as REST (a record you cannot see is `null`). At most 20 KB, 8 levels deep, 1,500 complexity points,
+  100 per page, one operation per request. The schema is `docs/graphql/schema.graphql`. Writes remain REST.
+- Responses from a public-demo instance carry `X-Demo-Mode: true`, and the demo refuses (`403 demo_mode`) sign-up, uploads, webhooks, invitations and AI.
+- **In-app inbox.** `GET /api/v1/notifications` (newest first; `unread=true`, `project_id`, `kind`; `meta.unread_count`), `PATCH /api/v1/notifications/{id}`
+  with `{"read": true|false}`, `DELETE /api/v1/notifications/{id}` and `POST /api/v1/notifications/read_all` (optionally `project_id`). You are told when a
+  task is assigned to you by someone else (`task.assigned`), when one of yours is due tomorrow (`task.due_soon`), when someone else completes a task you created
+  (`task.completed`) and when someone else comments on a task you created or are assigned (`comment.created`). New ones are pushed over Action Cable
+  (`NotificationsChannel`, `{event: "notification.created", data: ...}`). Notifications in a project you have left or that is archived are not listed;
+  read ones are removed after 30 days, unread after 180.
+- **Full-text search.** `GET /api/v1/search?q=` searches task titles and descriptions across every project you can see, best match first
+  (title matches outrank description matches), with the task's project, a rank, and highlights (matched words wrapped in `«»`, plain text).
+  `GET /api/v1/projects/{id}/tasks?search=` does the same inside one project (best match first unless `sort` is given). Words are stemmed
+  (`deploying` finds `deployed`), `"quoted phrases"`, `or` and `-excluded` work, any text is safe, at most 200 characters. `q` still means substring.
+- **Teams.** Groups inside an organization that a project can grant access to as a unit. `GET|POST /api/v1/organizations/{id}/teams`,
+  `GET|PATCH|DELETE /api/v1/organizations/{id}/teams/{team_id}`, `GET|POST /api/v1/organizations/{id}/teams/{team_id}/members` (by `user_id`; the person
+  must be in the organization) and `DELETE .../members/{member_id}`: owners and admins manage them, any member of the organization can read them.
+  `GET|POST /api/v1/projects/{id}/teams` and `PATCH|DELETE /api/v1/projects/{id}/teams/{grant_id}` give a team of the project's organization access
+  as `member` or `admin`. A person's role in a project is the highest of their own membership, their teams' grants and (as admin) administering the
+  organization. Team members can be assigned tasks. Leaving the organization removes someone from its teams; deleting a team ends the access it gave.
+- `GET /api/v1/organizations/{id}/audit_events` (owners; filter `auditable_type`): the organization's history, newest first: renames, invitations
+  sent, accepted and withdrawn, members joining, changing role and leaving, each with who did it and what changed.
+- **Invitations.** People join an organization by invitation, not by being added:
+  `POST /api/v1/organizations/{id}/invitations` (email address, role; mails a link, valid 7 days; sending again refreshes it),
+  `GET` the open ones, `DELETE /api/v1/organizations/{id}/invitations/{id}` to withdraw one, and
+  `POST /api/v1/invitations/accept` with the emailed `token`, signed in as the invited address. The answers are the same whether or
+  not the address belongs to a registered user, and the token is only in the email. (There is no `POST .../members`: it would have told
+  administrators which addresses are registered. It was never in a tagged release.)
 - `organization_id` on projects. `POST /api/v1/projects` accepts it to create a project inside an organization you belong to; it
   cannot be changed later. A project in an organization only accepts members of that organization (`422` otherwise).
 - `API-Version` header on every response. A version on its way out will also send `Deprecation`, `Sunset` and a
@@ -23,6 +58,14 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - `API-Version`, `Deprecation` and `Sunset` are exposed to browsers through CORS.
 
 ### Changed
+- `GET /api/v1/activity` also covers `ProjectTeam` (a team being given or losing access to a project; filter `type=ProjectTeam`).
+- Fixed: a person who administers a project's organization *and* is a plain member of the project is an admin everywhere. Lists already said so; the
+  per-record check that single resources use took the direct role first and treated them as a member.
+- Removing someone from a project is now recorded in its audit log and activity feed (`action: "destroy"`, the member's attributes going to `null`);
+  previously only additions and role changes were. Audit event `action` can now also be `destroy`, `accept` and `revoke`.
+- Adding someone to a project **of an organization** by email now answers `422` ("must be a member of the project's organization") for an
+  unknown address, the same as for a registered user outside the organization; it used to be `404` for an unknown address. Adding people
+  is throttled (60 an hour per user). Projects without an organization are unchanged.
 - Responses now say how they may be cached: `Cache-Control: no-cache, private` and `Vary: Authorization, Accept` (clients may keep a
   copy and revalidate with `If-None-Match`; `304` is answered), and `Cache-Control: private, no-store` on sign-in and sign-up.
 - Every response carries security headers (`Content-Security-Policy: default-src 'none'`, `X-Frame-Options: DENY`,

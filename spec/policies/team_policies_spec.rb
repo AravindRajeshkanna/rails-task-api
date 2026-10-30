@@ -1,0 +1,86 @@
+require "rails_helper"
+
+# TeamPolicy, TeamMembershipPolicy and ProjectTeamPolicy: the organization's administrators manage teams
+# and who is in them; any member of the organization can look; project admins manage a team's access.
+RSpec.describe "Team policies" do
+  let(:organization) { create(:organization) }
+  let(:owner) { create(:organization_membership, :owner, organization: organization).user }
+  let(:admin) { create(:organization_membership, :admin, organization: organization).user }
+  let(:member) { create(:organization_membership, organization: organization).user }
+  let(:stranger) { create(:user) }
+  let!(:team) { create(:team, organization: organization) }
+  let(:membership) { create(:team_membership, team: team, user: member) }
+
+  describe TeamPolicy do
+    it "lets owners and admins manage teams" do
+      [ owner, admin ].each { |user| expect(described_class.new(user, team)).to permit_actions(:index, :show, :create, :update, :destroy) }
+    end
+
+    it "lets plain members look but not touch" do
+      expect(described_class.new(member, team)).to permit_actions(:index, :show)
+      expect(described_class.new(member, team)).to forbid_actions(:create, :update, :destroy)
+    end
+
+    it "gives strangers nothing" do
+      expect(described_class.new(stranger, team)).to forbid_actions(:index, :show, :create, :update, :destroy)
+    end
+
+    it "scopes to the teams of the user's organizations" do
+      create(:team)
+
+      expect(described_class::Scope.new(member, Team).resolve).to contain_exactly(team)
+      expect(described_class::Scope.new(stranger, Team).resolve).to be_empty
+    end
+  end
+
+  describe TeamMembershipPolicy do
+    it "lets owners and admins add and remove people" do
+      [ owner, admin ].each { |user| expect(described_class.new(user, membership)).to permit_actions(:index, :create, :destroy) }
+    end
+
+    it "lets plain members see who is in a team, nothing more (not even leaving it themselves)" do
+      expect(described_class.new(member, membership)).to permit_action(:index)
+      expect(described_class.new(member, membership)).to forbid_actions(:create, :destroy)
+    end
+
+    it "gives strangers nothing" do
+      expect(described_class.new(stranger, membership)).to forbid_actions(:index, :create, :destroy)
+    end
+
+    it "scopes to the teams of the user's organizations" do
+      create(:team_membership)
+      membership
+
+      expect(described_class::Scope.new(member, TeamMembership).resolve).to contain_exactly(membership)
+    end
+  end
+
+  describe ProjectTeamPolicy do
+    let(:project_owner) { create(:organization_membership, organization: organization).user }
+    let!(:project) { create(:project, owner: project_owner, organization: organization) }
+    let(:grant) { create(:project_team, project: project, team: team) }
+
+    it "lets project admins grant, change and withdraw access" do
+      expect(described_class.new(project_owner, grant)).to permit_actions(:index, :create, :update, :destroy)
+      expect(described_class.new(admin, grant)).to permit_actions(:index, :create, :update, :destroy) # organization admin
+    end
+
+    it "lets project members see who has access, not change it" do
+      create(:membership, project: project, user: member)
+
+      expect(described_class.new(member, grant)).to permit_action(:index)
+      expect(described_class.new(member, grant)).to forbid_actions(:create, :update, :destroy)
+    end
+
+    it "gives nothing to a member of the organization who is not in the project, or to strangers" do
+      expect(described_class.new(member, grant)).to forbid_actions(:index, :create, :update, :destroy)
+      expect(described_class.new(stranger, grant)).to forbid_actions(:index, :create, :update, :destroy)
+    end
+
+    it "freezes the access of an archived project" do
+      project.update!(discarded_at: Time.current)
+
+      expect(described_class.new(project_owner, grant)).to forbid_actions(:create, :update, :destroy)
+    end
+  end
+end

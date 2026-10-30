@@ -2,7 +2,7 @@
 image:
   repository: ${ECR_REGISTRY}/task-api/ai
   tag: bootstrap
-secrets: { prefix: task-api/${ENV} }
+secrets: { prefix: task-api/${SECRETS_ENV} }
 env:
   AWS_REGION: ${REGION}
   AI_MODEL_ID: ${BEDROCK_MODEL_ID}

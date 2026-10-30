@@ -29,6 +29,7 @@ Never rename, retype or drop in one step. Split it across releases:
 | Rename a column or table | `rename_column` | add the new column, copy, switch the code over, drop the old (expand / contract) |
 | Change a column's type | `change_column` | add a new column of the new type and migrate as above |
 | Remove a column | `remove_column` while code still reads it | first `self.ignored_columns += ["old"]` in the model, deploy, then drop |
+| Add a stored generated column (e.g. `tasks.search_vector`) | `add_column ... stored: true` on a table you cannot afford to lock | it **rewrites the table under an ACCESS EXCLUSIVE lock**, so it is the exception to "online": measure it first (2.7 s for 149,000 tasks, ~18 s per million rows, more with embeddings), use `safety_assured` with that number in a comment, and run it in a quiet period. For a table where that is too long, expand instead: add a nullable plain column, keep it current with a trigger (`CREATE TRIGGER ... tsvector_update_trigger(...)`, which needs `schema_format = :sql` to survive `db:schema:load`), backfill in batches, index concurrently |
 | Backfill data | `update_all` over the whole table inside the migration | a job or rake task that works in batches (`in_batches`), run after the deploy |
 
 Each migration should do **one** thing, so it can be retried and reasoned about. Index and validation migrations are separate for

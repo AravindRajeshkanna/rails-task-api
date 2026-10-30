@@ -38,9 +38,19 @@ RSpec.describe "CloudWatch EMF" do
 
       per_queue, total = lines.partition { |line| line["Queue"] }
       expect(per_queue.sole).to include("Environment" => "production", "Queue" => "default", "QueueDepth" => 2)
-      expect(total.sole).to include("Environment" => "production", "QueueDepth" => 2, "FailedJobs" => 0, "Workers" => 0)
+      expect(total.sole).to include("Environment" => "production", "QueueDepth" => 2, "FailedJobs" => 0, "Workers" => 0, "OutboxPending" => 0, "OutboxOldestAgeSeconds" => 0)
       expect(total.sole[:_aws][:CloudWatchMetrics].sole[:Dimensions]).to eq([ [ "Environment" ] ])
       expect(JSON.parse(JsonLogFormatter.new.call("INFO", Time.now, nil, total.sole))).to have_key("_aws") # reaches the log as top-level JSON
+    end
+
+    it "reports the event outbox backlog and the age of its oldest event for the alarm" do
+      with_solid_queue_tables
+      OutboxEvent.create!(event_id: "stuck", event_type: "task.created", payload: {}, created_at: 7.minutes.ago)
+
+      total = logged_emf_lines { described_class.perform_now }.find { |line| !line["Queue"] }
+
+      expect(total).to include("OutboxPending" => 1)
+      expect(total["OutboxOldestAgeSeconds"]).to be_between(419, 421)
     end
 
     it "does nothing unless enabled, or without queue tables" do

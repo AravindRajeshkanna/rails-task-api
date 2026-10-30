@@ -189,6 +189,11 @@ jobs:
           terraform init -backend=false -input=false
           terraform validate
 
+      # Plans and applies the whole configuration against mocked AWS providers (no credentials, nothing created) for each multi-region role.
+      - name: Terraform tests (single region, primary, standby)
+        working-directory: deploy/terraform
+        run: terraform test
+
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
@@ -200,7 +205,7 @@ jobs:
         run: |
           mkdir -p tmp/render
           helm lint deploy/helm/taskapi-service --set image.repository=x --set image.tag=y
-          for env in dev staging prod; do
+          for env in dev staging prod prod-dr; do
             for service in api worker auth ai notifications; do
               helm template "$service" deploy/helm/taskapi-service -n task-api \
                 -f "deploy/helm/values/$service.yaml" -f "deploy/gitops/envs/$env/$service.yaml" > "tmp/render/$env-$service.yaml"
@@ -217,7 +222,7 @@ jobs:
 
       - name: Check the GitOps overlays are up to date with their templates
         run: |
-          for env in dev staging prod; do ruby deploy/scripts/render_gitops.rb "$env" > /dev/null; done
+          for env in dev staging prod prod-dr; do ruby deploy/scripts/render_gitops.rb "$env" > /dev/null; done
           git diff --exit-code deploy/gitops/envs || (echo "Run: ruby deploy/scripts/render_gitops.rb <env> and commit" && exit 1)
 
       - name: Validate the Prometheus rules

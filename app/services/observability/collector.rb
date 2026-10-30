@@ -15,6 +15,7 @@ module Observability
           @refreshed_at = now
           collect_db_pool
           collect_queue
+          collect_outbox
         end
       end
 
@@ -49,6 +50,16 @@ module Observability
           Metrics::QUEUE_WORKERS.set(snapshot.workers)
         rescue => error
           failed("queue", error)
+        end
+
+        def collect_outbox
+          pending = OutboxEvent.pending
+          oldest = pending.minimum(:created_at)
+          Metrics::OUTBOX_PENDING.set(pending.count)
+          Metrics::OUTBOX_OLDEST_AGE.set(oldest ? (Time.current - oldest).to_i : 0)
+          Metrics::OUTBOX_FAILING.set(pending.where("attempts > 0").count)
+        rescue => error
+          failed("outbox", error)
         end
 
         def failed(collector, error)

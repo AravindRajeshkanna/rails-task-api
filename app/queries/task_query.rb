@@ -2,7 +2,9 @@
 #
 #   status=todo,in_progress   priority=high,urgent   assignee=me|unassigned|<user id>
 #   tag=bug,api               due_from=2026-11-01    due_to=2026-11-30
-#   overdue=true              q=search+words
+#   overdue=true              q=substring (title or description)
+#   search=billing+invoice    full-text, stemmed ("quoted phrase", or, -excluded); best match first
+#                             unless sort is given
 #   sort=-priority,due_on     (prefix with - for descending; default -created_at)
 #
 # Everything is validated against allow-lists, so user input never reaches SQL
@@ -11,6 +13,9 @@ class TaskQuery
   SORT_COLUMNS = %w[created_at updated_at due_on priority status title].freeze
   DEFAULT_SORT = "-created_at".freeze
   NULLS_LAST_COLUMNS = %w[due_on].freeze
+
+  # Sorts a cursor (keyset) page can follow: non-null columns, no ranking.
+  KEYSET_SORT_COLUMNS = %w[created_at updated_at title].freeze
 
   def initialize(scope, params, current_user:)
     @scope = scope
@@ -27,11 +32,33 @@ class TaskQuery
     relation = relation.where(due_on: date(:due_from)..) if @params[:due_from].present?
     relation = relation.where(due_on: ..date(:due_to)) if @params[:due_to].present?
     relation = relation.overdue if boolean(:overdue)
-    relation = relation.search(@params[:q].to_s.strip) if @params[:q].present?
-    sort(relation)
+    sort(search(relation))
+  end
+
+  # Raises InvalidParameterError unless the requested order can be paged with a cursor.
+  def ensure_keyset_sort!
+    columns = list(:sort).map { |field| field.delete_prefix("-").delete_prefix("+") }
+    ranked = search_term && columns.empty?
+    return if !ranked && (columns - KEYSET_SORT_COLUMNS).empty?
+
+    raise InvalidParameterError.new("cursor", "cursor pagination can sort by #{KEYSET_SORT_COLUMNS.join(', ')} only (not by relevance, priority, status or due_on); use page= for that order")
   end
 
   private
+    def search(relation)
+      relation = relation.search(@params[:q].to_s.strip) if @params[:q].present?
+      search_term ? relation.full_text(search_term) : relation
+    end
+
+    def search_term
+      return @search_term if defined?(@search_term)
+
+      term = @params[:search].to_s.squish.presence
+      raise InvalidParameterError.new("search", "search must be at most #{TaskSearch::MAX_LENGTH} characters") if term && term.length > TaskSearch::MAX_LENGTH
+
+      @search_term = term
+    end
+
     def list(key) = @params[key].to_s.split(",").map(&:strip).compact_blank.uniq
 
     def filter_enum(relation, key, mapping)
@@ -69,22 +96,22 @@ class TaskQuery
     end
 
     def sort(relation)
+      return relation.reorder(Task.search_rank(search_term).desc, Task.arel_table[:id].desc) if search_term && list(:sort).empty?
+
       fields = list(:sort).presence || [ DEFAULT_SORT ]
-      direction_of_first = nil
+      # The id tie-breaker keeps pagination stable when sort values collide.
+      tie_breaker = Task.arel_table[:id].public_send(fields.first.start_with?("-") ? :desc : :asc)
+      relation.reorder(*fields.map { |field| order_for(field) }, tie_breaker)
+    end
 
-      orders = fields.map do |field|
-        direction = field.start_with?("-") ? :desc : :asc
-        column = field.delete_prefix("-").delete_prefix("+")
-        unless column.in?(SORT_COLUMNS)
-          raise InvalidParameterError.new("sort", "sort must be one or more of: #{SORT_COLUMNS.join(', ')} (prefix with - for descending)")
-        end
-
-        direction_of_first ||= direction
-        order = Task.arel_table[column].public_send(direction)
-        column.in?(NULLS_LAST_COLUMNS) ? order.nulls_last : order
+    def order_for(field)
+      direction = field.start_with?("-") ? :desc : :asc
+      column = field.delete_prefix("-").delete_prefix("+")
+      unless column.in?(SORT_COLUMNS)
+        raise InvalidParameterError.new("sort", "sort must be one or more of: #{SORT_COLUMNS.join(', ')} (prefix with - for descending)")
       end
 
-      # The id tie-breaker keeps pagination stable when sort values collide.
-      relation.reorder(*orders, Task.arel_table[:id].public_send(direction_of_first))
+      order = Task.arel_table[column].public_send(direction)
+      column.in?(NULLS_LAST_COLUMNS) ? order.nulls_last : order
     end
 end

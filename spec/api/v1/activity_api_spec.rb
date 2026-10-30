@@ -17,7 +17,7 @@ RSpec.describe "Activity API", type: :request do
       security [ { bearer_auth: [] } ]
       produces "application/json"
       parameter name: :project_id, in: :query, type: :integer, required: false, description: "Only this project (ignored if you are not in it)"
-      parameter name: :type, in: :query, type: :string, required: false, description: "Comma-separated: Project, Task, Membership"
+      parameter name: :type, in: :query, type: :string, required: false, description: "Comma-separated: Project, Task, Membership, ProjectTeam"
       parameter name: :page, in: :query, type: :integer, required: false
       parameter name: :limit, in: :query, type: :integer, required: false
 

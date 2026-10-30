@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_30_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -70,8 +70,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
     t.string "action", null: false
     t.jsonb "audit_changes", default: {}, null: false
     t.datetime "created_at", null: false
+    t.bigint "organization_id"
     t.index ["actor_id"], name: "index_audit_events_on_actor_id"
     t.index ["auditable_type", "auditable_id"], name: "index_audit_events_on_auditable"
+    t.index ["organization_id", "created_at"], name: "index_audit_events_on_organization_id_and_created_at", where: "(organization_id IS NOT NULL)"
     t.index ["project_id", "created_at"], name: "index_audit_events_on_project_id_and_created_at"
     t.index ["project_id"], name: "index_audit_events_on_project_id"
   end
@@ -96,7 +98,44 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
     t.index ["project_id", "user_id"], name: "index_memberships_on_project_id_and_user_id", unique: true
     t.index ["project_id"], name: "index_memberships_on_project_id"
     t.index ["user_id"], name: "index_memberships_on_user_id"
-    t.check_constraint "role::text = ANY (ARRAY['member'::character varying, 'admin'::character varying]::text[])", name: "memberships_role_valid"
+    t.check_constraint "role::text = ANY (ARRAY['member'::character varying::text, 'admin'::character varying::text])", name: "memberships_role_valid"
+  end
+
+  create_table "notifications", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.bigint "project_id", null: false
+    t.bigint "task_id", null: false
+    t.bigint "actor_id"
+    t.string "kind", null: false
+    t.jsonb "data", default: {}, null: false
+    t.string "dedupe_key"
+    t.datetime "read_at"
+    t.datetime "created_at", null: false
+    t.index ["actor_id"], name: "index_notifications_on_actor_id"
+    t.index ["project_id"], name: "index_notifications_on_project_id"
+    t.index ["task_id"], name: "index_notifications_on_task_id"
+    t.index ["user_id", "created_at", "id"], name: "index_notifications_on_user_id_and_created_at", order: { created_at: :desc, id: :desc }
+    t.index ["user_id", "dedupe_key"], name: "index_notifications_on_user_id_and_dedupe_key", unique: true, where: "(dedupe_key IS NOT NULL)"
+    t.index ["user_id"], name: "index_notifications_unread_on_user_id", where: "(read_at IS NULL)"
+    t.check_constraint "kind::text = ANY (ARRAY['task.assigned'::character varying, 'task.due_soon'::character varying, 'task.completed'::character varying, 'comment.created'::character varying]::text[])", name: "notifications_kind_valid"
+  end
+
+  create_table "organization_invitations", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.bigint "invited_by_id"
+    t.string "email_address", null: false
+    t.string "role", default: "member", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "accepted_at"
+    t.datetime "revoked_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["email_address"], name: "index_organization_invitations_on_email_address"
+    t.index ["invited_by_id"], name: "index_organization_invitations_on_invited_by_id"
+    t.index ["organization_id", "email_address"], name: "index_organization_invitations_pending", unique: true, where: "((accepted_at IS NULL) AND (revoked_at IS NULL))"
+    t.index ["organization_id"], name: "index_organization_invitations_on_organization_id"
+    t.check_constraint "char_length(btrim(email_address::text)) > 0", name: "organization_invitations_email_present"
+    t.check_constraint "role::text = ANY (ARRAY['member'::character varying, 'admin'::character varying, 'owner'::character varying]::text[])", name: "organization_invitations_role_valid"
   end
 
   create_table "organization_memberships", force: :cascade do |t|
@@ -116,6 +155,33 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.check_constraint "char_length(btrim(name::text)) > 0", name: "organizations_name_present"
+  end
+
+  create_table "outbox_events", force: :cascade do |t|
+    t.string "event_id", null: false
+    t.string "event_type", null: false
+    t.jsonb "payload", null: false
+    t.datetime "available_at", default: -> { "CURRENT_TIMESTAMP" }, null: false
+    t.datetime "locked_until"
+    t.integer "attempts", default: 0, null: false
+    t.text "last_error"
+    t.datetime "published_at"
+    t.datetime "created_at", null: false
+    t.index ["available_at", "id"], name: "index_outbox_events_pending", where: "(published_at IS NULL)"
+    t.index ["event_id"], name: "index_outbox_events_on_event_id", unique: true
+    t.index ["published_at"], name: "index_outbox_events_published", where: "(published_at IS NOT NULL)"
+  end
+
+  create_table "project_teams", force: :cascade do |t|
+    t.bigint "project_id", null: false
+    t.bigint "team_id", null: false
+    t.string "role", default: "member", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["project_id", "team_id"], name: "index_project_teams_on_project_id_and_team_id", unique: true
+    t.index ["project_id"], name: "index_project_teams_on_project_id"
+    t.index ["team_id"], name: "index_project_teams_on_team_id"
+    t.check_constraint "role::text = ANY (ARRAY['member'::character varying, 'admin'::character varying]::text[])", name: "project_teams_role_valid"
   end
 
   create_table "projects", force: :cascade do |t|
@@ -184,6 +250,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
     t.vector "embedding", limit: 1024
     t.string "embedding_digest"
     t.datetime "embedded_at"
+    t.virtual "search_vector", type: :tsvector, as: "(setweight(to_tsvector('english'::regconfig, (COALESCE(title, ''::character varying))::text), 'A'::\"char\") || setweight(to_tsvector('english'::regconfig, COALESCE(description, ''::text)), 'B'::\"char\"))", stored: true
     t.index ["assignee_id"], name: "index_tasks_on_assignee_id"
     t.index ["creator_id"], name: "index_tasks_on_creator_id"
     t.index ["discarded_at"], name: "index_tasks_on_discarded_at"
@@ -192,11 +259,32 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
     t.index ["project_id", "due_on"], name: "index_tasks_on_project_id_and_due_on"
     t.index ["project_id", "status"], name: "index_tasks_on_project_id_and_status"
     t.index ["project_id"], name: "index_tasks_on_project_id"
+    t.index ["search_vector"], name: "index_tasks_on_search_vector", using: :gin
     t.index ["title"], name: "index_tasks_on_title", opclass: :gin_trgm_ops, using: :gin
     t.check_constraint "char_length(btrim(title::text)) > 0", name: "tasks_title_present"
     t.check_constraint "comments_count >= 0 AND lock_version >= 0", name: "tasks_counters_non_negative"
     t.check_constraint "priority = ANY (ARRAY[0, 1, 2, 3])", name: "tasks_priority_valid"
     t.check_constraint "status = ANY (ARRAY[0, 1, 2])", name: "tasks_status_valid"
+  end
+
+  create_table "team_memberships", force: :cascade do |t|
+    t.bigint "team_id", null: false
+    t.bigint "user_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["team_id", "user_id"], name: "index_team_memberships_on_team_id_and_user_id", unique: true
+    t.index ["team_id"], name: "index_team_memberships_on_team_id"
+    t.index ["user_id"], name: "index_team_memberships_on_user_id"
+  end
+
+  create_table "teams", force: :cascade do |t|
+    t.bigint "organization_id", null: false
+    t.string "name", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index "organization_id, lower((name)::text)", name: "index_teams_on_organization_id_and_lower_name", unique: true
+    t.index ["organization_id"], name: "index_teams_on_organization_id"
+    t.check_constraint "char_length(btrim(name::text)) > 0", name: "teams_name_present"
   end
 
   create_table "users", force: :cascade do |t|
@@ -241,14 +329,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "ai_usages", "projects"
   add_foreign_key "ai_usages", "users"
+  add_foreign_key "audit_events", "organizations"
   add_foreign_key "audit_events", "projects"
   add_foreign_key "audit_events", "users", column: "actor_id"
   add_foreign_key "comments", "tasks"
   add_foreign_key "comments", "users"
   add_foreign_key "memberships", "projects"
   add_foreign_key "memberships", "users"
+  add_foreign_key "notifications", "projects", on_delete: :cascade
+  add_foreign_key "notifications", "tasks", on_delete: :cascade
+  add_foreign_key "notifications", "users", column: "actor_id", on_delete: :nullify
+  add_foreign_key "notifications", "users", on_delete: :cascade
+  add_foreign_key "organization_invitations", "organizations"
+  add_foreign_key "organization_invitations", "users", column: "invited_by_id", on_delete: :nullify
   add_foreign_key "organization_memberships", "organizations"
   add_foreign_key "organization_memberships", "users"
+  add_foreign_key "project_teams", "projects"
+  add_foreign_key "project_teams", "teams"
   add_foreign_key "projects", "organizations"
   add_foreign_key "projects", "users", column: "owner_id"
   add_foreign_key "sessions", "users"
@@ -258,6 +355,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190709) do
   add_foreign_key "tasks", "projects"
   add_foreign_key "tasks", "users", column: "assignee_id"
   add_foreign_key "tasks", "users", column: "creator_id"
+  add_foreign_key "team_memberships", "teams"
+  add_foreign_key "team_memberships", "users"
+  add_foreign_key "teams", "organizations"
   add_foreign_key "webhook_deliveries", "webhooks"
   add_foreign_key "webhooks", "projects"
 end

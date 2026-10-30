@@ -18,13 +18,16 @@ const seed = JSON.parse(open('../../tmp/loadtest/tokens.json'));
 const tokens = new SharedArray('tokens', () => seed.tokens);
 
 const ENDPOINTS = [
-  'projects_index', 'tasks_index', 'tasks_whale', 'tasks_filtered', 'tasks_search', 'task_show', 'analytics', 'activity',
+  'projects_index', 'tasks_index', 'tasks_whale', 'tasks_cursor', 'tasks_filtered', 'tasks_search', 'tasks_fulltext', 'search', 'task_show', 'analytics', 'activity',
   'task_create', 'task_update', 'comment_create',
 ];
 
 // k6 only reports a sub-metric that some threshold mentions. `max>=0` always passes: it exists so
 // every endpoint gets its own latency line in the summary (--summary-export) without gating on it.
 const perEndpoint = Object.fromEntries(ENDPOINTS.map((name) => [`http_req_duration{name:${name}}`, ['max>=0']]));
+
+// -e NO_THRESHOLDS=1 keeps the per-endpoint lines but gates nothing: for warming a freshly booted process.
+const gate = !__ENV.NO_THRESHOLDS;
 
 export const options = {
   scenarios: {
@@ -37,16 +40,20 @@ export const options = {
       maxVUs: Math.max(100, RATE * 6),
     },
   },
-  thresholds: {
+  thresholds: gate ? {
     ...perEndpoint,
     http_req_failed: ['rate<0.01'],
     checks: ['rate>0.99'],
+    // Visitors turned away because the server could not keep up are a failure too, not a quiet success. More than 2% of
+    // arrivals; a shared CI runner that stalls for a moment drops one or two, and a run that cannot keep up drops far more.
+    dropped_iterations: [`rate<${RATE * 0.02}`],
     'http_req_duration{kind:read}': ['p(95)<400', 'p(99)<1000'],
     'http_req_duration{kind:write}': ['p(95)<600'],
     // The expensive endpoints get their own line, so a regression there is not averaged away.
     'http_req_duration{name:tasks_whale}': ['p(95)<500', 'max>=0'],
+    'http_req_duration{name:search}': ['p(95)<600', 'max>=0'],
     'http_req_duration{name:analytics}': ['p(95)<800', 'max>=0'],
-  },
+  } : perEndpoint,
   summaryTrendStats: ['avg', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
 };
 
@@ -63,6 +70,9 @@ function send(method, path, body, headers, name) {
 
 const ok = (res, label) => check(res, { [`${label} 2xx`]: (r) => r.status >= 200 && r.status < 300 });
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
+// The seed vocabulary is 26 words, so every term matches a large share of rows: the worst case for ranked
+// full-text search (it must score every match). Real text has rare words and is much cheaper.
+const SEARCHES = ['billing', 'billing+invoice', '%22deploy+review%22', 'audit+-backup', 'migrating'];
 
 export default function () {
   const useWhale = Math.random() < 0.2; // one huge project is where slow queries hide
@@ -77,11 +87,18 @@ export default function () {
   const listName = useWhale ? 'tasks_whale' : 'tasks_index';
   const tasks = get(`/projects/${project.id}/tasks?limit=25`, headers, listName);
   ok(tasks, 'tasks');
+  if (tasks.status === 200 && Math.random() < 0.3) { // scrolling: the first page by cursor, then the next one
+    const first = get(`/projects/${project.id}/tasks?cursor=&limit=25`, headers, 'tasks_cursor');
+    const next = ok(first, 'cursor') ? first.json('meta.next_cursor') : null;
+    if (next) ok(get(`/projects/${project.id}/tasks?cursor=${encodeURIComponent(next)}&limit=25`, headers, 'tasks_cursor'), 'cursor next');
+  }
   sleep(Math.random() * 0.5);
 
   if (Math.random() < 0.85) { // browse
     ok(get(`/projects/${project.id}/tasks?status=todo,in_progress&sort=-priority,due_on&limit=25`, headers, 'tasks_filtered'), 'filtered');
     ok(get(`/projects/${project.id}/tasks?q=billing&limit=25`, headers, 'tasks_search'), 'search');
+    ok(get(`/projects/${project.id}/tasks?search=${pick(SEARCHES)}&limit=25`, headers, 'tasks_fulltext'), 'full-text');
+    ok(get(`/search?q=${pick(SEARCHES)}&limit=25`, headers, 'search'), 'cross-project search');
     const first = tasks.status === 200 ? tasks.json('data.0') : null;
     if (first) ok(get(`/tasks/${first.id}`, headers, 'task_show'), 'show');
     ok(get(`/projects/${project.id}/analytics`, headers, 'analytics'), 'analytics');

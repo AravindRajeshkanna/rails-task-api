@@ -1,6 +1,7 @@
 module Api
   module V1
     # /organizations/:organization_id/members. Who may do what is in OrganizationMembershipPolicy.
+    # People join by invitation (OrganizationInvitationsController), not by being added.
     class OrganizationMembershipsController < BaseController
       before_action :set_organization
       before_action :set_membership, only: %i[update destroy]
@@ -10,15 +11,6 @@ module Api
         members = policy_scope(@organization.organization_memberships).includes(:user).order(:created_at, :id)
         records, meta = paginate(members)
         render_resource OrganizationMemberResource, records, meta: meta
-      end
-
-      # Adds an existing user by email address.
-      def create
-        authorize @organization.organization_memberships.build(role: params[:role] || "member")
-        membership = Organizations::AddMember.call(
-          organization: @organization, email_address: params.require(:email_address), role: params[:role] || "member"
-        )
-        render_resource OrganizationMemberResource, membership, status: :created
       end
 
       def update

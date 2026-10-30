@@ -41,6 +41,26 @@ RSpec.describe "Queue metrics" do
       expect(Observability::Metrics::QUEUE_READY.get(labels: { queue: "default" })).to eq(0)
     end
 
+    it "reports the event outbox: how many are waiting, how old the oldest is, how many have failed" do
+      travel_to(Time.utc(2026, 10, 29, 12, 0, 0)) do
+        make = ->(**attributes) { OutboxEvent.create!(event_id: SecureRandom.uuid, event_type: "task.created", payload: {}, **attributes) }
+        make.call(created_at: 90.seconds.ago, attempts: 3)
+        make.call(created_at: 10.seconds.ago)
+        make.call(created_at: 5.minutes.ago, published_at: 4.minutes.ago) # delivered: not waiting
+
+        described_class.refresh!(now: 0)
+
+        expect(Observability::Metrics::OUTBOX_PENDING.get).to eq(2)
+        expect(Observability::Metrics::OUTBOX_OLDEST_AGE.get).to eq(90)
+        expect(Observability::Metrics::OUTBOX_FAILING.get).to eq(1)
+
+        OutboxEvent.delete_all
+        described_class.reset!
+        described_class.refresh!(now: 100)
+        expect(Observability::Metrics::OUTBOX_OLDEST_AGE.get).to eq(0)
+      end
+    end
+
     it "does not query again within the TTL" do
       described_class.refresh!(now: 0)
 

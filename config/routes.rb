@@ -25,6 +25,17 @@ Rails.application.routes.draw do
         get :usage
       end
 
+      # Read-only GraphQL (POST { query, variables, operationName }); writes stay on REST.
+      post "graphql", to: "graphql#create"
+
+      # The caller's in-app inbox (kept current over NotificationsChannel).
+      resources :notifications, only: %i[index update destroy] do
+        post :read_all, on: :collection
+      end
+
+      # Full-text search across the caller's projects (inside one project: `?search=` on its task list).
+      get "search", to: "search#index"
+
       # Everything that happened in the caller's projects (the member's view of the audit log).
       get "activity", to: "activities#index"
 
@@ -34,7 +45,19 @@ Rails.application.routes.draw do
 
       # People and the projects they share; members are addressed under their organization.
       resources :organizations do
-        resources :members, controller: "organization_memberships", only: %i[index create update destroy]
+        resources :members, controller: "organization_memberships", only: %i[index update destroy]
+        resources :invitations, controller: "organization_invitations", only: %i[index create destroy]
+        resources :audit_events, controller: "organization_audit_events", only: :index
+        resources :teams do
+          resources :members, controller: "team_memberships", only: %i[index create destroy]
+        end
+      end
+      # Joining happens by redeeming an invitation (there is no "add by email"): the emailed token, as the invited address.
+      post "invitations/accept", to: "invitation_acceptances#create"
+
+      # A team's access to a project is addressed under the project (it only means something there).
+      resources :projects, only: [] do
+        resources :teams, controller: "project_teams", only: %i[index create update destroy]
       end
 
       # Shallow nesting: collections hang off their parent

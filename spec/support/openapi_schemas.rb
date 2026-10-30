@@ -40,6 +40,12 @@ module OpenapiSchemas
       },
       required: %i[page limit count pages]
     },
+    KeysetMeta: {
+      type: :object,
+      description: "Cursor pagination: no totals. Pass next_cursor as `cursor` to get the following page.",
+      properties: { limit: { type: :integer }, next_cursor: { type: :string, nullable: true }, has_more: { type: :boolean } },
+      required: %i[limit next_cursor has_more]
+    },
     UserSummary: USER_SUMMARY,
     User: {
       type: :object,
@@ -243,11 +249,75 @@ module OpenapiSchemas
       },
       required: %i[id role user]
     },
+    Notification: {
+      type: :object,
+      description: "An item in the caller's inbox. `data` is a snapshot taken when it happened.",
+      properties: {
+        id: { type: :integer }, kind: { type: :string, enum: %w[task.assigned task.due_soon task.completed comment.created] },
+        project_id: { type: :integer }, task_id: { type: :integer },
+        data: { type: :object, description: "task_title, project_name, and as relevant due_on and comment_excerpt" },
+        read: { type: :boolean }, read_at: { type: :string, format: "date-time", nullable: true },
+        actor: { allOf: [ ref("UserSummary") ], nullable: true, description: "Who did it; absent for reminders" },
+        created_at: { type: :string, format: "date-time" }
+      },
+      required: %i[id kind project_id task_id data read created_at]
+    },
+    SearchResult: {
+      type: :object,
+      description: "A task that matched a full-text search. Highlights wrap matched words in « » (plain text, not HTML).",
+      properties: {
+        id: { type: :integer }, project_id: { type: :integer },
+        project: { type: :object, properties: { id: { type: :integer }, name: { type: :string } }, required: %i[id name] },
+        title: { type: :string }, status: { type: :string }, priority: { type: :string },
+        due_on: { type: :string, format: :date, nullable: true }, updated_at: { type: :string, format: "date-time" },
+        rank: { type: :number, description: "Higher is a better match; title matches count for more than description matches" },
+        highlights: {
+          type: :object,
+          properties: { title: { type: :string, nullable: true }, description: { type: :string, nullable: true, description: "One fragment around the best match" } }
+        }
+      },
+      required: %i[id project_id project title rank highlights]
+    },
+    Team: {
+      type: :object,
+      properties: {
+        id: { type: :integer }, organization_id: { type: :integer }, name: { type: :string },
+        members_count: { type: :integer, nullable: true }, created_at: { type: :string, format: "date-time" }, updated_at: { type: :string, format: "date-time" }
+      },
+      required: %i[id organization_id name]
+    },
+    TeamMember: {
+      type: :object,
+      properties: { id: { type: :integer }, user: ref("UserSummary"), created_at: { type: :string, format: "date-time" } },
+      required: %i[id user]
+    },
+    ProjectTeam: {
+      type: :object,
+      description: "A team's access to a project, with the role each of its members gets there.",
+      properties: {
+        id: { type: :integer }, project_id: { type: :integer }, role: { type: :string, enum: %w[member admin] },
+        team: { type: :object, properties: { id: { type: :integer }, name: { type: :string } }, required: %i[id name] },
+        created_at: { type: :string, format: "date-time" }
+      },
+      required: %i[id project_id role team]
+    },
+    OrganizationInvitation: {
+      type: :object,
+      description: "An offer to join an organization, addressed to an email address. The token is only ever in the email.",
+      properties: {
+        id: { type: :integer }, email_address: { type: :string, format: :email },
+        role: { type: :string, enum: %w[member admin owner] },
+        status: { type: :string, enum: %w[pending accepted revoked expired] },
+        expires_at: { type: :string, format: "date-time" }, created_at: { type: :string, format: "date-time" },
+        invited_by: { **ref("UserSummary"), nullable: true }
+      },
+      required: %i[id email_address role status expires_at]
+    },
     Activity: {
       type: :object,
       description: "An audit event as an item of the feed.",
       properties: {
-        id: { type: :integer }, project_id: { type: :integer }, action: { type: :string, enum: %w[create update discard restore] },
+        id: { type: :integer }, project_id: { type: :integer }, action: { type: :string, enum: %w[create update discard restore destroy accept revoke] },
         auditable_type: { type: :string, enum: %w[Project Task Membership] }, auditable_id: { type: :integer },
         changes: { type: :object, description: "attribute => [old, new]" },
         actor: { allOf: [ ref("UserSummary") ], nullable: true }, created_at: { type: :string, format: "date-time" }

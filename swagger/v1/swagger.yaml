@@ -99,6 +99,22 @@ components:
       - limit
       - count
       - pages
+    KeysetMeta:
+      type: object
+      description: 'Cursor pagination: no totals. Pass next_cursor as `cursor` to
+        get the following page.'
+      properties:
+        limit:
+          type: integer
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+      required:
+      - limit
+      - next_cursor
+      - has_more
     UserSummary:
       type: object
       properties:
@@ -645,6 +661,207 @@ components:
       - id
       - role
       - user
+    Notification:
+      type: object
+      description: An item in the caller's inbox. `data` is a snapshot taken when
+        it happened.
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+          enum:
+          - task.assigned
+          - task.due_soon
+          - task.completed
+          - comment.created
+        project_id:
+          type: integer
+        task_id:
+          type: integer
+        data:
+          type: object
+          description: task_title, project_name, and as relevant due_on and comment_excerpt
+        read:
+          type: boolean
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        actor:
+          allOf:
+          - "$ref": "#/components/schemas/UserSummary"
+          nullable: true
+          description: Who did it; absent for reminders
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - kind
+      - project_id
+      - task_id
+      - data
+      - read
+      - created_at
+    SearchResult:
+      type: object
+      description: A task that matched a full-text search. Highlights wrap matched
+        words in « » (plain text, not HTML).
+      properties:
+        id:
+          type: integer
+        project_id:
+          type: integer
+        project:
+          type: object
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+          required:
+          - id
+          - name
+        title:
+          type: string
+        status:
+          type: string
+        priority:
+          type: string
+        due_on:
+          type: string
+          format: date
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+        rank:
+          type: number
+          description: Higher is a better match; title matches count for more than
+            description matches
+        highlights:
+          type: object
+          properties:
+            title:
+              type: string
+              nullable: true
+            description:
+              type: string
+              nullable: true
+              description: One fragment around the best match
+      required:
+      - id
+      - project_id
+      - project
+      - title
+      - rank
+      - highlights
+    Team:
+      type: object
+      properties:
+        id:
+          type: integer
+        organization_id:
+          type: integer
+        name:
+          type: string
+        members_count:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - organization_id
+      - name
+    TeamMember:
+      type: object
+      properties:
+        id:
+          type: integer
+        user:
+          "$ref": "#/components/schemas/UserSummary"
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - user
+    ProjectTeam:
+      type: object
+      description: A team's access to a project, with the role each of its members
+        gets there.
+      properties:
+        id:
+          type: integer
+        project_id:
+          type: integer
+        role:
+          type: string
+          enum:
+          - member
+          - admin
+        team:
+          type: object
+          properties:
+            id:
+              type: integer
+            name:
+              type: string
+          required:
+          - id
+          - name
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - project_id
+      - role
+      - team
+    OrganizationInvitation:
+      type: object
+      description: An offer to join an organization, addressed to an email address.
+        The token is only ever in the email.
+      properties:
+        id:
+          type: integer
+        email_address:
+          type: string
+          format: email
+        role:
+          type: string
+          enum:
+          - member
+          - admin
+          - owner
+        status:
+          type: string
+          enum:
+          - pending
+          - accepted
+          - revoked
+          - expired
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        invited_by:
+          "$ref": "#/components/schemas/UserSummary"
+          nullable: true
+      required:
+      - id
+      - email_address
+      - role
+      - status
+      - expires_at
     Activity:
       type: object
       description: An audit event as an item of the feed.
@@ -660,6 +877,9 @@ components:
           - update
           - discard
           - restore
+          - destroy
+          - accept
+          - revoke
         auditable_type:
           type: string
           enum:
@@ -1085,7 +1305,7 @@ paths:
       - name: type
         in: query
         required: false
-        description: 'Comma-separated: Project, Task, Membership'
+        description: 'Comma-separated: Project, Task, Membership, ProjectTeam'
         schema:
           type: string
       - name: page
@@ -1557,6 +1777,224 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+  "/api/v1/graphql":
+    post:
+      summary: Query the API with GraphQL
+      tags:
+      - GraphQL
+      description: 'A read-only GraphQL endpoint over the same data, with the same
+        access rules, as the REST API: every list starts from what you may see and
+        anything else is `null`. Writes are REST only. The schema is in `docs/graphql/schema.graphql`
+        (and by introspection). Limits: a query is at most 20 KB, 8 levels deep and
+        1500 complexity points (a connection multiplies its children by the page size
+        you ask for), a page is at most 100 items, one operation per request. Invalid
+        or too-expensive queries are a `200` with an `errors` array, as GraphQL does;
+        a malformed request is a `400` in the usual error envelope.'
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: 'The result: `data`, and `errors` if anything went wrong'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    nullable: true
+                  errors:
+                    type: array
+                    items:
+                      type: object
+        '400':
+          description: No query, a query over 20 KB, or variables that are not an
+            object
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  example: "{ projects(first: 5) { nodes { name tasks(first: 3) {
+                    nodes { title status } } } } }"
+                variables:
+                  type: object
+                  description: Or a JSON string
+                operationName:
+                  type: string
+              required:
+              - query
+  "/api/v1/notifications":
+    get:
+      summary: List my notifications
+      tags:
+      - Notifications
+      description: 'The caller''s inbox, newest first: tasks assigned to you, reminders
+        for tasks due tomorrow, comments on your tasks, and completion of tasks you
+        created. Things in a project you have left, or that is archived, are not listed.
+        `meta.unread_count` counts all unread notifications whatever the filters.
+        New ones are also pushed over `NotificationsChannel` (Action Cable).'
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: unread
+        in: query
+        required: false
+        description: Only unread ones
+        schema:
+          type: boolean
+      - name: project_id
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: kind
+        in: query
+        required: false
+        description: 'Comma-separated: task.assigned, task.due_soon, task.completed,
+          comment.created'
+        schema:
+          type: string
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Notification"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '400':
+          description: Unknown kind
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/v1/notifications/{id}":
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    patch:
+      summary: Mark a notification read or unread
+      tags:
+      - Notifications
+      description: 'Idempotent: marking a read notification read again keeps its original
+        time.'
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Notification"
+                required:
+                - data
+        '404':
+          description: Not yours, or not found
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                read:
+                  type: boolean
+              required:
+              - read
+    delete:
+      summary: Dismiss a notification
+      tags:
+      - Notifications
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Deleted
+  "/api/v1/notifications/read_all":
+    post:
+      summary: Mark everything read
+      tags:
+      - Notifications
+      description: Marks all of the caller's unread notifications read, optionally
+        only those of one project (`project_id` in the body).
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: How many were marked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      updated:
+                        type: integer
+                    required:
+                    - updated
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_id:
+                  type: integer
   "/api/v1/organizations":
     get:
       summary: List my organizations
@@ -1759,41 +2197,150 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-    post:
-      summary: Add a member
+  "/api/v1/organizations/{organization_id}/audit_events":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: The organization's history
       tags:
       - Organizations
-      description: Adds an existing user by email address. Owners may grant any role;
-        admins may add plain members.
+      description: 'Renames, members joining, changing role and leaving, and invitations
+        sent, accepted and withdrawn, newest first. Owners only: invitation changes
+        carry the invited email address.'
       security:
       - bearer_auth: []
-      parameters: []
+      parameters:
+      - name: auditable_type
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - Organization
+          - OrganizationMembership
+          - OrganizationInvitation
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
       responses:
-        '201':
-          description: Added
+        '200':
+          description: A page of audit events
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   data:
-                    "$ref": "#/components/schemas/OrganizationMember"
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/AuditEvent"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
                 required:
                 - data
-        '403':
-          description: Not allowed to grant that role
+        '400':
+          description: Unknown auditable_type
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
-        '404':
-          description: No user with that email address
+        '403':
+          description: Not an owner
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/v1/organizations/{organization_id}/invitations":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List open invitations
+      tags:
+      - Organizations
+      description: 'Invitations that can still be accepted. Owners and admins only:
+        they carry email addresses.'
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of invitations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/OrganizationInvitation"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '403':
+          description: Plain members cannot list invitations
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    post:
+      summary: Invite someone
+      tags:
+      - Organizations
+      description: Invites an email address and mails it a link; the response is the
+        same whether or not the address belongs to a registered user, and never contains
+        the token. Inviting an address that already has an open invitation refreshes
+        it and mails the link again. Owners may offer any role; admins may offer `member`.
+        Valid for 7 days.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Invited
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/OrganizationInvitation"
+                required:
+                - data
+        '403':
+          description: Not allowed to offer that role
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
         '422':
-          description: Already a member
+          description: Invalid address, or already a member
           content:
             application/json:
               schema:
@@ -1806,6 +2353,7 @@ paths:
               properties:
                 email_address:
                   type: string
+                  format: email
                 role:
                   type: string
                   enum:
@@ -1815,6 +2363,78 @@ paths:
                   default: member
               required:
               - email_address
+  "/api/v1/organizations/{organization_id}/invitations/{id}":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    delete:
+      summary: Withdraw an invitation
+      tags:
+      - Organizations
+      description: The emailed link stops working. Owners, and admins for invitations
+        to plain membership.
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Withdrawn
+        '404':
+          description: Not found, or no longer open
+  "/api/v1/invitations/accept":
+    post:
+      summary: Accept an invitation
+      tags:
+      - Organizations
+      description: Redeems the token from an invitation email, as the signed-in user
+        whose email address was invited. An unknown, expired, used or withdrawn token,
+        or one addressed to someone else, is the same `404`.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Joined; the body is the organization with the caller's new
+            role
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Organization"
+                required:
+                - data
+        '404':
+          description: Invalid, expired, used, withdrawn, or not addressed to the
+            caller
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '422':
+          description: The caller is already a member
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+              required:
+              - token
   "/api/v1/organizations/{organization_id}/members/{id}":
     parameters:
     - name: organization_id
@@ -2125,7 +2745,10 @@ paths:
       summary: Add a member
       tags:
       - Memberships
-      description: Admins add an existing user by email address.
+      description: Admins add an existing user by email address. In a project of an
+        organization the person must already be in the organization, and an unknown
+        address is the same `422` as a user outside it; invite people to the organization
+        instead.
       security:
       - bearer_auth: []
       parameters: []
@@ -2361,6 +2984,69 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+  "/api/v1/search":
+    get:
+      summary: Search tasks across my projects
+      tags:
+      - Search
+      description: Full-text search of task titles and descriptions in every project
+        the caller can see (including through a team or an organization), best match
+        first. Words are stemmed (`deploying` finds `deployed`); `"quoted phrases"`,
+        `or` and `-excluded` work; any text is safe. Deleted tasks and archived projects
+        never match. Inside one project, use `search` on its task list.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: q
+        in: query
+        required: true
+        description: What to look for, at most 200 characters
+        schema:
+          type: string
+      - name: project_id
+        in: query
+        required: false
+        description: Only this project
+        schema:
+          type: integer
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of matches
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/SearchResult"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '400':
+          description: q is missing or longer than 200 characters
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
   "/api/v1/projects/{project_id}/tasks":
     parameters:
     - name: project_id
@@ -2421,7 +3107,15 @@ paths:
       - name: q
         in: query
         required: false
-        description: Case-insensitive search of title and description
+        description: Case-insensitive substring search of title and description
+        schema:
+          type: string
+      - name: search
+        in: query
+        required: false
+        description: 'Full-text search of title and description (max 200 characters):
+          words are stemmed, `"quoted phrases"`, `or` and `-excluded` work. Best match
+          first unless `sort` is given'
         schema:
           type: string
       - name: sort
@@ -2436,6 +3130,18 @@ paths:
         required: false
         schema:
           type: integer
+      - name: cursor
+        in: query
+        required: false
+        allowEmptyValue: true
+        description: Switches to keyset pagination, which costs the same at any depth
+          and does not skip or repeat tasks when others are added meanwhile, but has
+          no total. Send it empty for the first page, then `meta.next_cursor` of the
+          previous response (with the same filters and sort). Only for sorts by `created_at`,
+          `updated_at` and `title` (not by relevance, `priority`, `status` or `due_on`);
+          an invalid cursor is a 400. Replaces `page`.
+        schema:
+          type: string
       - name: limit
         in: query
         required: false
@@ -2443,7 +3149,8 @@ paths:
           type: integer
       responses:
         '200':
-          description: A page of tasks
+          description: A page of tasks by cursor (`meta` has `next_cursor` and `has_more`,
+            no total)
           content:
             application/json:
               schema:
@@ -2454,11 +3161,12 @@ paths:
                     items:
                       "$ref": "#/components/schemas/Task"
                   meta:
-                    "$ref": "#/components/schemas/PaginationMeta"
+                    "$ref": "#/components/schemas/KeysetMeta"
                 required:
                 - data
+                - meta
         '400':
-          description: Invalid filter or sort value
+          description: Invalid filter, sort or cursor value
           content:
             application/json:
               schema:
@@ -2854,6 +3562,416 @@ paths:
       responses:
         '204':
           description: Deleted
+  "/api/v1/organizations/{organization_id}/teams":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List teams
+      tags:
+      - Teams
+      description: Any member of the organization can list its teams, sorted by name.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of teams
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/Team"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '404':
+          description: Not found, or not a member of the organization
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+    post:
+      summary: Create a team
+      tags:
+      - Teams
+      description: Owners and admins of the organization. Names are unique within
+        it, ignoring case.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Team"
+                required:
+                - data
+        '403':
+          description: Not an owner or admin
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '422':
+          description: Name taken or blank
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 100
+              required:
+              - name
+  "/api/v1/organizations/{organization_id}/teams/{id}":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: Show a team
+      tags:
+      - Teams
+      security:
+      - bearer_auth: []
+      responses:
+        '200':
+          description: The team
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Team"
+                required:
+                - data
+    patch:
+      summary: Rename a team
+      tags:
+      - Teams
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Team"
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required:
+              - name
+    delete:
+      summary: Delete a team
+      tags:
+      - Teams
+      description: Takes the team's access to projects with it.
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          description: Not an owner or admin
+  "/api/v1/organizations/{organization_id}/teams/{team_id}/members":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: team_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List a team's members
+      tags:
+      - Teams
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of members
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/TeamMember"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+    post:
+      summary: Add someone to a team
+      tags:
+      - Teams
+      description: By user id; the person must be a member of the organization. A
+        person who is not, and an id that matches nobody, get the same `422`. Owners
+        and admins.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/TeamMember"
+                required:
+                - data
+        '422':
+          description: Not in the organization, or already in the team
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id:
+                  type: integer
+              required:
+              - user_id
+  "/api/v1/organizations/{organization_id}/teams/{team_id}/members/{id}":
+    parameters:
+    - name: organization_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: team_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    delete:
+      summary: Remove someone from a team
+      tags:
+      - Teams
+      description: They lose the access the team gave them to projects.
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Removed
+  "/api/v1/projects/{project_id}/teams":
+    parameters:
+    - name: project_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    get:
+      summary: List the teams with access
+      tags:
+      - Teams
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: A page of grants
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/ProjectTeam"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+    post:
+      summary: Give a team access
+      tags:
+      - Teams
+      description: Project admins grant a team of the project's organization access,
+        as `member` (default) or `admin`; everyone in the team gets that role, added
+        up with their other routes in. A team from anywhere else, and an id that matches
+        no team, get the same `422`.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '201':
+          description: Granted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/ProjectTeam"
+                required:
+                - data
+        '422':
+          description: Not a team of the project's organization, or already granted
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                team_id:
+                  type: integer
+                role:
+                  type: string
+                  enum:
+                  - member
+                  - admin
+                  default: member
+              required:
+              - team_id
+  "/api/v1/projects/{project_id}/teams/{id}":
+    parameters:
+    - name: project_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    patch:
+      summary: Change a team's role in a project
+      tags:
+      - Teams
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/ProjectTeam"
+                required:
+                - data
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum:
+                  - member
+                  - admin
+              required:
+              - role
+    delete:
+      summary: Withdraw a team's access
+      tags:
+      - Teams
+      security:
+      - bearer_auth: []
+      responses:
+        '204':
+          description: Withdrawn
   "/api/v1/projects/{project_id}/webhooks":
     parameters:
     - name: project_id

@@ -27,6 +27,8 @@ them as a matrix.
 | `spec/forms/`, `spec/queries/`, `spec/services/`, `spec/jobs/`, `spec/subscribers/` | unit specs | Form objects, query objects, AI/webhook/observability services, background jobs, event subscribers |
 | `spec/channels/`, `spec/mailers/` | channel and mailer specs | Action Cable authorization, emails |
 | `gems/*/spec`, `deploy/lambda/*/spec` | unit specs | The shared gems and the AIOps Lambdas |
+| `deploy/terraform/tests/` | `terraform test`, in CI | The multi-region wiring: what each role (single region, primary, standby) creates and is named, against mocked AWS providers, with no credentials ([ADR 45](decisions.md)) |
+| `loadtest/` | k6, nightly in CI | Latency and error thresholds under load, against ~150,000 seeded tasks in production mode ([loadtest/README.md](../loadtest/README.md)) |
 
 Tools: RSpec, FactoryBot, Faker, Shoulda Matchers, pundit-matchers, WebMock (no real HTTP in tests), Bullet
 (raises on N+1 and unused eager loading), SimpleCov, rswag.
@@ -52,8 +54,8 @@ These are the tests worth knowing about, because they turn a convention into a c
 
 | | Now | Floor |
 | --- | ---: | ---: |
-| Line | 92.8% | 91% |
-| Branch | 82.1% | 79% |
+| Line | 94.3% | 92% |
+| Branch | 84.1% | 81% |
 
 The floor sits just under the current value, so it catches a drop (code arriving without specs), not a goal to chase.
 Override per run with `COVERAGE_MIN_LINE` / `COVERAGE_MIN_BRANCH`. The report is `coverage/index.html`; CI uploads it
@@ -67,7 +69,7 @@ which can only be exercised against the real service. The extracted services' su
 - **VCR is not used.** Outbound HTTP is webhook delivery (asserted with WebMock, against a stubbed DNS resolver) and AWS
   calls (Bedrock, SNS), which the AWS SDK's own `stub_responses` replaces with typed fixtures. Cassettes would record
   real responses, including whatever secrets and personal data they carry. Revisit if a plain HTTP API provider is added.
-- **No parallel test runner.** 700+ examples run in about 10 seconds; parallelism would add per-worker databases and make
+- **No parallel test runner.** 950+ examples run in about 20 seconds; parallelism would add per-worker databases and make
   coverage merging fiddly for no gain. Add `parallelize(workers: :number_of_processors)` (or `parallel_tests`) when the
   suite passes ~2 minutes.
 - **Time is controlled, never waited for**: `travel_to` / `travel`, never `sleep`.

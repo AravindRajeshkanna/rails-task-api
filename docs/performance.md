@@ -48,8 +48,8 @@ p95 by endpoint, in milliseconds:
 | `PATCH /tasks/:id` | 16 | 12 | 25 |
 | `POST /tasks/:id/comments` | 22 | 10 | 20 |
 
-The slowest read is text search (`ILIKE '%term%'` on title and description, no usable index for the
-description): fine today, and the first thing to move to a `tsvector` index if projects grow ([roadmap](roadmap.md)).
+The slowest read is substring text search (`ILIKE '%term%'` on title and description, no usable index for the
+description); full-text search ([below](#full-text-search)) is the indexed alternative.
 Analytics is cached for five minutes per project version, so its p95 is dominated by the occasional cache miss.
 
 ## What the measurements changed
@@ -84,13 +84,65 @@ and the rest of the request do not shrink. That ratio is the honest number.
 No other index was added: the planner already used the existing ones, and an index that no measured
 query needs only slows writes. Add one when `EXPLAIN` on production-sized data shows a scan, not before.
 
+## Full-text search
+
+`GET /search` and `?search=` use a stored `tsvector` (title weight A, description weight B) with a GIN index
+([ADR 38](decisions.md)). Measured in-process (no HTTP, no k6) against the 149,000-task database, 50,000 of them in one project,
+`EXPLAIN (ANALYZE)` plans in the PR:
+
+| Query (first page of 25) | Substring `?q=` (`ILIKE`) | Full-text `?search=` / `GET /search` |
+| --- | ---: | ---: |
+| **Rare** word (15 of 50,000 tasks) | 62 ms | **2 ms** |
+| **Common** word (29,000 of 50,000 match) | 1.7 ms | 21 ms |
+| Two common words, or a phrase | n/a (one substring) | 13-23 ms |
+| Word that matches nothing | scans the project | 1 ms |
+| The count behind the pagination header | n/a | 1 ms (rare), 11-19 ms (common) |
+
+Two different shapes, and neither wins everywhere. A substring search walks the newest tasks first and stops after 25 hits, so a *common*
+word is nearly free and a *rare* word reads the whole project (no index can serve `%word%` on the description). A ranked search has to
+score **every** match before it knows the best 25, so its cost grows with the number of matches: tiny for a rare word, about 20 ms for a word
+in 60% of 50,000 tasks. The seed data (26 words) is the worst case for that; real text is mostly rare words. Highlights cost nothing extra,
+because PostgreSQL only computes them for the 25 rows it returns. If a ranked search ever becomes the slow one, the lever is to rank only
+the most recent N matches for broad queries; it is not built because nothing needs it yet.
+
+On a GitHub-hosted runner (the nightly load test, 10 visits a second, the same 149,000 tasks, k6, the app and PostgreSQL sharing the machine) the numbers are
+a different order but the same shape, and cross-project search is the slowest endpoint, as predicted for words that match about half the rows: median 109 ms, p95 195 ms,
+against p95 62 ms for the 50,000-task list, 94 ms for a project-scoped full-text search and 133 ms for substring search. All inside the thresholds (the search limit is 600 ms).
+
+The migration that adds the column rewrites `tasks` under a lock: 3.7 s here ([runbook](runbooks/zero-downtime-migrations.md)). The GIN
+index is 2.9 MB for 149,000 tasks and is built concurrently.
+
+## Deep pages: offset against cursor
+
+`?page=N` is `OFFSET`: the database walks and discards every row before the page, so a deep page costs more the deeper it is. On the
+50,000-task project, newest first, first page of 25 after skipping N rows (`EXPLAIN (ANALYZE)`, execution time):
+
+| Rows skipped | `page=` (offset) | `cursor=` (keyset) |
+| ---: | ---: | ---: |
+| 0 | 0.07 ms | 0.08 ms |
+| 1,000 | 1.0 ms | 0.07 ms |
+| 10,000 | 4.2 ms | 0.07 ms |
+| 49,000 | **13.8 ms** | 0.08 ms |
+
+The keyset query is `WHERE (created_at, id) < (cutoff)` on the same partial index, so it starts where the last page ended. Offset paging also
+runs a `COUNT(*)` for the total, which keyset paging skips (that is why a cursor page has no total). Offset stays the default because
+nothing is wrong with it at these sizes and a total is useful in a UI; the cursor is for feeds, exports and infinite scroll.
+
+## A load test every night
+
+Numbers on this page are from one laptop and go stale; the guard that does not is the nightly run: `.github/workflows/loadtest.yml` builds the same data set
+on a CI runner, drives the same k6 script at 15 visits a second for 90 seconds and fails if any threshold in `loadtest/k6/api.js` is breached
+([loadtest/README.md](../loadtest/README.md#in-ci-nightly)). Thresholds, not measurements, are what it enforces, because a shared runner's absolute latency
+swings by up to ten times between runs (seen on this repository's first two runs), and a breach is repeated once on a fresh environment before the job fails. A failed nightly run opens an issue.
+
 ## Other performance guards that run in CI
 
 - **Bullet** raises on N+1 queries and on unused eager loading in every request spec.
 - New endpoints assert their query count (`count_queries` in `spec/support/query_helpers.rb`), so a loop
   that issues a query per row fails the build.
-- Offset pagination at depth: page 400 of the whale project (offset 10,000) is 3.5 ms with the index. Past
-  roughly a million rows in one project, switch that endpoint to keyset pagination.
+- Deep pages: `page=` costs more the deeper it goes (4 ms at offset 10,000, 14 ms at 49,000); the task list offers
+  `cursor=` (keyset) for feeds and exports ([above](#deep-pages-offset-against-cursor)).
+- The nightly load test ([above](#a-load-test-every-night)).
 
 ## Known limits of these numbers
 

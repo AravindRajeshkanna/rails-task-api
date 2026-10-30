@@ -3,6 +3,7 @@ class ApplicationController < ActionController::API
   include ErrorHandling
   include Pagination
   include Pundit::Authorization
+  include DemoMode
 
   # The API takes flat JSON bodies ({"title": "..."}), not Rails' nested form params.
   wrap_parameters false

@@ -8,9 +8,11 @@ module Api
       def index
         authorize @project, :show?
 
-        tasks = TaskQuery.new(policy_scope(@project.tasks).kept, params, current_user: current_user).call
-        tasks = tasks.includes(:creator, :assignee, :tags, attachments_attachments: :blob)
-        records, meta = paginate(tasks)
+        query = TaskQuery.new(policy_scope(@project.tasks).kept, params, current_user: current_user)
+        query.ensure_keyset_sort! if params.key?(:cursor)
+        tasks = query.call.includes(:creator, :assignee, :tags, attachments_attachments: :blob)
+        # ?cursor= (even empty) pages by keyset: constant cost at any depth, no total. Otherwise ?page=.
+        records, meta = params.key?(:cursor) ? paginate_by_cursor(tasks, params[:cursor]) : paginate(tasks)
         render_resource TaskResource, records, meta: meta
       end
 

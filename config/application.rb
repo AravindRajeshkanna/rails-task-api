@@ -53,6 +53,9 @@ module TaskApi
     config.x.frontend_url = ENV.fetch("FRONTEND_URL", "http://localhost:5173")
     config.x.mail_from = ENV.fetch("MAIL_FROM", "Task API <no-reply@example.com>")
     config.x.discard_retention = 30.days
+    # A public demo instance: sign-up, password reset, uploads, webhooks, invitations and AI are refused, and its data is
+    # reset every night (docs/demo.md). Never set this on an instance with real users.
+    config.x.demo_mode = ENV["DEMO_MODE"] == "true"
     # Outgoing webhooks refuse private/loopback addresses unless this is enabled (SSRF guard).
     config.x.webhooks.allow_private_networks = false
 

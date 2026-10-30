@@ -1,6 +1,6 @@
 # Roadmap and implementation record
 
-What was planned, what was built, where it lives, and what was deliberately left. Three roadmaps have been worked through, in order;
+What was planned, what was built, where it lives, and what was deliberately left. Four roadmaps have been worked through, in order;
 each section is a ledger, not a plan, so every line says what actually happened.
 
 | # | Roadmap | Delivered in | Result |
@@ -8,6 +8,7 @@ each section is a ledger, not a plan, so every line says what actually happened.
 | 1 | [Build an API-only Rails 8.1 backend](#roadmap-1-build-the-api) (phases 0-7) | [#1](https://github.com/AravindRajeshkanna/rails-task-api/pull/1) | The Task/Project Management API |
 | 2 | [AI-powered, AIOps-enabled microservices on AWS EKS](#roadmap-2-ai-aiops-and-microservices-on-eks) (phases 1-6) | [#5](https://github.com/AravindRajeshkanna/rails-task-api/pull/5) | AI features, observability, three extracted services, the platform to run it |
 | 3 | [Improve it further](#roadmap-3-improving-the-project-further) (phases 1-8) | [#6](https://github.com/AravindRajeshkanna/rails-task-api/pull/6) | Hardening, testing, performance, security, documentation, organizations, analytics |
+| 4 | [The "Next" list](#roadmap-4-the-next-list-of-roadmap-3) (ten items) | [#7](https://github.com/AravindRajeshkanna/rails-task-api/pull/7) | Invitations, organization audit, teams, full-text search, an inbox, keyset pagination, a transactional outbox, a nightly load test, GraphQL, a demo mode; multi-region as a design |
 
 **Status key.** ✅ done and verified as described · 🟡 done in part, or done differently on purpose (the note says how) · ⏭ deliberately not done (the note says why, and what would trigger it).
 
@@ -16,7 +17,7 @@ Terraform, Helm, Argo CD, Kamal) is validated statically and by CI (images build
 checks) but **has never been applied to AWS or run under Docker/Kubernetes**. The AI features run against the offline provider; **Bedrock has
 not been called**. Those boundaries are repeated where they matter.
 
-The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) (ADRs 1-34); user-visible changes are in [../CHANGELOG.md](../CHANGELOG.md).
+The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) (ADRs 1-44); user-visible changes are in [../CHANGELOG.md](../CHANGELOG.md).
 
 ---
 
@@ -33,7 +34,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | 4 Advanced Rails 8 | Solid Queue/Cache/Cable, Active Storage, Active Job continuations, structured events, credentials, Kamal 2 | ✅ | The Solid stack ([ADR 8](decisions.md)); `Rails.event` ([ADR 9](decisions.md)); continuations ([ADR 11](decisions.md)); avatars and task attachments; `config/deploy.yml` (Kamal 2) |
 | 5 Testing, quality, performance | RSpec/FactoryBot/Faker/Shoulda, request/model/policy specs, Bullet, indexes, RuboCop, Brakeman, local CI | ✅ | See [testing.md](testing.md); Bullet raises in test; `bin/ci` ([ADR 13](decisions.md)) |
 | 6 Production readiness | Docker, Kamal, health checks, logging, backups, migrations strategy, Sentry | 🟡 | Dockerfile, `/up`, JSON logs, Sentry were in #1. **Backups and the migration strategy were gaps; closed in roadmap 3** ([backup runbook](runbooks/backup-and-restore.md), [migrations runbook](runbooks/zero-downtime-migrations.md)) |
-| 7 Polish & portfolio | Soft delete, auditing, webhooks, GraphQL (optional), multi-tenancy, README, ADRs, public demo | 🟡 | Soft delete + restore, append-only audit log ([ADR 11](decisions.md)), signed SSRF-guarded webhooks ([ADR 10](decisions.md)), README, ADRs ✅. Multi-tenancy: now organizations (roadmap 3). **GraphQL ⏭** (optional, no consumer needs it). **Public demo ⏭** (nothing deployed; deployment is yours to run) |
+| 7 Polish & portfolio | Soft delete, auditing, webhooks, GraphQL (optional), multi-tenancy, README, ADRs, public demo | 🟡 | Soft delete + restore, append-only audit log ([ADR 11](decisions.md)), signed SSRF-guarded webhooks ([ADR 10](decisions.md)), README, ADRs ✅. Multi-tenancy: now organizations (roadmap 3). **GraphQL ✅** read-only, in roadmap 4 ([ADR 43](decisions.md)). **Public demo 🟡**: demo mode, a nightly reset and a Kamal destination exist ([docs/demo.md](demo.md), [ADR 44](decisions.md)); hosting it is yours to do |
 
 ## Roadmap 2: AI, AIOps and microservices on EKS
 
@@ -75,8 +76,8 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | FactoryBot + Faker + Shoulda | ✅ | In place since #1 |
 | Integration tests for auth flows | ✅ | `authentication_spec` (pieces) and `authentication_journey_spec` (sign up → work → reset password → signed out everywhere) |
 | VCR or WebMock | 🟡 | WebMock ✅. VCR deliberately not added: outbound calls are webhooks and AWS SDK calls, which stub cleanly without cassettes that record real responses ([testing.md](testing.md#decisions)) |
-| SimpleCov with a CI floor | ✅ | `COVERAGE=1`; floor 91% line / 79% branch in `spec/spec_helper.rb`; CI uploads the report and prints it in the job summary |
-| Parallel testing if the suite grows | ⏭ | 741 examples run in ~10 s; parallelism would add cost for no gain. Trigger: suite past ~2 minutes ([testing.md](testing.md#decisions)) |
+| SimpleCov with a CI floor | ✅ | `COVERAGE=1`; floor 92% line / 81% branch (raised from 91 / 79 as the suite grew) in `spec/spec_helper.rb`; CI uploads the report and prints it in the job summary |
+| Parallel testing if the suite grows | ⏭ | 1,036 examples run in ~20 s; parallelism would add cost for no gain. Trigger: suite past ~2 minutes ([testing.md](testing.md#decisions)) |
 | *Found on the way* | ✅ | `rspec <file>` ran the whole suite because of a `--pattern` in `.rspec`; the gem and Lambda specs had hidden dependencies on the booted Rails app. Both fixed; every way of running the specs now works |
 
 ### Phase 3: Performance and scalability
@@ -121,15 +122,15 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | Planned | Status | Implemented as |
 | --- | --- | --- |
 | Soft deletes + auditing | ✅ | #1 |
-| Activity feed / notifications | 🟡 | Activity feed: `GET /activity`, the member's view of the audit log across their projects. Email and Slack notifications via the Notification service (#5). **An in-app notification inbox (read/unread) ⏭**: it needs per-user read state and a fan-out design |
+| Activity feed / notifications | 🟡 | Activity feed: `GET /activity`, the member's view of the audit log across their projects. Email and Slack notifications via the Notification service (#5). **In-app inbox with read state ✅** (roadmap 4, [ADR 39](decisions.md)) |
 | File attachments (Active Storage + S3) | ✅ | Local disk, or S3 with `ACTIVE_STORAGE_SERVICE=amazon` (#5) |
-| Advanced search | 🟡 | Trigram-indexed title search and substring search (#1); semantic similar-task search with pgvector (#5). Full-text (`tsvector`/pg_search/OpenSearch) **⏭**: text search is the slowest read (27 ms on a 50k-task project); trigger: it shows in a p95 |
+| Advanced search | 🟡 | Trigram-indexed title search and substring search (#1); semantic similar-task search with pgvector (#5). **Full-text search ✅** (roadmap 4, [ADR 38](decisions.md)): ranked, with highlights, within a project and across projects |
 | Webhooks | ✅ | #1 |
 | Multi-tenancy | ✅ | Organizations are the tenant boundary: a project belongs to one for life and only takes its members ([ADR 34](decisions.md)). Row-level security / schema-per-tenant ⏭, not needed at this scale |
 | Real-time updates | ✅ | Solid Cable `ProjectChannel` (#1) |
 | AI features | ✅ | #5 |
 | Usage analytics dashboard | ✅ | `GET /projects/{id}/analytics`: counts, throughput per period, cycle time (median/p90), workload. Backend only; no UI in this repository |
-| RBAC with teams/organizations | 🟡 | Organizations with `owner`/`admin`/`member`, admins administering all org projects, last-owner and removal rules; policy, model and request specs. **Teams ⏭** (sub-groups with their own project access): the next step when per-team access is needed |
+| RBAC with teams/organizations | ✅ | Organizations with `owner`/`admin`/`member`, admins administering all org projects, last-owner and removal rules; policy, model and request specs. **Teams** (roadmap 4, [ADR 37](decisions.md)): groups granted a role in a project, derived in the policies; invitations ([ADR 35](decisions.md)) and an organization audit log ([ADR 36](decisions.md)) |
 
 ### Phase 7: DevOps and deployment
 
@@ -151,32 +152,50 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | Full observability (OpenTelemetry + Grafana) | ✅ | #5 |
 | Event-driven pieces (SQS / EventBridge) | ✅ | CloudEvents on SNS → SQS (+ DLQ), EventBridge rules (#5) |
 | AIOps experiments (anomaly detection) | ✅ | CloudWatch anomaly detection, RCA and remediation Lambdas (#5) |
-| Multi-region or advanced AWS | 🟡 | Advanced AWS in place (Karpenter, Pod Identity, WAF, FIS, Budgets). **Multi-region ⏭**: it cannot be validated without an AWS account, and unvalidated Terraform for failover is a liability. The design is below |
+| Multi-region or advanced AWS | 🟡 | Advanced AWS in place (Karpenter, Pod Identity, WAF, FIS, Budgets). **Multi-region 🟡 built and tested offline, never applied**: Terraform (`dr_role`, one root module applied twice), a `prod-dr` GitOps environment, [the design](aws/multi-region.md), [the failover runbook](runbooks/regional-failover.md), [ADR 42](decisions.md) and [45](decisions.md) |
 
 ---
+
+## Roadmap 4: the "Next" list of roadmap 3
+
+*Goal: work through the ten items the previous roadmap ended with, in that order. Delivered in [#7](https://github.com/AravindRajeshkanna/rails-task-api/pull/7), one commit per item.*
+
+| # | Item | Status | Implemented as |
+| --- | --- | --- | --- |
+| 1 | Invitation flow | ✅ | `OrganizationInvitation` with a signed, expiring token (nothing secret stored or queued); redeeming needs the token and being the invited address; the API answers the same for registered and unregistered addresses; project add-by-email in an organization answers the same for an unknown address as for a stranger ([ADR 35](decisions.md)) |
+| 2 | Audit organization changes | ✅ | `audit_events.organization_id`, `Auditable` records deletions on request; `GET /organizations/{id}/audit_events` for owners ([ADR 36](decisions.md)) |
+| 3 | Teams | ✅ | `Team`, `TeamMembership`, `ProjectTeam`; access derived in `ProjectPolicy::Scope`, `member_project_ids` and `role_in` (highest role wins); assignable; found and fixed an inconsistency between list and single-record role lookups ([ADR 37](decisions.md)) |
+| 4 | Full-text search | ✅ | stored `tsvector` + GIN, `websearch_to_tsquery`, ranked, highlights; `?search=` and `GET /search`. Rare word 62 ms → 2 ms; a word in 60% of 50k tasks is 21 ms *slower* than substring search, so both stay ([ADR 38](decisions.md)) |
+| 5 | In-app notification inbox | ✅ | `Notification` written by one more `Rails.event` subscriber; `GET /notifications`, read/unread, `read_all`, live over Action Cable; hidden when access ends ([ADR 39](decisions.md)) |
+| 6 | Keyset pagination | ✅ | `?cursor=` on the task list, built on Pagy's keyset paginator with microsecond cutoffs and validated cursors; 13.8 ms → 0.08 ms at row 49,000; for `created_at`, `updated_at` and `title` sorts ([ADR 40](decisions.md)) |
+| 7 | Transactional outbox | ✅ | `outbox_events` written in the change's transaction, envelope built then; a leased, backed-off relay; alarm on the oldest unpublished event; runbook ([ADR 41](decisions.md)) |
+| 8 | A load test in CI | ✅ | `.github/workflows/loadtest.yml` runs `loadtest/ci.sh` nightly, on demand and when the load test changes; fails on any k6 threshold (now including dropped iterations); opens an issue when the nightly run fails. The script ran end to end locally, passing and breaching, and the workflow ran green on GitHub in the pull request that added it (about 2 minutes; see the numbers in [performance.md](performance.md#full-text-search)) |
+| 9 | Multi-region | 🟡 | Built, **never applied**: `dr_role` in the one Terraform root module (a global Aurora cluster, S3 and ECR replication, secret replicas, a Route 53 failover pair with a health check), a `prod-dr` GitOps environment and promotion path, a standby sized by `SIZE_AS`, a design, a failover runbook, and `terraform test` against mocked providers in CI (mutation-checked; it found two defects in the existing code). The roadmap's condition ("after a single region has run in anger") is still unmet, so the first real apply is expected to teach something ([ADR 42](decisions.md), [45](decisions.md)) |
+| 10 | GraphQL and a public demo | ✅ / 🟡 | GraphQL: read-only, authorized by the policy scopes, with hard limits and a committed schema ([ADR 43](decisions.md)). Demo: `DEMO_MODE`, a nightly reset, a seeded dataset, a Kamal destination validated with `kamal config`; **not hosted**, which only you can do ([ADR 44](decisions.md)) |
 
 ## Next
 
 Ordered by what a real user would hit first. None is started.
 
-1. **An invitation flow.** Members are added by the email of an existing user, so an admin can probe whether an address is registered.
-   Fix: invite by email (a token the invitee redeems), the same answer whether or not the address exists. Closes a known gap in [security.md](security.md).
-2. **Audit organization changes.** Project and task changes are audited; role changes in an organization are not. `AuditEvent.project_id` is nullable; add an organization column and a feed for owners.
-3. **Teams** inside organizations, as a second kind of principal on project memberships, after (1) and (2).
-4. **Full-text search** (`tsvector` generated column + GIN, `websearch_to_tsquery`, ranked) when text search shows in a p95; cross-project search endpoint.
-5. **In-app notification inbox** with read state, fed by the same events the Notification service consumes.
-6. **Keyset pagination** for the task list once any project passes ~1 million rows (offset 10,000 costs 3.5 ms today).
-7. **Transactional outbox** for events (today they are published after commit through a job; a long SNS outage loses events: [README](../README.md#known-limitations)).
-8. **A load test in CI** against an ephemeral environment (nightly), failing on the thresholds in `loadtest/k6/api.js`.
-9. **Multi-region.** Sketch: Aurora Global Database (secondary region read-only, promote on failover), Route 53 failover records with health checks, S3 cross-region replication and ECR replication, a second EKS cluster added through the ApplicationSet cluster generator, and the SNS topics mirrored per region. Do this only after a single region has run in anger.
-10. **GraphQL** and a **public demo** (optional items from roadmap 1) when there is a consumer.
+1. **A read-only switch** for the standby region and the promotion window: a few lines of middleware turning `PG::ReadOnlySqlTransaction` into `503 read_only`. Build it with the first failover drill.
+2. **Cross-region snapshot copy** of the database and the dumps: the cheap first step of the multi-region plan, and the whole answer if an hour of downtime is acceptable ([backup runbook](runbooks/backup-and-restore.md)).
+3. **Apply the multi-region pair for real**, in staging first, and run the drill, once a single region has run for a few months and an RTO/RPO is stated ([design](aws/multi-region.md#building-it-in-this-order)).
+4. **Per-person notification settings** (mute a kind or a project, a daily digest) on top of the inbox.
+5. **Cap the work of a broad ranked search** (rank only the most recent N matches) if one shows up in a p95; keyset pagination for other lists if any grows past what offset serves.
+6. **GraphQL mutations or subscriptions**, only if a client needs them; REST and Action Cable already cover both.
+7. **Teams with roles** (team maintainers who manage membership) and **nested teams**, if organizations outgrow flat groups.
+8. **Hosting the demo**, and a front end to point at it.
 
 ## How this was verified
 
 | Claim | Evidence |
 | --- | --- |
-| The application behaves as documented | 741 examples across the app, shared gems and Lambdas (+72 in the three services), run with branch coverage in CI |
-| Queries are fast and the index matters | `EXPLAIN (ANALYZE)` and k6 on a 149,000-task database, production mode ([performance.md](performance.md)) |
+| The application behaves as documented | 1,036 examples across the app, shared gems and Lambdas (+72 in the three services), run with branch coverage in CI |
+| Search, deep paging and the inbox are fast | `EXPLAIN (ANALYZE)` and in-process timings on a 149,000-task database, 300,000 synthetic notifications ([performance.md](performance.md), the ADRs) |
+| The outbox loses nothing | specs: rolled-back changes leave no event; a failing SNS keeps the event and delivers it exactly once when it returns; two relays never send the same row (including from four threads); a request through to a stubbed SNS |
+| Access is as documented | `tenant_isolation_spec` (every route, now including teams, invitations, search, the inbox, GraphQL), `project_policy_team_spec` (both role lookups agree for every combination), `graphql_spec` ("who can see what") |
+| The load-test script works | `loadtest/ci.sh` ran locally end to end: a passing run, and a deliberately overloaded one that exited 99, listed the breached thresholds and cleaned up |
 | Backups restore | `pg_dump` → `pg_restore` of the same database; row counts, constraints and the `vector` extension checked |
-| Migrations are safe | `strong_migrations` accepted all six new migrations without `safety_assured` |
-| **Not verified** | Docker Compose, `kind`, any Terraform plan/apply, Kamal, Bedrock with real credentials, the Aurora restore commands |
+| The multi-region wiring is right | `terraform test` (in CI): the whole configuration is planned and applied against mocked AWS providers for a single region, a primary before and after its standby is ready, and a standby; mutation-checked ([ADR 45](decisions.md)). Proves what each role creates, not that AWS accepts it |
+| Migrations are safe | `strong_migrations` accepted every migration but one: the full-text column, which rewrites `tasks` under a lock (3.7 s for 149,000 rows) and is marked `safety_assured` with that number ([runbook](runbooks/zero-downtime-migrations.md)) |
+| **Not verified** | Docker Compose, `kind`, any Terraform plan/apply against a real account (the multi-region pair is checked only offline, against mocks), Kamal deploys (the demo destination only passes `kamal config`), Bedrock with real credentials, the Aurora restore commands, hosting the demo |

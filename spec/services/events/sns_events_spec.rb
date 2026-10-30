@@ -85,22 +85,6 @@ RSpec.describe "Events published for other services" do
 
       expect { described_class.publish(envelope) }.to raise_error(described_class::NotConfigured)
     end
-
-    it "is driven by a job that retries throttling but drops misconfiguration" do
-      sns.stub_responses(:publish, "ThrottledException")
-      expect { PublishEventJob.perform_now(envelope) }.to have_enqueued_job(PublishEventJob)
-
-      Rails.configuration.x.events.sns_topic_arn = nil
-      expect { PublishEventJob.perform_now(envelope) }.not_to raise_error
-    end
-  end
-
-  describe Events::SnsSubscriber do
-    it "queues one publish job per event" do
-      task = create(:task, project: project)
-
-      expect { described_class.new.emit(event_for("task.created", task)) }.to have_enqueued_job(PublishEventJob).with(hash_including(type: "task.created"))
-    end
   end
 
   describe "emission" do

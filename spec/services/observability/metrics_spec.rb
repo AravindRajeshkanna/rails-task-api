@@ -8,14 +8,19 @@ RSpec.describe "Prometheus metrics", type: :request do
 
   it "counts requests and observes latency per controller action" do
     labels = { controller: "Api::V1::TasksController", action: "index", status: "200" }
+    duration_labels = { controller: "Api::V1::TasksController", action: "index" }
+    # The registry is process-wide, so earlier examples (real requests, which can take over 50 ms on a slow runner) have already
+    # observed into these buckets: compare what this observation adds, not the totals.
+    before = metrics::HTTP_DURATION.get(labels: duration_labels).dup
 
     expect {
       emit("action_controller.request_completed", { controller: "Api::V1::TasksController", action: "index", status: 200, duration_ms: 120.0 })
     }.to change { metrics::HTTP_REQUESTS.get(labels: labels) }.by(1)
 
-    histogram = metrics::HTTP_DURATION.get(labels: { controller: "Api::V1::TasksController", action: "index" })
-    expect(histogram["0.25"]).to be >= 1
-    expect(histogram["0.1"]).to eq(histogram["0.05"]) # 120ms lands above the 100ms bucket
+    after = metrics::HTTP_DURATION.get(labels: duration_labels)
+    added = ->(bucket) { after[bucket] - before[bucket] }
+    expect(added.call("0.25")).to eq(1)
+    expect([ added.call("0.05"), added.call("0.1") ]).to eq([ 0, 0 ]) # 120 ms lands above the 100 ms bucket
   end
 
   it "records real requests end to end" do
