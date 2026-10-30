@@ -283,8 +283,7 @@ Production defaults: `single_nat_gateway = false`, two Aurora instances, deletio
 
 | Task | How |
 |---|---|
-| Rotate the JWT signing key | Generate a new key, add the **old public key** to `AUTH_JWT_PREVIOUS_PUBLIC_KEYS` (JSON array) on the Auth service, deploy; then put the new private key in `task-api/<env>/auth` (`jwt_private_key`, base64 PEM) and restart Auth; remove the old public key after 15 minutes plus the JWKS cache (5 minutes) |
-| Rotate `AI_SERVICE_TOKEN` | Change `task-api/<env>/ai-service-token`; External Secrets refreshes within an hour (or `kubectl annotate externalsecret … force-sync=$(date +%s) --overwrite`); restart `api`, `worker`, `ai` |
+| Rotate a secret (the JWT signing key, the AI token, database passwords, the Rails credentials, SMTP) | [secrets-rotation](../runbooks/secrets-rotation.md): what each secret protects, the order, and what to expect. Not rehearsed against AWS |
 | Read the dead-letter queue | `aws sqs receive-message --queue-url $(terraform output -raw notifications_dlq_url) --max-number-of-messages 10`; fix the cause; redrive from the SQS console ("Start DLQ redrive") |
 | Failed jobs | `kubectl -n task-api exec deploy/api -- bin/rails runner 'SolidQueue::FailedExecution.find_each { |f| puts f.error.to_s[0,200] }'` |
 | Roll back | revert the tag commit in Git (Argo syncs the old image); a canary that fails analysis rolls back by itself |

@@ -1,6 +1,8 @@
 module Api
   module V1
     class CommentsController < BaseController
+      replica_reads :index # a moment of staleness is fine here (ReplicaRouting)
+      idempotent :create # a retried POST with the same Idempotency-Key answers the first one's response (Idempotency)
       before_action :set_task, only: %i[index create]
       before_action :set_comment, only: %i[update destroy]
 

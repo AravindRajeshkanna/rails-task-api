@@ -12,6 +12,12 @@ spec:
     - port: http
       path: {{ .Values.metrics.path }}
       interval: {{ .Values.metrics.interval }}
+      {{- with .Values.metrics.tokenSecret }}
+      # The pod refuses a scrape without this token (Observability::MetricsApp), so a scraper that does not send it gets 403 and sees nothing.
+      authorization:
+        type: Bearer
+        credentials: { name: {{ .name }}, key: {{ .key }} }
+      {{- end }}
       relabelings:
         - { sourceLabels: [ __meta_kubernetes_pod_name ], targetLabel: pod }
 {{- end }}

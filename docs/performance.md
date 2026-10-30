@@ -143,6 +143,36 @@ The keyset query is `WHERE (created_at, id) < (cutoff)` on the same partial inde
 runs a `COUNT(*)` for the total, which keyset paging skips (that is why a cursor page has no total). Offset stays the default because
 nothing is wrong with it at these sizes and a total is useful in a UI; the cursor is for feeds, exports and infinite scroll.
 
+## What the indexes cost, measured
+
+Indexes are paid for on every write, so each one should be read by something. Measured by inserting 100,000 tasks into copies of the 149,000-task database with one index removed at a time (alternating runs, median of 5-6; run-to-run noise is about +/-20%):
+
+| Index removed | Insert time for 100,000 tasks | Used by |
+| --- | ---: | --- |
+| none (baseline) | 3,611 ms | |
+| `index_tasks_on_title` (GIN trigram) | **-17.4%** | **nothing**: the substring search is `title ILIKE .. OR description ILIKE ..`, which no index can serve while the description has none (EXPLAIN: no index; 1 scan in all the load tests). **Dropped** ([ADR 57](decisions.md)) |
+| `index_tasks_on_search_vector` (GIN) | -5.0% | full-text search: kept, it is what makes `?search=` 2 ms |
+| `index_tasks_on_embedding` (HNSW) | -1.4% | similar-task suggestions: kept |
+| `index_tasks_on_project_id` (btree, a prefix of two others) | -1.2% (inside the noise) | kept: removing a redundant btree saves 5 MB and nothing measurable |
+
+Twelve btree indexes are prefix-redundant (an index on `(project_id)` next to one on `(project_id, status)`); none was removed, because the one worth the most, on `tasks`, was within noise. **Covering indexes** were tried for the two counts the dashboard makes on a cache miss: `(project_id) INCLUDE (status, due_on) WHERE kept` takes the status counts from 10.9 to 4.5 ms and the overdue count from 9.4 to 3.2 ms (50,000-task project, warm), for a 5 MB index and more write cost; not added, because both results are cached and a miss costs ten milliseconds once.
+**Sorting by title** within a 50,000-task project is a 21 ms sort per page (any depth); a `(project_id, title, id)` partial index makes it 0.08 ms and costs writes. Not added: nobody has asked for the speed.
+
+**Keeping the stats exact costs writes.** A task `touch`es its project, so the cached project statistics are never stale. 8 writers creating tasks: 780 per second with the touch (the same whether they share one project or not: the row lock is held for a moment, so there is no contention collapse) against 1,077 per second without, so the touch costs 28% of write throughput. At the rates this API sees that is invisible; the trigger to change it is a project that sustains hundreds of task writes per second, when stats should become a counter table or a debounced touch.
+
+## Sparse fieldsets
+
+`?fields=` lets a client ask for the few attributes a list needs. Measured on a page of 100 tasks from the 50,000-task project (in-process, 25 runs, median; the same query, the same preloads the default uses):
+
+| `fields` | Bytes | Queries | Time |
+| --- | ---: | ---: | ---: |
+| everything (the default) | 54,521 | 5 | 16.0 ms |
+| `id,title,status` | 7,289 (**-87%**) | 1 | **3.7 ms** |
+| `id,title,status,assignee` | 10,853 | 2 | 5.1 ms |
+| `id,title,status,tags,attachments` | 9,989 | 3 | 8.9 ms |
+
+The saving is not just bytes: Alba evaluates a field's condition before it computes the value, and the controller preloads only the associations the fields need, so a list that shows a title and a status does not load the creator, the assignee, the tags and the attachments' blobs for 100 rows ([ADR 56](decisions.md)).
+
 ## The lists that only grow: audit logs and the activity feed
 
 Audit events are appended on every change, so these lists have no ceiling, unlike a project's task list. Measured in PostgreSQL 17 with one busy project holding **1,000,000 events**

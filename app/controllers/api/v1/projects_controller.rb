@@ -1,13 +1,16 @@
 module Api
   module V1
     class ProjectsController < BaseController
+      replica_reads :index # a moment of staleness is fine here (ReplicaRouting)
+      idempotent :create # a retried POST with the same Idempotency-Key answers the first one's response (Idempotency)
       before_action :set_project, only: %i[show update destroy]
 
       def index
         authorize Project
-        projects = policy_scope(Project).kept.includes(:owner).order(created_at: :desc, id: :desc)
+        fields = requested_fields(ProjectResource) # ?fields=id,name: only those; the owner is loaded only if asked for
+        projects = preload_for(policy_scope(Project).kept, ProjectResource, fields).order(created_at: :desc, id: :desc)
         records, meta = paginate(projects)
-        render_resource ProjectResource, records, meta: meta
+        render_resource ProjectResource, records, meta: meta, params: { fields: fields }
       end
 
       def show

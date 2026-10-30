@@ -16,6 +16,8 @@ module Observability
           collect_db_pool
           collect_queue
           collect_outbox
+          collect_circuits
+          collect_puma
         end
       end
 
@@ -25,6 +27,23 @@ module Observability
       end
 
       private
+        # A breaker that has never been used has no series; once used it reports its state, including a recovery from open to closed.
+        def collect_circuits
+          ServiceKit::CircuitBreaker.registry.each_pair do |name, breaker|
+            Metrics::CIRCUIT_STATE.set(ServiceKit::CircuitBreaker::STATES.index(breaker.state), labels: { breaker: name.to_s })
+          end
+        end
+
+        # How much work is waiting for a thread, per process: the signal that capacity, not a dependency, is the problem.
+        def collect_puma
+          stats = LoadShedder.puma_stats or return
+
+          Metrics::PUMA_BACKLOG.set(stats.fetch(:backlog, 0))
+          Metrics::PUMA_BUSY_THREADS.set(stats.fetch(:busy_threads, 0))
+        rescue StandardError => error
+          failed("puma", error)
+        end
+
         def collect_db_pool
           Metrics::DB_POOL.tap do |gauge|
             ActiveRecord::Base.connection_pool.stat.slice(:size, :connections, :busy, :idle, :waiting)

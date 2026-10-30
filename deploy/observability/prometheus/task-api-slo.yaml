@@ -1,0 +1,117 @@
+# Service level objectives for the Task API and the alerts that watch their error budgets (docs/slo.md, ADR 64).
+#
+# An alert on "5% errors for 5 minutes" is too late for a slow leak and too jumpy for a blip. These alert on how fast the *error budget* is being spent,
+# in two windows at once: a long one (is this real?) and a short one (is it still happening?). Both must exceed the threshold, so a fast burn pages within
+# minutes and stops paging minutes after it ends, and a slow burn becomes a ticket days before it would have used the month's budget up.
+#
+#   SLO 1  availability   99.9% of API requests are not 5xx, over 30 days     (budget 0.1%, about 43 minutes of total outage a month)
+#   SLO 2  latency        95% of API requests complete within 500 ms, over 30 days   (budget 5%)
+#
+# Tested with promtool against synthetic traffic: deploy/observability/prometheus/slo-tests.yaml (run in CI).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: task-api-slo
+  namespace: observability
+  labels:
+    release: kube-prometheus-stack
+    app.kubernetes.io/part-of: task-api
+spec:
+  groups:
+    # One group on purpose: rules in a group run in order, so each alert reads the recording rules of its own evaluation, not of the last one.
+    - name: task-api.slo
+      interval: 1m
+      rules:
+        # Error ratio of API requests (the controllers under Api::V1; health checks and the metrics scrape are not requests anyone is waiting on).
+        # No clamp on the denominator: with no traffic the ratio is absent, and absent cannot page.
+        - record: slo:availability_error_ratio:rate5m
+          expr: sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*",status=~"5.."}[5m])) / sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*"}[5m]))
+        - record: slo:availability_error_ratio:rate30m
+          expr: sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*",status=~"5.."}[30m])) / sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*"}[30m]))
+        - record: slo:availability_error_ratio:rate1h
+          expr: sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*",status=~"5.."}[1h])) / sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*"}[1h]))
+        - record: slo:availability_error_ratio:rate2h
+          expr: sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*",status=~"5.."}[2h])) / sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*"}[2h]))
+        - record: slo:availability_error_ratio:rate6h
+          expr: sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*",status=~"5.."}[6h])) / sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*"}[6h]))
+        - record: slo:availability_error_ratio:rate1d
+          expr: sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*",status=~"5.."}[1d])) / sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*"}[1d]))
+        - record: slo:availability_error_ratio:rate3d
+          expr: sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*",status=~"5.."}[3d])) / sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*"}[3d]))
+
+        # Share of API requests slower than 500 ms.
+        - record: slo:latency_slow_ratio:rate30m
+          expr: 1 - (sum(rate(taskapi_http_request_duration_seconds_bucket{controller=~"Api::V1::.*",le="0.5"}[30m])) / sum(rate(taskapi_http_request_duration_seconds_count{controller=~"Api::V1::.*"}[30m])))
+        - record: slo:latency_slow_ratio:rate6h
+          expr: 1 - (sum(rate(taskapi_http_request_duration_seconds_bucket{controller=~"Api::V1::.*",le="0.5"}[6h])) / sum(rate(taskapi_http_request_duration_seconds_count{controller=~"Api::V1::.*"}[6h])))
+        - record: slo:latency_slow_ratio:rate3d
+          expr: 1 - (sum(rate(taskapi_http_request_duration_seconds_bucket{controller=~"Api::V1::.*",le="0.5"}[3d])) / sum(rate(taskapi_http_request_duration_seconds_count{controller=~"Api::V1::.*"}[3d])))
+
+        # Traffic, to keep a handful of requests from paging anyone.
+        - record: slo:requests:rate1h
+          expr: sum(rate(taskapi_http_requests_total{controller=~"Api::V1::.*"}[1h]))
+
+
+        # Budget 0.1%. Burn rate = error ratio / 0.001. 14.4x spends 2% of the month's budget in an hour; 6x spends 5% in six.
+        - alert: TaskApiAvailabilityBudgetBurnFast
+          expr: slo:availability_error_ratio:rate1h > (14.4 * 0.001) and slo:availability_error_ratio:rate5m > (14.4 * 0.001) and slo:requests:rate1h > 0.05
+          labels: { severity: page, slo: availability, burn: fast }
+          annotations:
+            summary: "Spending the availability error budget 14x too fast (2% of the month's budget per hour)"
+            description: "{{ $value | humanizePercentage }} of API requests failed over the last hour, and it is still happening (the last 5 minutes are as bad). At this rate the month's budget lasts 2 days."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-error-rate.md
+
+        - alert: TaskApiAvailabilityBudgetBurnSlow
+          expr: slo:availability_error_ratio:rate6h > (6 * 0.001) and slo:availability_error_ratio:rate30m > (6 * 0.001) and slo:requests:rate1h > 0.05
+          labels: { severity: page, slo: availability, burn: slow }
+          annotations:
+            summary: "Spending the availability error budget 6x too fast (5% of the month's budget in six hours)"
+            description: "{{ $value | humanizePercentage }} of API requests failed over the last six hours, and it is still happening. A lower rate than a fast burn, but a steady one: at this rate the month's budget lasts 5 days."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-error-rate.md
+
+        - alert: TaskApiAvailabilityBudgetLeak
+          expr: slo:availability_error_ratio:rate1d > (3 * 0.001) and slo:availability_error_ratio:rate2h > (3 * 0.001) and slo:requests:rate1h > 0.05
+          labels: { severity: ticket, slo: availability, burn: leak }
+          annotations:
+            summary: "Spending the availability error budget 3x too fast, for a day"
+            description: "Not an emergency, and not going away by itself: at this rate the month's budget lasts 10 days. Find the route or the dependency behind it."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-error-rate.md
+
+        - alert: TaskApiAvailabilityBudgetDrip
+          expr: slo:availability_error_ratio:rate3d > (1 * 0.001) and slo:availability_error_ratio:rate6h > (1 * 0.001) and slo:requests:rate1h > 0.05
+          labels: { severity: ticket, slo: availability, burn: drip }
+          annotations:
+            summary: "The availability error budget is being spent exactly as fast as it is earned, for three days"
+            description: "The SLO will be missed this month if nothing changes."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-error-rate.md
+
+        # Budget 5%. Latency alerts are tickets only: a slow API is a bad day, not a page.
+        - alert: TaskApiLatencyBudgetBurnFast
+          expr: slo:latency_slow_ratio:rate6h > (6 * 0.05) and slo:latency_slow_ratio:rate30m > (6 * 0.05) and slo:requests:rate1h > 0.05
+          labels: { severity: ticket, slo: latency, burn: fast }
+          annotations:
+            summary: "30% of API requests are slower than 500 ms, for six hours (the latency budget burning 6x too fast)"
+            description: "Look at the Task API dashboard for the route, and at database load and the circuit breakers."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-latency.md
+
+        - alert: TaskApiLatencyBudgetDrip
+          expr: slo:latency_slow_ratio:rate3d > (1 * 0.05) and slo:latency_slow_ratio:rate6h > (1 * 0.05) and slo:requests:rate1h > 0.05
+          labels: { severity: ticket, slo: latency, burn: drip }
+          annotations:
+            summary: "More than 5% of API requests have been slower than 500 ms for three days"
+            description: "The latency SLO will be missed this month if nothing changes."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-latency.md
+
+    # The alerts above read the API's own metrics. If Prometheus cannot scrape the API (a changed token, a policy that blocks it, a renamed pod),
+    # those series stop arriving, the ratios become absent, and absent cannot page: the SLO alerts go silent exactly when nothing is watching.
+    # This is a ticket, not a page, because it is a fault in the monitoring and not (yet) user impact; treat it as urgent anyway.
+    - name: task-api.slo.inputs
+      rules:
+        - alert: TaskApiNotScraped
+          expr: up{pod=~"api-.*"} == 0 or absent(up{pod=~"api-.*"})
+          for: 15m
+          labels: { severity: ticket }
+          annotations:
+            summary: "Prometheus is not getting the API's metrics, so the SLO alerts cannot fire"
+            description: "A scrape of an API pod is failing, or no API pod is being scraped at all. Check the PodMonitor, the METRICS_TOKEN secret and the NetworkPolicy; a 403 means the token the scraper sends is not the one the pod demands."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/slo.md#when-the-numbers-stop-arriving

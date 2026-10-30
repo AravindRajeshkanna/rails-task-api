@@ -118,6 +118,7 @@ metrics:
   enabled: true                 # PodMonitor for the Prometheus Operator
   path: /metrics
   interval: 30s
+  tokenSecret: {}               # { name: api, key: METRICS_TOKEN }: set when the pod is given METRICS_TOKEN, which makes it refuse scrapes without it
   labels: { release: kube-prometheus-stack }
 
 # Runs before the new version rolls out (Argo CD sync wave), once per image tag.

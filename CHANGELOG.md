@@ -7,7 +7,27 @@ and in [docs/roadmap.md](docs/roadmap.md).
 
 ## Unreleased
 
+### Changed
+- **New limits and a new refusal.** `429 rate_limited` can now also mean: the endpoint's own budget (search, analytics, the activity feed, audit logs and GraphQL: 120 per 5 minutes per token) or the organization's budget
+  (3,000 writes per 5 minutes across all its clients; `Retry-After` is the end of the window). Under load the expensive reads (the same endpoints, and `/ai/*`) answer `503 overloaded` with a `Retry-After` of one or two
+  seconds while cheap reads and all writes keep being served.
+- `503 ai_unavailable` now carries a `Retry-After` that reflects the circuit breaker: 5 seconds for a single failure, and the rest of the pause (30 seconds, doubling to 5 minutes) once the AI dependency has been failing. After five consecutive failures AI calls fail at once instead of waiting out their timeout.
+
 ### Added
+- **Erase my account.** `DELETE /me` with the current password: the name, address, password, sign-ins, memberships, inbox, preferences and avatar go; the account stays as `Deleted user` so tasks,
+  comments and history keep pointing at something, and the address can register again. `422 owns_projects` while you own a project that is not archived, `422 last_organization_owner`
+  while you are an organization's only owner, `422 incorrect_password`, `409 managed_by_auth_service` when the Auth service owns accounts. 5 attempts an hour; refused in the public demo.
+  Erased people appear as `Deleted user` wherever a user is shown.
+- **Retention.** Webhook deliveries are kept 30 days (`GET /webhooks/{id}/deliveries` shows at most that); concluded organization invitations are removed 90 days after they were accepted,
+  revoked or expired (the invitations list shows at most that).
+- **Token rotation and sign-in management.** `POST /session/rotate` exchanges the token you are using for a new one (the old one stops working at once; 30 a hour). `GET /sessions` lists your
+  sign-ins (address, client, created, last used, `current`) and `DELETE /sessions/:id` ends one (someone else's is `404`). Not available when the Auth service issues tokens (`404`), and refused in the public demo.
+  A token that has not been used for 14 days now expires, ahead of its 30-day lifetime; a client that goes quiet for two weeks has to sign in again.
+- **Sparse fieldsets.** `fields=` on `GET /projects/{id}/tasks`, `GET /tasks/{id}` and `GET /projects`: a comma-separated list of the attributes and associations wanted (`id` is always included). Unrequested
+  associations are not loaded. An unknown name is `400` with the valid names. Without `fields`, responses are unchanged.
+- **Idempotency keys.** The `Idempotency-Key` request header on every create endpoint (projects, tasks, comments, memberships, tags, webhooks, organizations and their invitations, teams
+  and their members and project grants, notification mutes, and `POST /ai/create_from_text`): a retry with the same key returns the first response (`Idempotent-Replayed: true`) and does
+  nothing twice. New errors: `422 idempotency_key_reused`, `409 idempotency_in_progress` (with `Retry-After`). Optional; behavior without the header is unchanged.
 - CORS now exposes `X-Demo-Mode` to browsers (a front end can show a "this is a demo" banner), alongside the headers it already exposed.
 - **Nested teams.** `parent_id` on `POST|PATCH /api/v1/organizations/{id}/teams` (null to move a team out) and on team responses. A team can have a parent in the same organization; teams nest one
   level. The members of a sub-team have the project access its parent was granted, on top of its own; a grant to a sub-team reaches only that sub-team. A team with sub-teams cannot be deleted

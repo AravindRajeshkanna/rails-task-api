@@ -4,6 +4,7 @@ module Api
     # (Searching inside one project is `?search=` on its task list.) Archived projects and deleted tasks
     # never match. Optional: project_id.
     class SearchController < BaseController
+      replica_reads :index # a moment of staleness is fine here (ReplicaRouting)
       def index
         authorize Project, :index?
         query = TaskSearch.new(policy_scope(Task), params.require(:q), project_id: params[:project_id])

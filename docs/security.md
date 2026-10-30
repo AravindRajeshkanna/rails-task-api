@@ -13,7 +13,7 @@ trust it, and the response headers say so.
 
 | Concern | Control | Where | Tested in |
 | --- | --- | --- | --- |
-| Authentication | Random 190-bit tokens, only SHA-256 digests stored; passwords with bcrypt; password reset signs out every device; Auth service: RS256 JWTs (15 min), rotating single-use refresh tokens with reuse detection | `Session`, `Authentication`, `services/auth` | `authentication_spec`, `authentication_journey_spec`, `services/auth/spec` |
+| Authentication | Random 190-bit tokens, only SHA-256 digests stored; passwords with bcrypt; password reset signs out every device; tokens expire after 14 days unused or 30 days in all, rotate with `POST /session/rotate`, and each person can list and end their own sign-ins; Auth service: RS256 JWTs (15 min), rotating single-use refresh tokens with reuse detection | `Session`, `Authentication`, `services/auth` | `authentication_spec`, `authentication_journey_spec`, `services/auth/spec` |
 | Authorization | Pundit, default deny; `verify_authorized` and `verify_policy_scoped` make a forgotten check raise | `app/policies`, `Api::V1::BaseController` | `spec/policies`, `tenant_isolation_spec` |
 | IDOR / tenant isolation | Child resources are found through `policy_scope`; outsiders get 404; organization boundary on project membership; a team's access to a project is derived in the policies (highest role wins), never copied | `ApplicationPolicy::Scope`, `Membership`, `ProjectTeam` | `tenant_isolation_spec`, `project_policy_organization_spec`, `project_policy_team_spec` |
 | Mass assignment | Strong parameters on every action; role, owner and organization are never permitted attributes of an update | controllers | `authentication_spec` ("does not let clients mass-assign other attributes"), `organizations_spec` |
@@ -55,4 +55,6 @@ trust it, and the response headers say so.
   signed-in user, so a forwarded link does nothing for anyone else, but the API does not verify email ownership at sign-up (the Auth service does,
   in JWT mode, through its `email` claim).
 - Access tokens from the Auth service remain valid up to 15 minutes after sign-out.
+- What is held about people, for how long, and what erasing an account does and does not reach: [data-protection.md](data-protection.md) ([ADR 67](decisions.md)). The audit trail has no retention and keeps task text.
+- Monolith sessions are not bound to a device: a copied token works from anywhere until it is rotated, revoked or goes idle (14 days), and a sign-in from a new place is not announced to the user ([ADR 66](decisions.md)).
 - No automated secret scanning in CI (e.g. gitleaks); add it before the repository takes outside contributions.

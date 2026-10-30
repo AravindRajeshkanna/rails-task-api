@@ -45,6 +45,12 @@ module TaskApi
     # ErrorsController so every failure has the same JSON envelope.
     config.exceptions_app = routes
 
+    # Which queue each kind of background job runs in (config/queue.yml has the pools). Mail people are waiting for is not behind housekeeping,
+    # and Active Storage's analysis and purge are housekeeping.
+    config.action_mailer.deliver_later_queue_name = :mailers
+    config.active_storage.queues.analysis = :low
+    config.active_storage.queues.purge = :low
+
     # Signed blob URLs handed to clients stop working after 10 minutes.
     config.active_storage.urls_expire_in = 10.minutes
 
@@ -59,6 +65,16 @@ module TaskApi
     # Refuses every write to the application database with 503 `read_only` while reads keep working (ReadOnlyMode). For the standby region
     # while its database is a read-only replica, and to drain writes before a planned switchover (docs/runbooks/regional-failover.md).
     config.x.read_only = ENV["READ_ONLY"] == "true"
+    # Reads of the actions that opt in (`replica_reads`) go to the read replica, when there is one (ReplicaRouting). The person who just wrote is
+    # served by the primary for this many seconds, so they never read their own change from a replica that has not caught up yet.
+    config.x.replica_reads = ENV["DB_REPLICA_HOST"].present? || ENV["DB_REPLICA_URL"].present?
+    config.x.replica_read_your_writes_seconds = Float(ENV.fetch("REPLICA_READ_YOUR_WRITES_SECONDS", 3))
+    # Each organization may make this many changes (writes) per five minutes, in total, whatever the clients (OrganizationBudget).
+    config.x.organization_writes_per_period = Integer(ENV.fetch("ORG_WRITES_PER_5_MIN", 3000))
+    # Under load, the expensive reads are refused with 503 before the cheap ones suffer (LoadShedder). BACKLOG is how many requests may already be waiting
+    # for a Puma thread before it starts; LOAD_SHEDDING=false turns it off.
+    config.x.load_shedding = ENV.fetch("LOAD_SHEDDING", Rails.env.production?.to_s) == "true"
+    config.x.load_shedding_backlog = Integer(ENV.fetch("LOAD_SHED_BACKLOG", 2))
     # Outgoing webhooks refuse private/loopback addresses unless this is enabled (SSRF guard).
     config.x.webhooks.allow_private_networks = false
 

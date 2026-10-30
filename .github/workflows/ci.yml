@@ -229,6 +229,11 @@ jobs:
         run: |
           ruby -ryaml -e 'File.write("tmp/rules.yml", { "groups" => YAML.load_file("deploy/observability/prometheus/task-api-rules.yaml")["spec"]["groups"] }.to_yaml)'
           docker run --rm --entrypoint promtool -v "$PWD/tmp:/work" prom/prometheus:v3.1.0 check rules /work/rules.yml
+          # The SLO burn-rate alerts are tested against synthetic traffic (deploy/observability/prometheus/slo-tests.yaml).
+          ruby -ryaml -e 'File.write("tmp/slo-rules.yml", { "groups" => YAML.load_file("deploy/observability/prometheus/task-api-slo.yaml")["spec"]["groups"] }.to_yaml)'
+          cp deploy/observability/prometheus/slo-tests.yaml tmp/slo-tests.yml
+          docker run --rm --entrypoint promtool -v "$PWD/tmp:/work" prom/prometheus:v3.1.0 check rules /work/slo-rules.yml
+          docker run --rm --entrypoint promtool -v "$PWD/tmp:/work" prom/prometheus:v3.1.0 test rules /work/slo-tests.yml
 
       - name: Shell scripts
         run: shellcheck deploy/docker/*.sh deploy/local/*.sh deploy/scripts/*.sh

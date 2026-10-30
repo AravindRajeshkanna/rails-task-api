@@ -12,6 +12,7 @@ env:
   CORS_ORIGINS: https://app.staging.taskapi.example.com
   ALLOWED_HOSTS: api.staging.taskapi.example.com,api,api.task-api,api.task-api.svc,api.task-api.svc.cluster.local
   DB_HOST: task-api-staging-dr.cluster-xxxx.us-west-2.rds.amazonaws.com
+  DB_REPLICA_HOST: task-api-staging-dr.cluster-ro-xxxx.us-west-2.rds.amazonaws.com   # the Aurora reader endpoint: opted-in reads go there (ReplicaRouting); unset it to send everything to the writer
   AWS_REGION: us-west-2
   APP_ENV: staging-dr
   AUTH_ISSUER: https://api.staging.taskapi.example.com

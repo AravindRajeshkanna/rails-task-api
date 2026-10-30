@@ -26,7 +26,12 @@ RSpec.configure do |config|
           `Retry-After`). `503 ai_not_configured` means the server has no model provider; `503 ai_unavailable`
           means the provider is busy.
 
-          **Read-only mode.** While a database promotion or maintenance is under way, reads keep working and every write
+          **Idempotency.** Endpoints that create things accept an optional `Idempotency-Key` header (a unique token of your choosing, up to 255
+    visible characters). Retry a request that timed out with the same key and you get the first response back (marked `Idempotent-Replayed: true`)
+    instead of a second record. The same key with a different request is `422 idempotency_key_reused`; a retry that arrives while the first is
+    still running is `409 idempotency_in_progress` with `Retry-After`. Keys are yours alone and are forgotten after 24 hours. Only successes are remembered.
+
+    **Read-only mode.** While a database promotion or maintenance is under way, reads keep working and every write
           answers `503 read_only` with `Retry-After`. Nothing was changed, so retry the request as it is. Existing tokens keep
           working; signing in is a write and waits too.
 

@@ -1,0 +1,197 @@
+# promtool unit tests for the SLO burn-rate alerts (task-api-slo.yaml): synthetic traffic in, alerts out. Run by CI, or by hand:
+#
+#   ruby -ryaml -e 'File.write("tmp/slo-rules.yml", { "groups" => YAML.load_file("deploy/observability/prometheus/task-api-slo.yaml")["spec"]["groups"] }.to_yaml)'
+#   cp deploy/observability/prometheus/slo-tests.yaml tmp/ && promtool test rules tmp/slo-tests.yaml
+#
+# Traffic is 600 requests a minute (10 a second). "a+bxn" is a counter that starts at a and rises by b a minute, n times.
+rule_files:
+  - slo-rules.yml
+evaluation_interval: 1m
+
+tests:
+  - name: a steady 2 percent of errors (20x the budget) pages as a fast burn within the hour
+    interval: 1m
+    input_series:
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="200"}'
+        values: '0+588x180'
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="500"}'
+        values: '0+12x180'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TaskApiAvailabilityBudgetBurnFast
+        exp_alerts:
+          - exp_labels: { severity: page, slo: availability, burn: fast }
+            exp_annotations:
+              summary: "Spending the availability error budget 14x too fast (2% of the month's budget per hour)"
+              description: "2% of API requests failed over the last hour, and it is still happening (the last 5 minutes are as bad). At this rate the month's budget lasts 2 days."
+              runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-error-rate.md
+      - eval_time: 90m
+        alertname: TaskApiAvailabilityBudgetBurnSlow
+        exp_alerts:
+          - exp_labels: { severity: page, slo: availability, burn: slow }
+            exp_annotations:
+              summary: "Spending the availability error budget 6x too fast (5% of the month's budget in six hours)"
+              description: "2% of API requests failed over the last six hours, and it is still happening. A lower rate than a fast burn, but a steady one: at this rate the month's budget lasts 5 days."
+              runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-error-rate.md
+
+  - name: errors at half the budget (0.05 percent) never alert, however long they last
+    interval: 1m
+    input_series:
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="200"}'
+        values: '0+599.7x4400'
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="500"}'
+        values: '0+0.3x4400'
+    alert_rule_test:
+      - { eval_time: 2h, alertname: TaskApiAvailabilityBudgetBurnFast, exp_alerts: [] }
+      - { eval_time: 8h, alertname: TaskApiAvailabilityBudgetBurnSlow, exp_alerts: [] }
+      - { eval_time: 30h, alertname: TaskApiAvailabilityBudgetLeak, exp_alerts: [] }
+      - { eval_time: 72h, alertname: TaskApiAvailabilityBudgetDrip, exp_alerts: [] }
+
+  - name: a two-minute blip of 30 percent errors does not page
+    interval: 1m
+    input_series:
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="200"}'
+        values: '0+600x99 59400+420x2 60240+600x200'
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="500"}'
+        values: '0x99 180 360 360x200'
+    alert_rule_test:
+      - { eval_time: 101m, alertname: TaskApiAvailabilityBudgetBurnFast, exp_alerts: [] }
+      - { eval_time: 120m, alertname: TaskApiAvailabilityBudgetBurnSlow, exp_alerts: [] }
+
+  - name: a ten-minute total outage pages while it lasts, and stops paging soon after it ends
+    interval: 1m
+    input_series:
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="200"}'
+        values: '0+600x99 59400x9 60000+600x200'
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="500"}'
+        values: '0x99 600+600x9 6000x200'
+    alert_rule_test:
+      - eval_time: 105m
+        alertname: TaskApiAvailabilityBudgetBurnFast
+        exp_alerts:
+          - exp_labels: { severity: page, slo: availability, burn: fast }
+            exp_annotations:
+              summary: "Spending the availability error budget 14x too fast (2% of the month's budget per hour)"
+              description: "10.02% of API requests failed over the last hour, and it is still happening (the last 5 minutes are as bad). At this rate the month's budget lasts 2 days."
+              runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-error-rate.md
+      - { eval_time: 125m, alertname: TaskApiAvailabilityBudgetBurnFast, exp_alerts: [] }
+
+  - name: a steady 1 percent of errors (10x the budget) is a slow burn, not a fast one
+    interval: 1m
+    input_series:
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="200"}'
+        values: '0+594x600'
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="500"}'
+        values: '0+6x600'
+    alert_rule_test:
+      - { eval_time: 3h, alertname: TaskApiAvailabilityBudgetBurnFast, exp_alerts: [] }
+      - eval_time: 7h
+        alertname: TaskApiAvailabilityBudgetBurnSlow
+        exp_alerts:
+          - exp_labels: { severity: page, slo: availability, burn: slow }
+            exp_annotations:
+              summary: "Spending the availability error budget 6x too fast (5% of the month's budget in six hours)"
+              description: "1% of API requests failed over the last six hours, and it is still happening. A lower rate than a fast burn, but a steady one: at this rate the month's budget lasts 5 days."
+              runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-error-rate.md
+
+  - name: a handful of requests cannot page, however many of them fail
+    interval: 1m
+    input_series:
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="200"}'
+        values: '0+1x300'
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="500"}'
+        values: '0+1x300'
+    alert_rule_test:
+      - { eval_time: 2h, alertname: TaskApiAvailabilityBudgetBurnFast, exp_alerts: [] }
+      - { eval_time: 5h, alertname: TaskApiAvailabilityBudgetBurnSlow, exp_alerts: [] }
+
+  - name: health checks and the metrics scrape do not count as requests
+    interval: 1m
+    input_series:
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="200"}'
+        values: '0+600x180'
+      - series: 'taskapi_http_requests_total{controller="HealthController",action="readyz",status="503"}'
+        values: '0+600x180'
+    alert_rule_test:
+      - { eval_time: 90m, alertname: TaskApiAvailabilityBudgetBurnFast, exp_alerts: [] }
+
+  - name: a latency problem (40 percent slower than 500 ms) is a ticket, never a page
+    interval: 1m
+    input_series:
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="200"}'
+        values: '0+600x500'
+      - series: 'taskapi_http_request_duration_seconds_count{controller="Api::V1::TasksController",action="index"}'
+        values: '0+600x500'
+      - series: 'taskapi_http_request_duration_seconds_bucket{controller="Api::V1::TasksController",action="index",le="0.5"}'
+        values: '0+360x500'
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: TaskApiLatencyBudgetBurnFast
+        exp_alerts:
+          - exp_labels: { severity: ticket, slo: latency, burn: fast }
+            exp_annotations:
+              summary: "30% of API requests are slower than 500 ms, for six hours (the latency budget burning 6x too fast)"
+              description: "Look at the Task API dashboard for the route, and at database load and the circuit breakers."
+              runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/high-latency.md
+
+  - name: two percent of requests slower than 500 ms is within the latency budget
+    interval: 1m
+    input_series:
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="200"}'
+        values: '0+600x500'
+      - series: 'taskapi_http_request_duration_seconds_count{controller="Api::V1::TasksController",action="index"}'
+        values: '0+600x500'
+      - series: 'taskapi_http_request_duration_seconds_bucket{controller="Api::V1::TasksController",action="index",le="0.5"}'
+        values: '0+588x500'
+    alert_rule_test:
+      - { eval_time: 8h, alertname: TaskApiLatencyBudgetBurnFast, exp_alerts: [] }
+
+  # The alerts above are blind if the API is not scraped. A pod whose scrape fails (403 from a wrong token shows up as up=0) is a ticket after 15 minutes;
+  # so is having no API pod scraped at all; a healthy fleet, a worker that happens to be down, and a short blip are not.
+  - name: a scrape that keeps failing is a ticket, and one healthy pod does not hide another's failure
+    interval: 1m
+    input_series:
+      - series: 'up{pod="api-7d9f-aaaaa"}'
+        values: '1x30'
+      - series: 'up{pod="api-7d9f-bbbbb"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TaskApiNotScraped
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: TaskApiNotScraped
+        exp_alerts:
+          - exp_labels: { severity: ticket, pod: api-7d9f-bbbbb }
+            exp_annotations:
+              summary: "Prometheus is not getting the API's metrics, so the SLO alerts cannot fire"
+              description: "A scrape of an API pod is failing, or no API pod is being scraped at all. Check the PodMonitor, the METRICS_TOKEN secret and the NetworkPolicy; a 403 means the token the scraper sends is not the one the pod demands."
+              runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/slo.md#when-the-numbers-stop-arriving
+
+  - name: no API pod being scraped at all is a ticket too
+    interval: 1m
+    input_series:
+      - series: 'up{pod="worker-5c4d-ccccc"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: TaskApiNotScraped
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations:
+              summary: "Prometheus is not getting the API's metrics, so the SLO alerts cannot fire"
+              description: "A scrape of an API pod is failing, or no API pod is being scraped at all. Check the PodMonitor, the METRICS_TOKEN secret and the NetworkPolicy; a 403 means the token the scraper sends is not the one the pod demands."
+              runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/slo.md#when-the-numbers-stop-arriving
+
+  - name: a healthy fleet, and a blip shorter than the wait, do not alert
+    interval: 1m
+    input_series:
+      - series: 'up{pod="api-7d9f-aaaaa"}'
+        values: '1x30'
+      - series: 'up{pod="api-7d9f-bbbbb"}'
+        values: '1x10 0x5 1x15'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: TaskApiNotScraped
+        exp_alerts: []
+

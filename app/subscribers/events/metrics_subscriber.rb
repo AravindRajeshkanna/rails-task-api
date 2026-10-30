@@ -11,6 +11,9 @@ module Events
         when "action_controller.request_completed" then request_completed(payload)
         when "ai.completed" then ai_completed(payload)
         when "ai.budget_exceeded" then Observability::Metrics::AI_BUDGET_REJECTIONS.increment
+        when /\Aidempotency\.(stored|replayed|refused)\z/ then Observability::Metrics::IDEMPOTENCY.increment(labels: { outcome: Regexp.last_match(1), source: payload[:source].to_s })
+        when "load_shed.rejected" then Observability::Metrics::LOAD_SHED.increment
+        when "organization_budget.exceeded" then Observability::Metrics::ORGANIZATION_BUDGET_EXCEEDED.increment
         when "read_only.refused" then Observability::Metrics::READ_ONLY_REFUSALS.increment(labels: { source: payload[:source].to_s })
         when DOMAIN_EVENT then Observability::Metrics::DOMAIN_EVENTS.increment(labels: { event: event[:name] })
         end

@@ -4,6 +4,7 @@ module Api
     # teams and who is in them, and the projects teams were granted.
     # Owners only (an invitation's changes carry the invited email address).
     class OrganizationAuditEventsController < BaseController
+      replica_reads :index # a moment of staleness is fine here (ReplicaRouting)
       AUDITED_TYPES = %w[Organization OrganizationMembership OrganizationInvitation Team TeamMembership ProjectTeam].freeze
 
       def index

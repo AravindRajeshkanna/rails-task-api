@@ -12,6 +12,7 @@ env:
   CORS_ORIGINS: https://${FRONTEND_DOMAIN}
   ALLOWED_HOSTS: ${DOMAIN},api,api.task-api,api.task-api.svc,api.task-api.svc.cluster.local
   DB_HOST: ${DB_ENDPOINT}
+  DB_REPLICA_HOST: ${DB_READER_ENDPOINT}   # the Aurora reader endpoint: opted-in reads go there (ReplicaRouting); unset it to send everything to the writer
   AWS_REGION: ${REGION}
   APP_ENV: ${ENV}
   AUTH_ISSUER: https://${DOMAIN}

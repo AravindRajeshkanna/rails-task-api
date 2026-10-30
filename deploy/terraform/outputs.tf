@@ -8,6 +8,7 @@ output "frontend_domain" { value = local.frontend_domain }
 output "vpc_cidr" { value = module.vpc.vpc_cidr_block }
 output "vpc_id" { value = module.vpc.vpc_id }
 output "database_endpoint" { value = module.db.cluster_endpoint }
+output "database_reader_endpoint" { value = module.db.cluster_reader_endpoint }                               # load-balances over the readers; with one instance it is the writer, which is harmless (ReplicaRouting)
 output "database_master_secret_arn" { value = try(module.db.cluster_master_user_secret[0].secret_arn, null) } # none on a standby: it replicates the primary's users
 output "events_topic_arn" { value = aws_sns_topic.events.arn }
 output "notifications_queue_url" { value = aws_sqs_queue.notifications.url }

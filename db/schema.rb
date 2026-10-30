@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_30_190010) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_31_110000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -87,6 +87,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_30_190010) do
     t.index ["task_id"], name: "index_comments_on_task_id"
     t.index ["user_id"], name: "index_comments_on_user_id"
     t.check_constraint "char_length(btrim(body)) > 0", name: "comments_body_present"
+  end
+
+  create_table "idempotency_keys", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "key", null: false
+    t.string "request_fingerprint", null: false
+    t.integer "response_status"
+    t.text "response_body"
+    t.datetime "locked_at", null: false
+    t.datetime "created_at", null: false
+    t.index ["created_at"], name: "index_idempotency_keys_on_created_at"
+    t.index ["user_id", "key"], name: "index_idempotency_keys_on_user_id_and_key", unique: true
   end
 
   create_table "memberships", force: :cascade do |t|
@@ -284,7 +296,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_30_190010) do
     t.index ["project_id", "status"], name: "index_tasks_on_project_id_and_status"
     t.index ["project_id"], name: "index_tasks_on_project_id"
     t.index ["search_vector"], name: "index_tasks_on_search_vector", using: :gin
-    t.index ["title"], name: "index_tasks_on_title", opclass: :gin_trgm_ops, using: :gin
     t.check_constraint "char_length(btrim(title::text)) > 0", name: "tasks_title_present"
     t.check_constraint "comments_count >= 0 AND lock_version >= 0", name: "tasks_counters_non_negative"
     t.check_constraint "priority = ANY (ARRAY[0, 1, 2, 3])", name: "tasks_priority_valid"
@@ -322,6 +333,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_30_190010) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.string "auth_subject"
+    t.datetime "erased_at"
     t.index ["auth_subject"], name: "index_users_on_auth_subject", unique: true, where: "(auth_subject IS NOT NULL)"
     t.index ["email_address"], name: "index_users_on_email_address", unique: true
     t.check_constraint "char_length(btrim(email_address::text)) > 0", name: "users_email_present"
@@ -362,6 +374,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_30_190010) do
   add_foreign_key "audit_events", "users", column: "actor_id"
   add_foreign_key "comments", "tasks"
   add_foreign_key "comments", "users"
+  add_foreign_key "idempotency_keys", "users", on_delete: :cascade
   add_foreign_key "memberships", "projects"
   add_foreign_key "memberships", "users"
   add_foreign_key "notification_mutes", "projects", on_delete: :cascade

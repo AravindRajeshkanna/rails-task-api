@@ -7,7 +7,7 @@
 class PurgeDiscardedJob < ApplicationJob
   include ActiveJob::Continuable
 
-  queue_as :default
+  queue_as :low
 
   def perform
     @cutoff = Rails.configuration.x.discard_retention.ago

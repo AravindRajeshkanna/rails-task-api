@@ -3,33 +3,38 @@ openapi: 3.0.3
 info:
   title: Task API
   version: v1
-  description: |
-    A task / project management API.
+  description: |2
+          A task / project management API.
 
-    **Authentication.** `POST /api/v1/registrations` or `POST /api/v1/session` returns a bearer token.
-    Send it as `Authorization: Bearer <token>`.
+          **Authentication.** `POST /api/v1/registrations` or `POST /api/v1/session` returns a bearer token.
+          Send it as `Authorization: Bearer <token>`.
 
-    **Errors.** Every failure uses the same envelope:
-    `{ "error": { "status": 422, "code": "validation_failed", "message": "...", "details": { ... } } }`.
+          **Errors.** Every failure uses the same envelope:
+          `{ "error": { "status": 422, "code": "validation_failed", "message": "...", "details": { ... } } }`.
 
-    **Pagination.** List endpoints accept `page` and `limit` (default 25, max 100) and return
-    `meta` plus `Link`, `Total-Count`, `Total-Pages`, `Current-Page` and `Page-Limit` headers.
+          **Pagination.** List endpoints accept `page` and `limit` (default 25, max 100) and return
+          `meta` plus `Link`, `Total-Count`, `Total-Pages`, `Current-Page` and `Page-Limit` headers.
 
-    **AI.** `/api/v1/ai/*` and `/api/v1/projects/{id}/summary` use language models. Calls are rate limited per
-    user (`429 rate_limited`) and metered against a daily token budget (`429 ai_budget_exceeded`, with
-    `Retry-After`). `503 ai_not_configured` means the server has no model provider; `503 ai_unavailable`
-    means the provider is busy.
+          **AI.** `/api/v1/ai/*` and `/api/v1/projects/{id}/summary` use language models. Calls are rate limited per
+          user (`429 rate_limited`) and metered against a daily token budget (`429 ai_budget_exceeded`, with
+          `Retry-After`). `503 ai_not_configured` means the server has no model provider; `503 ai_unavailable`
+          means the provider is busy.
+
+          **Idempotency.** Endpoints that create things accept an optional `Idempotency-Key` header (a unique token of your choosing, up to 255
+    visible characters). Retry a request that timed out with the same key and you get the first response back (marked `Idempotent-Replayed: true`)
+    instead of a second record. The same key with a different request is `422 idempotency_key_reused`; a retry that arrives while the first is
+    still running is `409 idempotency_in_progress` with `Retry-After`. Keys are yours alone and are forgotten after 24 hours. Only successes are remembered.
 
     **Read-only mode.** While a database promotion or maintenance is under way, reads keep working and every write
-    answers `503 read_only` with `Retry-After`. Nothing was changed, so retry the request as it is. Existing tokens keep
-    working; signing in is a write and waits too.
+          answers `503 read_only` with `Retry-After`. Nothing was changed, so retry the request as it is. Existing tokens keep
+          working; signing in is a write and waits too.
 
-    **Authorization.** Resources inside a project you do not belong to answer `404`, not `403`,
-    so their existence is not disclosed. Owners and admins of an organization administer all of its
-    projects without being added to each one.
+          **Authorization.** Resources inside a project you do not belong to answer `404`, not `403`,
+          so their existence is not disclosed. Owners and admins of an organization administer all of its
+          projects without being added to each one.
 
-    **Versioning.** Every response carries `API-Version`. A version being retired also sends
-    `Deprecation` and `Sunset` headers (RFC 9745, RFC 8594).
+          **Versioning.** Every response carries `API-Version`. A version being retired also sends
+          `Deprecation` and `Sunset` headers (RFC 9745, RFC 8594).
 servers:
 - url: http://localhost:3000
   description: Local development
@@ -165,6 +170,37 @@ components:
       - token
       - expires_at
       - user
+    UserSession:
+      type: object
+      description: One sign-in of the caller's. The token itself is never shown again
+        after it was issued.
+      properties:
+        id:
+          type: integer
+        ip_address:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+          description: The sign-in this request used
+      required:
+      - id
+      - created_at
+      - expires_at
+      - current
     Project:
       type: object
       properties:
@@ -1193,6 +1229,94 @@ paths:
           description: Signed out
         '401':
           description: Missing or invalid token
+  "/api/v1/session/rotate":
+    post:
+      summary: Rotate the token
+      tags:
+      - Authentication
+      description: Trades the token used for the request for a new one (same person
+        and device, new secret, a fresh 30 days). The old token stops working at once,
+        so a token that leaked is useless after the next rotation. Limited to 30 a
+        hour. A sign-in unused for 14 days expires on its own, so a client that goes
+        quiet has to sign in again. Not available when the Auth service issues tokens
+        (404).
+      security:
+      - bearer_auth: []
+      responses:
+        '201':
+          description: A new token; the one used for this request is dead
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/Session"
+                required:
+                - data
+        '401':
+          description: Missing, invalid, expired or idle token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/v1/sessions":
+    get:
+      summary: My sign-ins
+      tags:
+      - Authentication
+      description: 'Where the caller is signed in: when, from which address and client,
+        last use, and which one this request used. Newest use first.'
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: The caller's live sign-ins
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      "$ref": "#/components/schemas/UserSession"
+                  meta:
+                    "$ref": "#/components/schemas/PaginationMeta"
+                required:
+                - data
+        '401':
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+  "/api/v1/sessions/{id}":
+    delete:
+      summary: End a sign-in
+      tags:
+      - Authentication
+      description: Revokes one of the caller's own sign-ins (a lost phone, a forgotten
+        laptop). Someone else's id answers 404.
+      security:
+      - bearer_auth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+      responses:
+        '204':
+          description: Ended
+        '404':
+          description: Not one of yours
   "/api/v1/passwords":
     post:
       summary: Request a password reset
@@ -1272,6 +1396,39 @@ paths:
             application/json:
               schema:
                 "$ref": "#/components/schemas/Error"
+    delete:
+      summary: Erase my account
+      tags:
+      - Account
+      description: 'Ends the account: the name, address, password, sign-ins, memberships,
+        notifications and avatar go, and the row stays as "Deleted user" so tasks,
+        comments and the audit trail keep pointing at something. Needs the current
+        password. Refused with 422 while you own a project that is not archived (`owns_projects`)
+        or are the last owner of an organization (`last_organization_owner`). 409
+        when the Auth service owns accounts; refused in the public demo. 5 tries an
+        hour.'
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '204':
+          description: Erased; the token used is dead
+        '422':
+          description: Wrong password, or something to hand over first
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+              required:
+              - password
     patch:
       summary: Update profile
       tags:
@@ -2814,6 +2971,13 @@ paths:
         description: Items per page (default 25, max 100)
         schema:
           type: integer
+      - name: fields
+        in: query
+        required: false
+        description: 'Sparse fieldset, e.g. `id,name`: only those attributes (`id`
+          is always included); `owner` is loaded only if named'
+        schema:
+          type: string
       responses:
         '200':
           description: A page of projects
@@ -2849,10 +3013,17 @@ paths:
       summary: Create a project
       tags:
       - Projects
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        description: 'Retry safely: the same key returns the first response instead
+          of creating again'
+        schema:
+          type: string
       description: The caller becomes the owner and an admin member.
       security:
       - bearer_auth: []
-      parameters: []
       responses:
         '201':
           description: Created
@@ -3461,6 +3632,15 @@ paths:
         required: false
         schema:
           type: integer
+      - name: fields
+        in: query
+        required: false
+        description: 'Sparse fieldset: a comma-separated list of the attributes you
+          want (`id` is always included), e.g. `id,title,status`. Associations you
+          do not name (`creator`, `assignee`, `tags`, `attachments`) are not loaded.
+          An unknown name is a 400 that lists the valid ones'
+        schema:
+          type: string
       responses:
         '200':
           description: A page of tasks (`meta` has `page`, `count`...; with `cursor`,
@@ -3506,9 +3686,16 @@ paths:
       summary: Create a task
       tags:
       - Tasks
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        description: 'Retry safely: the same key returns the first response instead
+          of creating again'
+        schema:
+          type: string
       security:
       - bearer_auth: []
-      parameters: []
       responses:
         '201':
           description: Created

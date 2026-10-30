@@ -90,4 +90,45 @@ RSpec.describe Notifications::Consumer do
 
     expect { consumer.poll_once }.to change { Notifications::Metrics::PROCESSED.get(labels: { type: "task.assigned", outcome: "handled" }) }.by(1)
   end
+
+  describe "retention" do
+    let!(:old_delivery) { Delivery.create!(event_id: "old", event_type: "task.assigned", channel: "email", recipient: "ada@example.com", created_at: 91.days.ago) }
+    let!(:recent_delivery) { Delivery.create!(event_id: "new", event_type: "task.assigned", channel: "email", recipient: "ada@example.com", created_at: 89.days.ago) }
+    let!(:old_event) { ProcessedEvent.create!(event_id: "old", event_type: "task.assigned", created_at: 15.days.ago) }
+    let!(:recent_event) { ProcessedEvent.create!(event_id: "new", event_type: "task.assigned", created_at: 13.days.ago) }
+
+    it "deletes deliveries after 90 days and processed events after 14, keeping the rest" do
+      consumer.prune_if_due
+
+      expect(Delivery.all).to contain_exactly(recent_delivery)
+      expect(ProcessedEvent.all).to contain_exactly(recent_event)
+    end
+
+    it "runs from the consumer loop, before it polls" do
+      allow(consumer).to receive(:poll_once) { consumer.stop }
+
+      consumer.run
+
+      expect(Delivery.all).to contain_exactly(recent_delivery)
+    end
+
+    it "runs at most once an hour, not on every poll" do
+      consumer.prune_if_due
+      Delivery.create!(event_id: "later", event_type: "task.assigned", channel: "email", recipient: "grace@example.com", created_at: 100.days.ago)
+
+      consumer.prune_if_due
+      expect(Delivery.where(event_id: "later")).to exist
+
+      travel(61.minutes) { consumer.prune_if_due }
+      expect(Delivery.where(event_id: "later")).not_to exist
+    end
+
+    it "reports a database failure instead of stopping the consumer" do
+      allow(Delivery).to receive(:prune!).and_raise(ActiveRecord::StatementInvalid, "boom")
+      allow(Rails.error).to receive(:report)
+
+      expect { consumer.prune_if_due }.not_to raise_error
+      expect(Rails.error).to have_received(:report).with(an_instance_of(ActiveRecord::StatementInvalid), hash_including(handled: true))
+    end
+  end
 end

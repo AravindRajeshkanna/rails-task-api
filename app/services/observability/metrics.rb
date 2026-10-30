@@ -28,7 +28,16 @@ module Observability
     HTTP_REQUESTS = counter(:taskapi_http_requests_total, "HTTP requests handled", %i[controller action status])
     HTTP_DURATION = histogram(:taskapi_http_request_duration_seconds, "HTTP request duration", %i[controller action], LATENCY_BUCKETS)
     DOMAIN_EVENTS = counter(:taskapi_domain_events_total, "Domain events published (task.created, project.updated, ...)", %i[event])
+    REPLICA_READS = counter(:taskapi_replica_reads_total, "Reads of the actions that opt in to the replica, by where they were served (replica, read_your_writes, breaker_open, replica_unreachable, recovery_conflict)", %i[outcome])
+    LOAD_SHED = counter(:taskapi_load_shed_total, "Requests refused 503 overloaded because every Puma thread was busy and others were waiting")
+    ORGANIZATION_BUDGET_EXCEEDED = counter(:taskapi_organization_budget_exceeded_total, "Writes refused 429 because their organization spent its budget for the window")
+    PUMA_BACKLOG = gauge(:taskapi_puma_backlog, "Requests accepted but waiting for a Puma thread")
+    PUMA_BUSY_THREADS = gauge(:taskapi_puma_busy_threads, "Puma threads that are working, plus requests waiting for one")
+    CIRCUIT_STATE = gauge(:taskapi_circuit_breaker_state, "Circuit breaker state per dependency (0 closed, 1 half-open, 2 open)", %i[breaker])
+    CIRCUIT_TRANSITIONS = counter(:taskapi_circuit_breaker_transitions_total, "Circuit breaker state changes", %i[breaker to])
     READ_ONLY_REFUSALS = counter(:taskapi_read_only_refusals_total, "Writes answered 503 read_only (switch = READ_ONLY=true, database = Postgres refused it)", %i[source])
+
+    IDEMPOTENCY = counter(:taskapi_idempotency_total, "Requests that carried an Idempotency-Key, by outcome (stored, replayed, refused)", %i[outcome source])
 
     AI_REQUESTS = counter(:taskapi_ai_requests_total, "Model calls by feature and outcome", %i[feature outcome])
     AI_TOKENS = counter(:taskapi_ai_tokens_total, "Model tokens consumed", %i[feature direction])

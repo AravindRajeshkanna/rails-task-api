@@ -1,12 +1,34 @@
+# Solid Queue: who works on what (ADR 59). Queues are priorities and the pools are bulkheads: each pool has threads of its own, so a backlog in one
+# cannot take the capacity another needs.
+#
+#   critical   publishing events to the other services (the outbox), and the metrics job whose silence would hide a jammed queue: always has a thread
+#   mailers    email people are waiting for (invitations, password resets, assignments)
+#   default    reminders, digests: scheduled, bulk
+#   webhooks   calls to other people's servers, which may be slow or hostile (5 s connect and read timeouts, six retries): their own threads
+#   low        embeddings (a model call) and housekeeping: work that can wait, and must not be waited for
+#
+# Every queue a job uses must be listed here, or its jobs never run: spec/jobs/queues_spec.rb fails when one is not.
 default: &default
   dispatchers:
     - polling_interval: 1
       batch_size: 500
   workers:
-    - queues: "*"
+    - queues: critical
+      threads: 1
+      processes: 1
+      polling_interval: 0.25
+    - queues: [ mailers, default ]
       threads: 3
       processes: <%= ENV.fetch("JOB_CONCURRENCY", 1) %>
       polling_interval: 1
+    - queues: webhooks
+      threads: 2
+      processes: 1
+      polling_interval: 1
+    - queues: low
+      threads: 1
+      processes: 1
+      polling_interval: 2
 
 development:
   <<: *default

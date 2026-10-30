@@ -1,6 +1,7 @@
 module Api
   module V1
     class MembershipsController < BaseController
+      idempotent :create # a retried POST with the same Idempotency-Key answers the first one's response (Idempotency)
       rate_limit to: 60, within: 1.hour, only: :create, by: -> { current_user.id },
                  with: -> { render_error :too_many_requests, "rate_limited", "Too many requests. Try again later." }
 

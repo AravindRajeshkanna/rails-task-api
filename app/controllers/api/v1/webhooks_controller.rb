@@ -2,6 +2,7 @@ module Api
   module V1
     # Project admins register URLs that receive signed JSON events (see Webhooks::Deliverer).
     class WebhooksController < BaseController
+      idempotent :create # a retried POST with the same Idempotency-Key answers the first one's response (Idempotency)
       before_action :set_project, only: %i[index create]
       before_action :set_webhook, only: %i[show update destroy]
 

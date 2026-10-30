@@ -24,10 +24,11 @@ class OutboxEvent < ApplicationRecord
     update!(published_at: Time.current, locked_until: nil, last_error: nil)
   end
 
-  # Back off exponentially (2, 4, 8, ... seconds, capped), so a long outage is probed gently.
+  # Back off exponentially (2, 4, 8, ... seconds, capped), with jitter, so a long outage is probed gently and the events that failed together do not all
+  # come back together when it ends (ServiceKit::Backoff).
   def mark_failed!(error)
     update!(
-      available_at: [ 2**attempts, RETRY_CAP ].min.seconds.from_now, locked_until: nil,
+      available_at: ServiceKit::Backoff.delay(attempts: attempts, cap: RETRY_CAP).seconds.from_now, locked_until: nil,
       last_error: "#{error.class}: #{error.message}".truncate(500)
     )
   end

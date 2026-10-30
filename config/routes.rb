@@ -2,6 +2,10 @@ Rails.application.routes.draw do
   # Load balancer / Kamal health check.
   get "up" => "rails/health#show", as: :rails_health_check
 
+  # Liveness (is the process alive: restart it if not) and readiness (can it serve: stop sending it traffic if not). HealthController.
+  get "livez" => "health#livez"
+  get "readyz" => "health#readyz"
+
   # Prometheus scrape endpoint; reachable from inside the cluster only (see Observability::MetricsApp).
   mount Observability::MetricsApp.new => "/metrics"
 
@@ -15,7 +19,10 @@ Rails.application.routes.draw do
       # here they answer 404 so there is only ever one place that issues credentials.
       constraints(->(_request) { !ExternalAuth.enabled? }) do
         resources :registrations, only: :create
-        resource :session, only: %i[create destroy]
+        resource :session, only: %i[create destroy] do
+          post :rotate, on: :member
+        end
+        resources :sessions, only: %i[index destroy], controller: "user_sessions" # the caller's own sign-ins
         resources :passwords, only: %i[create update], param: :token
       end
 
@@ -43,7 +50,7 @@ Rails.application.routes.draw do
       # Everything that happened in the caller's projects (the member's view of the audit log).
       get "activity", to: "activities#index"
 
-      resource :me, controller: "me", only: %i[show update] do
+      resource :me, controller: "me", only: %i[show update destroy] do
         resource :avatar, only: %i[update destroy]
       end
 

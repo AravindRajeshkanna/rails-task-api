@@ -97,4 +97,80 @@ RSpec.describe ServiceKit::JwtVerifier do
 
     expect { verifier.verify!(token) }.to raise_error(described_class::Unavailable)
   end
+
+  describe "when the Auth service goes down" do
+    let(:time) { [ 0.0 ] }
+    let(:fetches) { [] }
+    let(:up) { [ true ] }
+    let(:fetcher) do
+      lambda do |_url|
+        fetches << time.first
+        raise described_class::Unavailable, "down" unless up.first
+
+        jwks_for([ key, "k1" ])
+      end
+    end
+    let(:verifier) do
+      described_class.new(issuer: "https://auth.test", audience: "task-api", jwks_url: "x", fetcher: fetcher, clock: -> { time.first },
+                          cache_ttl: 600, min_refresh_interval: 30, max_stale: 3_600)
+    end
+
+    it "keeps accepting tokens signed with the keys it already holds, instead of rejecting every request" do
+      verifier.verify!(token)
+      up[0] = false
+      time[0] += 601 # the cache is now stale
+
+      expect(verifier.verify!(token)).to include("sub" => "user-1")
+    end
+
+    it "tries to refetch once per interval, not once per request" do
+      verifier.verify!(token)
+      up[0] = false
+      time[0] += 601
+      fetches.clear
+
+      50.times { verifier.verify!(token) }
+      expect(fetches.size).to eq(1)
+
+      time[0] += 31
+      verifier.verify!(token)
+      expect(fetches.size).to eq(2)
+    end
+
+    it "recovers by itself when the service comes back, and picks up a rotation made meanwhile" do
+      verifier.verify!(token)
+      up[0] = false
+      time[0] += 700
+      verifier.verify!(token)
+      up[0] = true
+      time[0] += 31
+
+      expect(verifier.verify!(token)).to include("sub" => "user-1")
+      expect(fetches.last).to eq(time.first)
+    end
+
+    it "stops trusting stale keys after max_stale, because a key that was revoked must not live forever" do
+      verifier.verify!(token)
+      up[0] = false
+      time[0] += 3_700
+
+      expect { verifier.verify!(token) }.to raise_error(described_class::Unavailable)
+    end
+
+    it "fails fast when it never had keys, instead of fetching on every request" do
+      up[0] = false
+
+      20.times { expect { verifier.verify!(token) }.to raise_error(described_class::Unavailable) }
+
+      expect(fetches.size).to eq(1)
+    end
+
+    it "still rejects a token it cannot verify while serving stale keys (an unknown key is not a reason to trust)" do
+      verifier.verify!(token)
+      up[0] = false
+      time[0] += 601
+
+      expect { verifier.verify!(token(signing_key: other_key, kid: "k2")) }.to raise_error(described_class::Error, "unknown signing key")
+    end
+  end
 end

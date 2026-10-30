@@ -3,6 +3,7 @@ module Api
     # /organizations/:organization_id/invitations: owners and admins invite people by email address.
     # See OrganizationInvitationPolicy for who may do what and InvitationAcceptancesController for redeeming one.
     class OrganizationInvitationsController < BaseController
+      idempotent :create # a retried POST with the same Idempotency-Key answers the first one's response (Idempotency)
       # Sending mail is not free, and this is the endpoint to mail strangers with.
       rate_limit to: 30, within: 1.hour, only: :create, by: -> { current_user.id },
                  with: -> { render_error :too_many_requests, "rate_limited", "Too many invitations. Try again later." }

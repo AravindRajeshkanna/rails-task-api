@@ -58,7 +58,7 @@ unset DATABASE_URL                 # writes tmp/loadtest/tokens.json
 createuser -s task_api && createdb -T task_api_loadtest task_api_production
 RAILS_ENV=production FORCE_SSL=false ASSUME_SSL=false bin/rails db:prepare   # also creates the cache/queue/cable databases
 RAILS_ENV=production FORCE_SSL=false ASSUME_SSL=false RAILS_LOG_LEVEL=warn \
-  RAILS_MAX_THREADS=5 RACK_ATTACK_ENABLED=false PORT=3100 bin/rails server
+  RAILS_MAX_THREADS=5 RACK_ATTACK_ENABLED=false LOAD_SHEDDING=false PORT=3100 bin/rails server
 
 # 3. Hit it.
 k6 run -e BASE_URL=http://localhost:3100 -e RATE=20 -e DURATION=60s loadtest/k6/api.js
@@ -81,5 +81,6 @@ at the per-endpoint lines at the end of the summary: one slow endpoint is hidden
 
 Create the tokens with `loadtest:seed` against that environment's database from a shell inside the cluster
 (`kubectl exec`), copy `tokens.json` out, and set `BASE_URL`. Do this against **dev or a dedicated
-performance environment**, never production, and tell whoever is on call. Throttling (`RACK_ATTACK_ENABLED`) must
-be off there too, or you are testing the rate limiter.
+performance environment**, never production, and tell whoever is on call. Throttling (`RACK_ATTACK_ENABLED`) and load shedding (`LOAD_SHEDDING`) must
+be off there too, or you are testing the rate limiter and the shedder, not the code. To test shedding itself, leave it on and
+read the 503s as the result (see ADR 62).

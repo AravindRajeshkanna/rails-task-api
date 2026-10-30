@@ -36,9 +36,19 @@ module Ai
       end
 
       private
+        # Five failures in a row and the AI service is not called again for 30 s (then 60, up to 5 minutes): requests fail at once, with a Retry-After,
+        # instead of each holding a thread for the 30 s read timeout against a service that is down.
+        def breaker = ServiceKit::CircuitBreaker.for(:ai_service, failure_threshold: 5, window: 30, reset_timeout: 30, exceptions: [ Ai::Unavailable ])
+
         def post(path, payload)
           raise Ai::Disabled, "AI_SERVICE_URL is not set" unless enabled?
 
+          breaker.call { send_request(path, payload) }
+        rescue ServiceKit::CircuitBreaker::OpenError => error
+          raise Ai::Unavailable.new("AI service is failing; not calling it for #{error.retry_after}s", retry_after: error.retry_after)
+        end
+
+        def send_request(path, payload)
           uri = URI.join(@url, path)
           request = Net::HTTP::Post.new(uri, "Content-Type" => "application/json", "Accept" => "application/json")
           request["Authorization"] = "Bearer #{@token}" if @token.present?

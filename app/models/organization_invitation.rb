@@ -8,6 +8,8 @@ class OrganizationInvitation < ApplicationRecord
   include Auditable
 
   VALID_FOR = 7.days
+  # How long a concluded invitation (accepted, revoked or expired) stays listed before it and the address on it are deleted.
+  RETENTION = 90.days
 
   belongs_to :organization
   belongs_to :invited_by, class_name: "User", optional: true
@@ -21,6 +23,15 @@ class OrganizationInvitation < ApplicationRecord
 
   scope :outstanding, -> { where(accepted_at: nil, revoked_at: nil) }
   scope :pending, -> { outstanding.where("expires_at > ?", Time.current) }
+  scope :concluded_before, ->(time) { where("COALESCE(accepted_at, revoked_at, expires_at) < ?", time) }
+
+  # Deletes invitations and the address in their audit-trail entries: the fact that an invitation existed stays in the (append-only)
+  # trail, the address of someone who may never have had an account does not.
+  def self.forget!(invitations)
+    AuditEvent.where(auditable_type: name, auditable_id: invitations.select(:id))
+              .update_all("audit_changes = audit_changes - 'email_address'") # rubocop:disable Rails/SkipsModelValidations -- redaction, not an edit
+    invitations.delete_all
+  end
 
   generates_token_for(:acceptance, expires_in: VALID_FOR) { [ accepted_at.present?, revoked_at.present? ] }
 

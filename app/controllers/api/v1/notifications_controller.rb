@@ -2,6 +2,7 @@ module Api
   module V1
     # The caller's inbox. Who may see what is in NotificationPolicy.
     class NotificationsController < BaseController
+      replica_reads :index # a moment of staleness is fine here (ReplicaRouting)
       # GET /notifications?unread=true&project_id=3&kind=task.assigned (newest first).
       # meta.unread_count is the number of unread notifications, whatever the filter.
       def index

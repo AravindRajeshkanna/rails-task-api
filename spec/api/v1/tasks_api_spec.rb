@@ -49,6 +49,9 @@ RSpec.describe "Tasks API", type: :request do
                              "(with the same filters and sort). Only for sorts by `created_at`, `updated_at` and `title` (not by relevance, " \
                              "`priority`, `status` or `due_on`); an invalid cursor is a 400. Replaces `page`."
       parameter name: :limit, in: :query, type: :integer, required: false
+      parameter name: :fields, in: :query, type: :string, required: false,
+                description: "Sparse fieldset: a comma-separated list of the attributes you want (`id` is always included), e.g. `id,title,status`. " \
+                             "Associations you do not name (`creator`, `assignee`, `tags`, `attachments`) are not loaded. An unknown name is a 400 that lists the valid ones"
 
       response "200", "A page of tasks (`meta` has `page`, `count`...; with `cursor`, `next_cursor` and `has_more` and no total)" do
         schema OpenapiSchemas.listing(ref.call("Task"))
@@ -73,6 +76,7 @@ RSpec.describe "Tasks API", type: :request do
 
     post "Create a task" do
       tags "Tasks"
+      parameter name: "Idempotency-Key", in: :header, type: :string, required: false, description: "Retry safely: the same key returns the first response instead of creating again"
       security [ { bearer_auth: [] } ]
       consumes "application/json"
       produces "application/json"

@@ -4,6 +4,7 @@ require "active_support/tagged_logging"
 require "opentelemetry/sdk"
 
 require_relative "service_kit/version"
+require_relative "service_kit/circuit_breaker"
 require_relative "service_kit/jwt_verifier"
 require_relative "service_kit/json_log_formatter"
 require_relative "service_kit/metrics"

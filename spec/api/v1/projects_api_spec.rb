@@ -20,6 +20,7 @@ RSpec.describe "Projects API", type: :request do
       security [ { bearer_auth: [] } ]
       produces "application/json"
       pagination_params.call(self)
+      parameter name: :fields, in: :query, type: :string, required: false, description: "Sparse fieldset, e.g. `id,name`: only those attributes (`id` is always included); `owner` is loaded only if named"
 
       response "200", "A page of projects" do
         schema envelope.call(ref.call("Project"), list: true)
@@ -40,6 +41,7 @@ RSpec.describe "Projects API", type: :request do
 
     post "Create a project" do
       tags "Projects"
+      parameter name: "Idempotency-Key", in: :header, type: :string, required: false, description: "Retry safely: the same key returns the first response instead of creating again"
       description "The caller becomes the owner and an admin member."
       security [ { bearer_auth: [] } ]
       consumes "application/json"

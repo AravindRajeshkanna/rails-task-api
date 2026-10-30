@@ -36,9 +36,9 @@ observability with anomaly alarms and an AIOps loop, and Terraform + Helm + Argo
 | Observability | Structured events as JSON logs, Prometheus `/metrics`, OpenTelemetry → X-Ray, CloudWatch anomaly alarms, SNS → PagerDuty/Slack ([docs](docs/architecture/observability-and-aiops.md)) |
 | Services | Auth (JWT, rotating refresh tokens), AI, Notifications (SQS consumer), events as CloudEvents on SNS/SQS ([docs](docs/architecture/microservices.md)) |
 | Platform | Docker Compose, `kind`, one Helm chart, Terraform (EKS, Karpenter, Aurora, SNS/SQS, WAF), Argo CD + Rollouts, KEDA, AIOps Lambdas ([deploy/](deploy/README.md)) |
-| Quality | RSpec (1,176 across the app, shared gems and Lambdas, with a line/branch coverage floor; 74 more in the services; 32 Node tests for the demo front end; 14 `terraform test` runs), Bullet raising on N+1, RuboCop with the Lint/Rails/Performance cops, Brakeman, bundler-audit, `strong_migrations`, `terraform validate`, Kubernetes schema checks ([docs/testing.md](docs/testing.md)) |
+| Quality | RSpec (1,343 across the app, shared gems and Lambdas, with a line/branch coverage floor; 78 more in the services; 32 Node tests for the demo front end; 14 `terraform test` runs), Bullet raising on N+1, RuboCop with the Lint/Rails/Performance cops, Brakeman, bundler-audit, `strong_migrations`, `terraform validate`, Kubernetes schema checks ([docs/testing.md](docs/testing.md)) |
 | Performance | Measured, not guessed: `EXPLAIN` on 149k tasks, k6 load tests (nightly in CI), evidence-based indexes ([docs/performance.md](docs/performance.md)) |
-| Delivery | Dockerfile, Kamal 2 config (single host), EKS via GitOps (below), GitHub Actions, JSON logs, `/up` health check, optional Sentry |
+| Delivery | Dockerfile, Kamal 2 config (single host), EKS via GitOps (below), GitHub Actions, JSON logs, `/livez` and `/readyz` health checks (and `/up`), optional Sentry |
 
 ## Quick start
 
@@ -75,7 +75,7 @@ curl -s "localhost:3000/api/v1/projects/1/tasks?priority=urgent,high&sort=-prior
 ## API conventions
 
 **Authentication.** `POST /api/v1/registrations` or `POST /api/v1/session` returns a token (valid 30 days).
-Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it.
+Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it, `POST /api/v1/session/rotate` swaps it for a fresh one (the old one stops working), and a token unused for 14 days expires early. `GET /api/v1/sessions` lists your sign-ins and `DELETE /api/v1/sessions/:id` ends one.
 
 **Envelope.** Successful responses are `{ "data": ..., "meta": ... }`; request bodies are flat JSON
 (`{"title": "..."}`). Timestamps are ISO 8601 in UTC.
@@ -93,13 +93,23 @@ Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it.
 | 401 | `unauthenticated`, `invalid_credentials` | No / bad / expired token; wrong password |
 | 403 | `forbidden` | You can see the resource but your role may not do this |
 | 404 | `not_found` | Missing **or not yours**: resources in projects you don't belong to look nonexistent |
-| 409 | `stale_object`, `conflict` | `lock_version` out of date; uniqueness race |
-| 422 | `validation_failed` | Details are keyed by field |
-| 429 | `rate_limited` | Honour `Retry-After` |
-| 503 | `read_only`, `ai_unavailable`, `ai_not_configured` | `read_only`: a database promotion or maintenance is under way. Reads work, nothing was changed, retry the write after `Retry-After` |
+| 409 | `stale_object`, `conflict`, `idempotency_in_progress` | `lock_version` out of date; uniqueness race; a request with the same `Idempotency-Key` is still running |
+| 422 | `validation_failed`, `idempotency_key_reused` | Details are keyed by field; an `Idempotency-Key` was reused for a different request |
+| 429 | `rate_limited` | Honour `Retry-After`: a per-token, per-endpoint, per-IP or per-organization limit |
+| 503 | `read_only`, `overloaded`, `ai_unavailable`, `ai_not_configured` | `read_only`: a database promotion or maintenance is under way (reads work, nothing was changed); `overloaded`: the server is busy and refused an expensive read first; retry after `Retry-After` |
+
+**Sparse fieldsets.** `?fields=id,title,status` on the task list and a single task (and `?fields=id,name` on the project list) returns only those attributes, and only loads the associations you name. On a page of 100 tasks that is
+87% fewer bytes, one query instead of five, and 4x less time ([performance.md](docs/performance.md#sparse-fieldsets)). `id` is always there; an unknown name is a `400` that lists the valid ones.
+
+**Idempotency keys.** Every endpoint that creates something takes an optional `Idempotency-Key: <token>` header. Retry a request that timed out with the same key and you get the first response back (`Idempotent-Replayed: true`)
+instead of a second task, a second invitation email, a second model call. Same key with a different request: `422`; a retry while the first still runs: `409` with `Retry-After`; keys are per user and kept for 24 hours; only
+successes are remembered. Not offered on sign-in, registration or password reset (their answers hold credentials), uploads, or GraphQL. See [ADR 55](docs/decisions.md).
 
 **Rate limits** (`429` + `Retry-After`): sign-up 10/hour per IP; sign-in and password reset 10 per 3 minutes per IP, and
-5 sign-ins per minute per account; everything under `/api` 300 per 5 minutes per IP and 600 per 5 minutes per token.
+5 sign-ins per minute per account; everything under `/api` 300 per 5 minutes per IP and 600 per 5 minutes per token; the expensive endpoints
+(search, analytics, the activity feed, audit logs, GraphQL) a smaller 120 per 5 minutes per token of their own; and each organization 3,000 changes (writes) per 5 minutes across all of its clients
+(`Retry-After` is the end of the window). **Under load** the expensive reads are refused first, with `503 overloaded` and a `Retry-After`, while cheap reads and every write keep being served
+([ADR 62](docs/decisions.md)).
 
 **Pagination.** `?page=2&limit=50` (default 25, max 100). The body has `meta` (`page`, `limit`, `count`,
 `pages`, `next`, `previous`) and responses carry `Link` (RFC 8288), `Total-Count`, `Total-Pages`,
@@ -124,8 +134,8 @@ purged for good after 30 days.
 
 | | |
 | --- | --- |
-| Auth | `POST /registrations` · `POST /session` · `DELETE /session` · `POST /passwords` · `PATCH /passwords/:token` |
-| Account | `GET` `PATCH /me` · `PUT` `DELETE /me/avatar` |
+| Auth | `POST /registrations` · `POST /session` · `DELETE /session` · `POST /session/rotate` · `GET /sessions` · `DELETE /sessions/:id` · `POST /passwords` · `PATCH /passwords/:token` |
+| Account | `GET` `PATCH` `DELETE /me` · `PUT` `DELETE /me/avatar` |
 | Organizations | `GET` `POST /organizations` · `GET` `PATCH` `DELETE /organizations/:id` · `GET /organizations/:id/members` · `PATCH` `DELETE /organizations/:id/members/:member_id` · `GET` `POST /organizations/:id/invitations` · `DELETE /organizations/:id/invitations/:id` · `POST /invitations/accept` · `GET /organizations/:id/audit_events` (owners) · `GET` `POST /organizations/:id/teams` · `GET` `PATCH` `DELETE /organizations/:id/teams/:id` · `GET` `POST /organizations/:id/teams/:id/members` · `DELETE /organizations/:id/teams/:id/members/:member_id` |
 | Projects | `GET` `POST /projects` (`organization_id` creates one inside an organization) · `GET` `PATCH` `DELETE /projects/:id` · `POST /projects/:id/restore` |
 | Members | `GET` `POST /projects/:id/memberships` · `PATCH` `DELETE /memberships/:id` · `GET` `POST /projects/:id/teams` · `PATCH` `DELETE /projects/:id/teams/:id` (a team's access) |
@@ -252,7 +262,7 @@ Schedules live in [config/recurring.yml](config/recurring.yml).
 
 ```bash
 bundle exec rspec                                   # the app, ~8 s; accepts any file or directory
-bundle exec rspec spec gems deploy/lambda           # 1,176 (app + gems + Lambdas), what CI runs
+bundle exec rspec spec gems deploy/lambda           # 1,343 (app + gems + Lambdas), what CI runs
 for s in ai auth notifications; do (cd services/$s && bundle exec rspec); done   # the services
 bin/rails ai:eval                                   # score the configured model against the golden sets
 bin/ci                                              # rubocop + bundler-audit + brakeman + rspec with the coverage floor (as GitHub Actions)
@@ -321,9 +331,10 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 | | |
 | --- | --- |
 | [docs/roadmap.md](docs/roadmap.md) | Everything that was planned and built, by pull request, with status and what is next |
-| [docs/decisions.md](docs/decisions.md) | Why (34 architecture decisions) |
+| [docs/decisions.md](docs/decisions.md) | Why (68 architecture decisions) |
 | [docs/architecture/](docs/architecture/overview.md) | System overview, AI, observability and AIOps, microservices, service contracts |
-| [docs/testing.md](docs/testing.md) · [docs/performance.md](docs/performance.md) · [docs/security.md](docs/security.md) | How it is tested, measured and defended |
+| [docs/testing.md](docs/testing.md) · [docs/performance.md](docs/performance.md) · [docs/security.md](docs/security.md) · [docs/threat-model.md](docs/threat-model.md) · [docs/data-protection.md](docs/data-protection.md) | How it is tested, measured and defended; what is held about people |
+| [docs/slo.md](docs/slo.md) · [docs/capacity-planning.md](docs/capacity-planning.md) · [docs/architecture/failure-domains.md](docs/architecture/failure-domains.md) · [docs/architecture/boundaries.md](docs/architecture/boundaries.md) · [docs/architecture/data-lifecycle.md](docs/architecture/data-lifecycle.md) | Objectives and alerts, how many pods, what fails together, who owns what, how the data ages |
 | [docs/api-versioning.md](docs/api-versioning.md) · [CHANGELOG.md](CHANGELOG.md) | Versioning policy and what changed for API clients |
 | [docs/runbooks/](docs/runbooks/) | Operating it: alerts, backups and restores, zero-downtime migrations |
 | [docs/aws/setup-guide.md](docs/aws/setup-guide.md) · [deploy/README.md](deploy/README.md) | Standing the platform up on AWS |
