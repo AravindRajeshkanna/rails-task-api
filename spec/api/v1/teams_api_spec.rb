@@ -134,11 +134,14 @@ RSpec.describe "Teams API", type: :request do
     post "Add someone to a team" do
       tags "Teams"
       description "By user id; the person must be a member of the organization. A person who is not, and an id that matches " \
-                  "nobody, get the same `422`. Owners and admins."
+                  "nobody, get the same `422`. Owners and admins, and the team's maintainers for plain members: only an owner or admin can add " \
+                  "someone as a `maintainer`."
       security [ { bearer_auth: [] } ]
       consumes "application/json"
       produces "application/json"
-      parameter name: :body, in: :body, schema: { type: :object, properties: { user_id: { type: :integer } }, required: [ :user_id ] }
+      parameter name: :body, in: :body, schema: {
+        type: :object, properties: { user_id: { type: :integer }, role: { type: :string, enum: %w[member maintainer], default: "member" } }, required: [ :user_id ]
+      }
 
       response "201", "Added" do
         schema envelope.call(ref.call("TeamMember"))
@@ -162,9 +165,37 @@ RSpec.describe "Teams API", type: :request do
     let(:team_id) { team.id }
     let(:id) { create(:team_membership, team: team).id }
 
+    patch "Change a team member's role" do
+      tags "Teams"
+      description "Make someone a maintainer of the team, or a plain member again. Owners and admins of the organization only."
+      security [ { bearer_auth: [] } ]
+      consumes "application/json"
+      produces "application/json"
+      parameter name: :body, in: :body, schema: { type: :object, properties: { role: { type: :string, enum: %w[member maintainer] } }, required: [ :role ] }
+
+      response "200", "Changed" do
+        schema envelope.call(ref.call("TeamMember"))
+        let(:body) { { role: "maintainer" } }
+        run_test! { expect(data["role"]).to eq("maintainer") }
+      end
+
+      response "403", "Not an owner or admin" do
+        schema ref.call("Error")
+        let(:body) { { role: "maintainer" } }
+        let(:Authorization) { plain_member_headers }
+        run_test!
+      end
+
+      response "422", "Not a role" do
+        schema ref.call("Error")
+        let(:body) { { role: "boss" } }
+        run_test!
+      end
+    end
+
     delete "Remove someone from a team" do
       tags "Teams"
-      description "They lose the access the team gave them to projects."
+      description "They lose the access the team gave them to projects. Owners and admins, and a maintainer for a plain member."
       security [ { bearer_auth: [] } ]
 
       response "204", "Removed" do

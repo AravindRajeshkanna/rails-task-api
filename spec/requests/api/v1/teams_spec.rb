@@ -199,6 +199,74 @@ RSpec.describe "Teams" do
 
       expect(response).to have_http_status(:bad_request)
     end
+
+    describe "maintainers" do
+      let(:members_path) { "#{org_path}/teams/#{team_id}/members" }
+
+      def add(user, role: nil, as: ada)
+        api :post, members_path, { user_id: user.id, role: role }.compact, as: as
+        data["id"] if response.status == 201
+      end
+
+      before { add(grace, role: "maintainer") }
+
+      it "are named by an administrator, listed with their role, and audited when the role changes" do
+        id = add(linus)
+        expect(data).to include("role" => "member")
+
+        api :patch, "#{members_path}/#{id}", { role: "maintainer" }, as: ada
+        expect(response).to have_http_status(:ok)
+        expect(data).to include("role" => "maintainer")
+        expect(AuditEvent.where(auditable_type: "TeamMembership", auditable_id: id, action: "update").sole.audit_changes).to include("role" => %w[member maintainer])
+
+        api :get, members_path, as: linus
+        expect(data.to_h { [ _1.dig("user", "name"), _1["role"] ] }).to eq("Grace" => "maintainer", "Linus" => "maintainer")
+      end
+
+      it "add and remove the plain members of their team" do
+        id = add(linus, as: grace)
+        expect(response).to have_http_status(:created)
+        expect(TeamMembership.find(id)).to be_member
+
+        api :delete, "#{members_path}/#{id}", as: grace
+        expect(response).to have_http_status(:no_content)
+      end
+
+      it "cannot make anyone a maintainer, change a role, or remove a maintainer or themselves" do
+        api :post, members_path, { user_id: linus.id, role: "maintainer" }, as: grace
+        expect(response).to have_http_status(:forbidden)
+
+        plain = add(linus)
+        api :patch, "#{members_path}/#{plain}", { role: "maintainer" }, as: grace
+        expect(response).to have_http_status(:forbidden)
+
+        api :delete, "#{members_path}/#{TeamMembership.find_by!(user: grace).id}", as: grace
+        expect(response).to have_http_status(:forbidden)
+        expect(TeamMembership.find(plain)).to be_member
+        expect(TeamMembership.find_by!(user: grace)).to be_maintainer
+      end
+
+      it "are no use in another team, and a plain member is none at all" do
+        other_team = create_team("Design")
+        api :post, "#{org_path}/teams/#{other_team}/members", { user_id: linus.id }, as: grace
+        expect(response).to have_http_status(:forbidden)
+
+        plain = add(linus)
+        api :post, members_path, { user_id: ada.id }, as: linus
+        expect(response).to have_http_status(:forbidden)
+        expect(plain).to be_present
+      end
+
+      it "refuse an unknown role in the usual way, and give no access to any project" do
+        api :post, members_path, { user_id: linus.id, role: "boss" }, as: ada
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(error["details"]).to include("role")
+
+        project = create(:project, owner: ada, organization: organization)
+        expect(ProjectPolicy::Scope.new(grace, Project).resolve.where(id: project.id)).to be_empty
+        expect(ProjectPolicy.new(grace, project).show?).to be(false)
+      end
+    end
   end
 
   describe "a team's access to a project" do

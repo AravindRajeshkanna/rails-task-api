@@ -313,8 +313,11 @@ module OpenapiSchemas
     },
     TeamMember: {
       type: :object,
-      properties: { id: { type: :integer }, user: ref("UserSummary"), created_at: { type: :string, format: "date-time" } },
-      required: %i[id user]
+      properties: {
+        id: { type: :integer }, user: ref("UserSummary"), created_at: { type: :string, format: "date-time" },
+        role: { type: :string, enum: %w[member maintainer], description: "A maintainer adds and removes the plain members of the team. It gives no access to any project" }
+      },
+      required: %i[id user role]
     },
     ProjectTeam: {
       type: :object,

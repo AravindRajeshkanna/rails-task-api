@@ -8,6 +8,9 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Added
+- **Team maintainers.** Team members have a `role`, `member` (default) or `maintainer`: `POST .../teams/{id}/members` accepts `role` (only owners and admins can add a maintainer),
+  and `PATCH .../teams/{id}/members/{member_id}` with `{ "role": ... }` changes it (owners and admins). A maintainer can add and remove the plain members of their own team; the
+  role grants no access to any project. Team member responses carry `role`.
 - **GraphQL mutations:** `createTask`, `updateTask`, `deleteTask`, `createComment`, `markNotificationRead`. Each is the REST write reached another way (same policies, same
   validation, optimistic locking, audit log and events). Mistakes in the input come back in the payload's `errors`; a missing or invisible record, a forbidden action and a stale
   `lockVersion` are top-level errors with `extensions.code` `not_found`, `forbidden` and `stale_object`. One mutation per request. No subscriptions. Additive: queries are unchanged.

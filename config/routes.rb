@@ -53,7 +53,7 @@ Rails.application.routes.draw do
         resources :invitations, controller: "organization_invitations", only: %i[index create destroy]
         resources :audit_events, controller: "organization_audit_events", only: :index
         resources :teams do
-          resources :members, controller: "team_memberships", only: %i[index create destroy]
+          resources :members, controller: "team_memberships", only: %i[index create update destroy]
         end
       end
       # Joining happens by redeeming an invitation (there is no "add by email"): the emailed token, as the invited address.

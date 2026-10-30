@@ -117,6 +117,7 @@ RSpec.describe "Tenant isolation" do
       [ "DELETE", "/api/v1/organizations/:id/teams/:id", [ organization.id, team.id ], 403 ],
       [ "GET",    "/api/v1/organizations/:id/teams/:id/members", [ organization.id, team.id ], nil ],
       [ "POST",   "/api/v1/organizations/:id/teams/:id/members", [ organization.id, team.id ], 403, { user_id: member.id } ],
+      [ "PATCH",  "/api/v1/organizations/:id/teams/:id/members/:id", [ organization.id, team.id, team_membership.id ], 403, { role: "maintainer" } ],
       [ "DELETE", "/api/v1/organizations/:id/teams/:id/members/:id", [ organization.id, team.id, team_membership.id ], 403 ],
 
       # A team's access to a project (org_project: `member` belongs to it, as a plain member).

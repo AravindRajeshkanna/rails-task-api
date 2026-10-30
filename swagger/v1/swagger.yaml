@@ -845,9 +845,17 @@ components:
         created_at:
           type: string
           format: date-time
+        role:
+          type: string
+          enum:
+          - member
+          - maintainer
+          description: A maintainer adds and removes the plain members of the team.
+            It gives no access to any project
       required:
       - id
       - user
+      - role
     ProjectTeam:
       type: object
       description: A team's access to a project, with the role each of its members
@@ -4084,9 +4092,10 @@ paths:
       summary: Add someone to a team
       tags:
       - Teams
-      description: By user id; the person must be a member of the organization. A
+      description: 'By user id; the person must be a member of the organization. A
         person who is not, and an id that matches nobody, get the same `422`. Owners
-        and admins.
+        and admins, and the team''s maintainers for plain members: only an owner or
+        admin can add someone as a `maintainer`.'
       security:
       - bearer_auth: []
       parameters: []
@@ -4116,6 +4125,12 @@ paths:
               properties:
                 user_id:
                   type: integer
+                role:
+                  type: string
+                  enum:
+                  - member
+                  - maintainer
+                  default: member
               required:
               - user_id
   "/api/v1/organizations/{organization_id}/teams/{team_id}/members/{id}":
@@ -4135,11 +4150,58 @@ paths:
       required: true
       schema:
         type: integer
+    patch:
+      summary: Change a team member's role
+      tags:
+      - Teams
+      description: Make someone a maintainer of the team, or a plain member again.
+        Owners and admins of the organization only.
+      security:
+      - bearer_auth: []
+      parameters: []
+      responses:
+        '200':
+          description: Changed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    "$ref": "#/components/schemas/TeamMember"
+                required:
+                - data
+        '403':
+          description: Not an owner or admin
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        '422':
+          description: Not a role
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum:
+                  - member
+                  - maintainer
+              required:
+              - role
     delete:
       summary: Remove someone from a team
       tags:
       - Teams
-      description: They lose the access the team gave them to projects.
+      description: They lose the access the team gave them to projects. Owners and
+        admins, and a maintainer for a plain member.
       security:
       - bearer_auth: []
       responses:

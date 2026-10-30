@@ -644,3 +644,16 @@ does badly). Each further mutation is ~15 lines and a handful of examples, so ad
 
 **Subscriptions are still not built.** Action Cable already pushes the inbox (`NotificationsChannel`), a subscription would need its own stream authorization (a second place to forget a check), and nobody is subscribed. Not built either: persisted queries, batching, a GraphiQL page. Not verified: any real client, and mutation latency under load (a mutation costs what the REST write costs plus parsing).
 
+## 52. Team maintainers manage who is on their team, and nothing else
+
+A team (ADR 37) was managed entirely by the organization's owners and admins, which stops scaling when a hundred-person organization has twenty teams: the people who know who should be on "Payments" are not the organization's administrators. The roadmap asked for "team maintainers who manage membership". That is what a maintainer is, and the narrowness is the design.
+
+**What a maintainer can do:** add and remove the *plain members* of their own team. **What they cannot:** make anyone a maintainer, change a role, remove another maintainer or themselves, rename or delete the team, grant it a project, or touch any other team. A maintainer who could appoint maintainers could grow their own circle without anyone administering it, and one who could change roles could promote
+themselves back after an administrator demoted them; both are the privilege escalations this kind of feature ships with. So appointing is an administrator's act, and the policy spec states each "cannot" separately. (Plain members still cannot leave on their own, which was already the rule and is unchanged.)
+
+**What the role does not do: grant access.** A maintainer gets no project access beyond what the team was granted, so being appointed never widens what a person can read. It manages membership, and membership *is* access (a person added to a team receives that team's project grants), so a maintainer can indirectly give someone access to everything the team has. That is the trust a team maintainer carries, and it is bounded: a person has to be in the organization already (the API says
+the same thing for a stranger as for nobody), and only to teams the maintainer maintains.
+
+The role is a column on the membership (`member` or `maintainer`, a check constraint added NOT VALID and validated in a second migration, like every constraint on an existing table), changes are audited like every other membership change, and `maintainer?` is a lookup of that one row for that one team, so being a maintainer of one team confers nothing on another and nothing once the person has left the organization.
+Five deliberate breakages of the policy (maintainers manage nobody, can add maintainers, can change roles, are maintainers of every team, still count after leaving the organization) each fail a spec.
+
