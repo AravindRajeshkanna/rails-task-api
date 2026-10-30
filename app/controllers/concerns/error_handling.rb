@@ -46,8 +46,8 @@ module ErrorHandling
     rescue_from Ai::InvalidResponse do
       render_error :bad_gateway, "ai_invalid_response", "The AI model returned an unusable answer. Try again."
     end
-    rescue_from Ai::Unavailable do
-      response.headers["Retry-After"] = "5"
+    rescue_from Ai::Unavailable do |error|
+      response.headers["Retry-After"] = error.retry_after.to_s
       render_error :service_unavailable, "ai_unavailable", "The AI provider is busy or unreachable. Try again shortly."
     end
     rescue_from Ai::Disabled do

@@ -7,6 +7,9 @@ and in [docs/roadmap.md](docs/roadmap.md).
 
 ## Unreleased
 
+### Changed
+- `503 ai_unavailable` now carries a `Retry-After` that reflects the circuit breaker: 5 seconds for a single failure, and the rest of the pause (30 seconds, doubling to 5 minutes) once the AI dependency has been failing. After five consecutive failures AI calls fail at once instead of waiting out their timeout.
+
 ### Added
 - **Sparse fieldsets.** `fields=` on `GET /projects/{id}/tasks`, `GET /tasks/{id}` and `GET /projects`: a comma-separated list of the attributes and associations wanted (`id` is always included). Unrequested
   associations are not loaded. An unknown name is `400` with the valid names. Without `fields`, responses are unchanged.

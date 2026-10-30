@@ -3,7 +3,7 @@
 # (namespace TaskApi: QueueDepth, OldestJobAgeSeconds, FailedJobs, and the event outbox's OutboxPending and
 # OutboxOldestAgeSeconds). See deploy/terraform.
 class PublishQueueMetricsJob < ApplicationJob
-  queue_as :default
+  queue_as :critical
 
   def perform
     return unless ENV["METRICS_EMF"] == "true"

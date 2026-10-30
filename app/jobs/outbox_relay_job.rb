@@ -2,7 +2,7 @@
 # minute (config/recurring.yml). Only one runs at a time: a wake-up while one is running is dropped, because
 # the running one (or the next sweep) will find the new row.
 class OutboxRelayJob < ApplicationJob
-  queue_as :default
+  queue_as :critical
   limits_concurrency to: 1, key: "outbox_relay", duration: 1.minute, on_conflict: :discard
 
   # Never lets a failure to enqueue reach the request that wrote the event: the row is committed, and the sweep finds it.

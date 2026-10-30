@@ -4,7 +4,7 @@ module Events
   # a greppable key=value line:
   #   event=task.completed subject=gid://task-api/Task/7 project_id=3 actor_id=5
   class LogSubscriber < Subscriber
-    LOGGED = /\A(task|project|comment|membership|webhook|ai|read_only|idempotency)\.|\Aaction_controller\.(request_completed|rescue_from_handled)\z|\Aactive_job\.(completed|failed|discarded|retry_stopped)\z/
+    LOGGED = /\A(task|project|comment|membership|webhook|ai|read_only|idempotency|circuit)\.|\Aaction_controller\.(request_completed|rescue_from_handled)\z|\Aactive_job\.(completed|failed|discarded|retry_stopped)\z/
 
     private
       def handle(event)

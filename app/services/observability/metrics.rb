@@ -28,6 +28,8 @@ module Observability
     HTTP_REQUESTS = counter(:taskapi_http_requests_total, "HTTP requests handled", %i[controller action status])
     HTTP_DURATION = histogram(:taskapi_http_request_duration_seconds, "HTTP request duration", %i[controller action], LATENCY_BUCKETS)
     DOMAIN_EVENTS = counter(:taskapi_domain_events_total, "Domain events published (task.created, project.updated, ...)", %i[event])
+    CIRCUIT_STATE = gauge(:taskapi_circuit_breaker_state, "Circuit breaker state per dependency (0 closed, 1 half-open, 2 open)", %i[breaker])
+    CIRCUIT_TRANSITIONS = counter(:taskapi_circuit_breaker_transitions_total, "Circuit breaker state changes", %i[breaker to])
     READ_ONLY_REFUSALS = counter(:taskapi_read_only_refusals_total, "Writes answered 503 read_only (switch = READ_ONLY=true, database = Postgres refused it)", %i[source])
 
     IDEMPOTENCY = counter(:taskapi_idempotency_total, "Requests that carried an Idempotency-Key, by outcome (stored, replayed, refused)", %i[outcome source])

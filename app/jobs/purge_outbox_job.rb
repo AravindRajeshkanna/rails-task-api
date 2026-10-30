@@ -2,7 +2,7 @@
 class PurgeOutboxJob < ApplicationJob
   RETENTION = 7.days
 
-  queue_as :default
+  queue_as :low
 
   def perform
     OutboxEvent.published.where(published_at: ..RETENTION.ago).in_batches.delete_all

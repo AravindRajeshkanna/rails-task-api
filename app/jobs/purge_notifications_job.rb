@@ -4,7 +4,7 @@ class PurgeNotificationsJob < ApplicationJob
   READ_RETENTION = 30.days
   UNREAD_RETENTION = 180.days
 
-  queue_as :default
+  queue_as :low
 
   def perform
     Notification.read.where(read_at: ..READ_RETENTION.ago).in_batches.delete_all

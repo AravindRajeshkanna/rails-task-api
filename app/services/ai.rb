@@ -6,8 +6,18 @@ module Ai
   # AI is not configured (no AI_PROVIDER, or the remote service URL is missing).
   class Disabled < Error; end
 
-  # The model provider is throttling or down; try again shortly.
-  class Unavailable < Error; end
+  # The model provider is throttling or down; try again shortly. +retry_after+ (seconds) is when it is worth trying again: a few seconds for a
+  # single failure, the rest of the circuit breaker's pause once it has opened (ADR 58).
+  class Unavailable < Error
+    DEFAULT_RETRY_AFTER = 5
+
+    attr_reader :retry_after
+
+    def initialize(message = nil, retry_after: DEFAULT_RETRY_AFTER)
+      super(message)
+      @retry_after = retry_after
+    end
+  end
 
   # The model answered with something that failed validation.
   class InvalidResponse < Error; end

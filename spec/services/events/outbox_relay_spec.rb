@@ -94,16 +94,26 @@ RSpec.describe Events::OutboxRelay do
       expect(stored.reload).to have_attributes(published_at: be_present, last_error: nil, attempts: 2)
     end
 
-    it "backs off exponentially up to a cap" do
+    it "backs off exponentially up to a cap, with jitter: never sooner than half the interval, never later than the interval" do
       stored = add_event(attempts: 4)
       sns.stub_responses(:publish, "ThrottledException")
-      described_class.call # this is attempt 5: 2**5 seconds
+      described_class.call # this is attempt 5: 2**5 = 32 seconds, jittered to 16-32
 
-      expect(stored.reload.available_at).to be_between(31.seconds.from_now, 33.seconds.from_now)
+      expect(stored.reload.available_at).to be_between(15.seconds.from_now, 33.seconds.from_now)
 
       stored.update!(attempts: 20, available_at: 1.minute.ago)
       described_class.call
-      expect(stored.reload.available_at).to be_between(14.minutes.from_now, 16.minutes.from_now)
+      expect(stored.reload.available_at).to be_between(7.minutes.from_now, 15.minutes.from_now + 1.second) # the 15 minute cap is the ceiling
+    end
+
+    it "does not retry every event that failed together at the same moment" do
+      events = Array.new(30) { add_event(attempts: 6) }
+      sns.stub_responses(:publish, "ThrottledException")
+
+      described_class.call
+
+      due = events.map { |event| event.reload.available_at }
+      expect(due.uniq.size).to be > 20 # spread over 32-64 seconds, not one instant
     end
 
     it "reports what went wrong without raising, and one bad event does not hold up the rest" do

@@ -45,6 +45,12 @@ module TaskApi
     # ErrorsController so every failure has the same JSON envelope.
     config.exceptions_app = routes
 
+    # Which queue each kind of background job runs in (config/queue.yml has the pools). Mail people are waiting for is not behind housekeeping,
+    # and Active Storage's analysis and purge are housekeeping.
+    config.action_mailer.deliver_later_queue_name = :mailers
+    config.active_storage.queues.analysis = :low
+    config.active_storage.queues.purge = :low
+
     # Signed blob URLs handed to clients stop working after 10 minutes.
     config.active_storage.urls_expire_in = 10.minutes
 

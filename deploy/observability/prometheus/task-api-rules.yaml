@@ -87,6 +87,15 @@ spec:
             description: "Planned during a switchover. Otherwise traffic reached a region whose database is not promoted yet, or a writer was demoted."
             runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/regional-failover.md
 
+        - alert: TaskApiCircuitOpen
+          expr: max by (breaker) (taskapi_circuit_breaker_state) == 2
+          for: 5m
+          labels: { severity: ticket }
+          annotations:
+            summary: "The {{ $labels.breaker }} circuit breaker has been open for 5 minutes"
+            description: "Calls to that dependency fail at once instead of waiting out their timeout. The API itself is up; the features that need it answer 503 with a Retry-After."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/ai-provider-issues.md
+
         - alert: TaskApiNoWorkers
           expr: max(taskapi_queue_workers) == 0 and taskapi:queue_ready_jobs:total > 0
           for: 5m
