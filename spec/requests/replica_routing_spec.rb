@@ -31,12 +31,22 @@ RSpec.describe "Read replica routing" do
 
   let(:list) { "/api/v1/projects/#{project.id}/tasks" }
 
-  it "has a reading role, which cannot write" do
+  # What makes Active Record refuse a write on the reading role is the replica pool's configuration (`replica: true`), because in production it is a
+  # connection of its own. The refusal cannot be observed from here: the test harness lets the reading role borrow the writing connection so that reads
+  # see the open transaction, and whether it does depends on whether the model classes were loaded before the example started (eager loading in CI).
+  # So this checks the thing that decides it, in every environment's configuration, and that the role switch itself prevents writes.
+  it "has a reading role, bound to a configuration that is declared a replica" do
     ApplicationRecord.connected_to(role: :reading) do
       expect(ApplicationRecord.current_role).to eq(:reading)
       expect(ApplicationRecord.current_preventing_writes).to be(true)
-      expect { User.create!(name: "Nope", email_address: "nope@example.com", password: "long-enough-pw-1") }.to raise_error(ActiveRecord::ReadOnlyError)
     end
+
+    allow(ENV).to receive(:[]).and_call_original
+    allow(ENV).to receive(:[]).with("DB_REPLICA_HOST").and_return("replica.internal")
+    rendered = YAML.safe_load(ERB.new(Rails.root.join("config/database.yml").read).result, aliases: true)
+
+    expect(rendered.slice("development", "test", "production").transform_values { |environment| environment.dig("primary_replica", "replica") })
+      .to eq("development" => true, "test" => true, "production" => true)
   end
 
   it "runs the reads of an opted-in action under the reading role" do

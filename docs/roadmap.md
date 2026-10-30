@@ -236,7 +236,7 @@ What is left, ordered by what a real user would hit first. Each of these needs s
 
 | Claim | Evidence |
 | --- | --- |
-| The application behaves as documented | 1,343 examples across the app, shared gems and Lambdas (+78 in the three services), run with branch coverage in CI (94.6% line, 85.1% branch); 32 Node tests for the demo front end; 14 `terraform test` runs |
+| The application behaves as documented | 1,343 examples across the app, shared gems and Lambdas (+78 in the three services), run with branch coverage in CI (94.9% line, 85.1% branch); 32 Node tests for the demo front end; 14 `terraform test` runs |
 | Search, deep paging and the inbox are fast | `EXPLAIN (ANALYZE)` and in-process timings on a 149,000-task database, 300,000 synthetic notifications ([performance.md](performance.md), the ADRs) |
 | The outbox loses nothing | specs: rolled-back changes leave no event; a failing SNS keeps the event and delivers it exactly once when it returns; two relays never send the same row (including from four threads); a request through to a stubbed SNS |
 | Access is as documented | `tenant_isolation_spec` (every route, now including teams, invitations, search, the inbox, GraphQL), `project_policy_team_spec` (both role lookups agree for every combination), `graphql_spec` ("who can see what") |
