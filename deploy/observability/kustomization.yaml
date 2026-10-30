@@ -5,6 +5,7 @@ kind: Kustomization
 namespace: observability
 resources:
   - prometheus/task-api-rules.yaml
+  - prometheus/task-api-slo.yaml
   - otel-collector/collector.yaml
 configMapGenerator:
   - name: task-api-dashboard
