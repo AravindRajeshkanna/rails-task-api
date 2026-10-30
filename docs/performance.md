@@ -102,8 +102,23 @@ Two different shapes, and neither wins everywhere. A substring search walks the 
 word is nearly free and a *rare* word reads the whole project (no index can serve `%word%` on the description). A ranked search has to
 score **every** match before it knows the best 25, so its cost grows with the number of matches: tiny for a rare word, about 20 ms for a word
 in 60% of 50,000 tasks. The seed data (26 words) is the worst case for that; real text is mostly rare words. Highlights cost nothing extra,
-because PostgreSQL only computes them for the 25 rows it returns. If a ranked search ever becomes the slow one, the lever is to rank only
-the most recent N matches for broad queries; it is not built because nothing needs it yet.
+because PostgreSQL only computes them for the 25 rows it returns.
+
+**Capping the ranking was measured, and not built.** The idea was to rank only the most recent N matches of a broad query. Tried with N = 1,000, on the same data:
+
+| Common word (59% of tasks match) | Ranked over every match (shipped) | Ranked over the newest 1,000 matches |
+| --- | ---: | ---: |
+| In the 50,000-task project: first page | 21.0 ms | **2.4 ms** |
+| In the 50,000-task project: the count | 11.3 ms | 1.5 ms |
+| Across all 57,000 visible tasks: first page | 22.1 ms | 23.0 ms |
+| Across all 57,000 visible tasks: the count | 17.5 ms | 19.5 ms |
+| A rare word, either scope | 1.3-2.0 ms | the same |
+
+It works where a project's `(project_id, created_at)` index lets PostgreSQL walk newest first and stop, and does nothing across projects, which is the slow shape
+(the nightly load test's p95 of 195 ms): there PostgreSQL scans `tasks` for the matches (11.5 ms of the 22) and the ranking is the small part, so a cap on ranking does not cap the work.
+It would also change what a search returns (the best of the newest 1,000, not the best of all), to save 19 ms on a 50,000-task project and nothing on the query that matters. Nothing
+is slow yet: p95 195 ms against a 600 ms limit, on a shared runner, with seed data built so that every "common" word matches 59% of rows, which real text does not. If cross-project search
+becomes the slow one, the lever is not this: it is requiring a project (or a short list of them) for a broad query, or an index that can answer "newest matches first" across projects.
 
 On a GitHub-hosted runner (the nightly load test, 10 visits a second, the same 149,000 tasks, k6, the app and PostgreSQL sharing the machine) the numbers are
 a different order but the same shape, and cross-project search is the slowest endpoint, as predicted for words that match about half the rows: median 109 ms, p95 195 ms,
@@ -127,6 +142,27 @@ index is 2.9 MB for 149,000 tasks and is built concurrently.
 The keyset query is `WHERE (created_at, id) < (cutoff)` on the same partial index, so it starts where the last page ended. Offset paging also
 runs a `COUNT(*)` for the total, which keyset paging skips (that is why a cursor page has no total). Offset stays the default because
 nothing is wrong with it at these sizes and a total is useful in a UI; the cursor is for feeds, exports and infinite scroll.
+
+## The lists that only grow: audit logs and the activity feed
+
+Audit events are appended on every change, so these lists have no ceiling, unlike a project's task list. Measured in PostgreSQL 17 with one busy project holding **1,000,000 events**
+(a change every 16 seconds for three years), the project's audit log:
+
+| | `page=` (offset) | `cursor=` (keyset) |
+| --- | ---: | ---: |
+| First page | 23.5 ms (22.8 of it is the `COUNT(*)` for the total) | 0.55 ms |
+| After 100,000 events | 11.5 ms (+ the count) | 0.6 ms |
+| After 500,000 events | 54 ms (+ the count) | 0.8 ms |
+| After 990,000 events | 131 ms (+ the count) | 0.6 ms |
+
+The organization's audit log has the same shape and index. These are fine at the sizes most projects reach (a project with 100,000 events pays 2 ms for its count), and they are opt-in: `cursor=` on both audit logs and on the feed, `page=` unchanged.
+
+**The activity feed was the surprise.** `GET /activity` reads the events of *every project the caller is in*, and keyset paging alone did not help it: for someone in 8 projects holding
+1.14 million events between them, the first page took **109 ms** by offset (plus 57 ms for the count) and **108 ms by a plain keyset query**, and 82 ms deep into it. PostgreSQL has no index that orders events across several
+projects, so it reads all of their events and sorts them, whatever the page asks for. The cost was in the query's shape, not in the paging. `ActivityFeed` asks each project for its own newest 101 events, in index order,
+and merges them (a lateral join over the caller's projects, `LIMIT 101` each: a page of at most 100 can never need more than 101 from one project). The same feed, same 26 events (checked equal to the single query), now costs **1.3 ms for the first page and 1.3 ms
+after 500,000 events**, about a hundred times less, and independent of the history: it grows with the number of projects the caller is in, not with how busy they are. Only `cursor=` uses it, because
+the cutoff has to be pushed into each project's lookup; the offset path is untouched. Comments (bounded by one task's conversation), the inbox (pruned after 30 and 180 days), memberships and projects stay with offset: they do not grow without limit.
 
 ## A load test every night
 

@@ -1374,22 +1374,45 @@ paths:
         required: false
         schema:
           type: integer
+      - name: cursor
+        in: query
+        required: false
+        allowEmptyValue: true
+        description: Switches to keyset pagination, which costs the same however long
+          the history is and has no total (`meta` is `{limit, next_cursor, has_more}`).
+          Send it empty for the first page, then `meta.next_cursor` of the previous
+          response (with the same filters). An invalid cursor is a 400. Replaces `page`.
+        schema:
+          type: string
       responses:
         '200':
-          description: A page of events
+          description: A page of events (`meta` has `page`, `count`...; with `cursor`,
+            `next_cursor` and `has_more` and no total)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      "$ref": "#/components/schemas/Activity"
-                  meta:
-                    "$ref": "#/components/schemas/PaginationMeta"
-                required:
-                - data
+                oneOf:
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/Activity"
+                    meta:
+                      "$ref": "#/components/schemas/PaginationMeta"
+                  required:
+                  - data
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/Activity"
+                    meta:
+                      "$ref": "#/components/schemas/KeysetMeta"
+                  required:
+                  - data
+                  - meta
         '400':
           description: Unknown `type`
           content:
@@ -2460,22 +2483,45 @@ paths:
         required: false
         schema:
           type: integer
+      - name: cursor
+        in: query
+        required: false
+        allowEmptyValue: true
+        description: Switches to keyset pagination, which costs the same however long
+          the history is and has no total (`meta` is `{limit, next_cursor, has_more}`).
+          Send it empty for the first page, then `meta.next_cursor` of the previous
+          response (with the same filters). An invalid cursor is a 400. Replaces `page`.
+        schema:
+          type: string
       responses:
         '200':
-          description: A page of audit events
+          description: A page of audit events (`meta` has `page`, `count`...; with
+            `cursor`, `next_cursor` and `has_more` and no total)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      "$ref": "#/components/schemas/AuditEvent"
-                  meta:
-                    "$ref": "#/components/schemas/PaginationMeta"
-                required:
-                - data
+                oneOf:
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/AuditEvent"
+                    meta:
+                      "$ref": "#/components/schemas/PaginationMeta"
+                  required:
+                  - data
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/AuditEvent"
+                    meta:
+                      "$ref": "#/components/schemas/KeysetMeta"
+                  required:
+                  - data
+                  - meta
         '400':
           description: Unknown auditable_type
           content:
@@ -3189,22 +3235,45 @@ paths:
         schema:
           type: string
         description: ":\n * `Project` \n * `Task` \n * `Membership` \n "
+      - name: cursor
+        in: query
+        required: false
+        allowEmptyValue: true
+        description: Switches to keyset pagination, which costs the same however long
+          the history is and has no total (`meta` is `{limit, next_cursor, has_more}`).
+          Send it empty for the first page, then `meta.next_cursor` of the previous
+          response (with the same filters). An invalid cursor is a 400. Replaces `page`.
+        schema:
+          type: string
       responses:
         '200':
-          description: Audit events
+          description: Audit events (`meta` has `page`, `count`...; with `cursor`,
+            `next_cursor` and `has_more` and no total)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      "$ref": "#/components/schemas/AuditEvent"
-                  meta:
-                    "$ref": "#/components/schemas/PaginationMeta"
-                required:
-                - data
+                oneOf:
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/AuditEvent"
+                    meta:
+                      "$ref": "#/components/schemas/PaginationMeta"
+                  required:
+                  - data
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/AuditEvent"
+                    meta:
+                      "$ref": "#/components/schemas/KeysetMeta"
+                  required:
+                  - data
+                  - meta
         '403':
           description: Not an admin
           content:
@@ -3376,22 +3445,33 @@ paths:
           type: integer
       responses:
         '200':
-          description: A page of tasks by cursor (`meta` has `next_cursor` and `has_more`,
-            no total)
+          description: A page of tasks (`meta` has `page`, `count`...; with `cursor`,
+            `next_cursor` and `has_more` and no total)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      "$ref": "#/components/schemas/Task"
-                  meta:
-                    "$ref": "#/components/schemas/KeysetMeta"
-                required:
-                - data
-                - meta
+                oneOf:
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/Task"
+                    meta:
+                      "$ref": "#/components/schemas/PaginationMeta"
+                  required:
+                  - data
+                - type: object
+                  properties:
+                    data:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/Task"
+                    meta:
+                      "$ref": "#/components/schemas/KeysetMeta"
+                  required:
+                  - data
+                  - meta
         '400':
           description: Invalid filter, sort or cursor value
           content:

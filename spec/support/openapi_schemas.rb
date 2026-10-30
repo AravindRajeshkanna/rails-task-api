@@ -8,6 +8,13 @@ module OpenapiSchemas
     { type: :object, properties: properties, required: [ :data ] }
   end
 
+  # A list that pages by page number or, with `cursor`, by keyset: one 200 response (a second `response "200"` would silently replace the
+  # first in the generated document), whose `meta` says which. The two metas cannot both match, so oneOf is exact.
+  def self.listing(item)
+    keyset = { type: :object, properties: { data: { type: :array, items: item }, meta: ref("KeysetMeta") }, required: %i[data meta] }
+    { oneOf: [ envelope(item, list: true), keyset ] }
+  end
+
   USER_SUMMARY = {
     type: :object,
     properties: { id: { type: :integer }, name: { type: :string } },

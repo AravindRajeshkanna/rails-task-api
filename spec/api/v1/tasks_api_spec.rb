@@ -50,18 +50,12 @@ RSpec.describe "Tasks API", type: :request do
                              "`priority`, `status` or `due_on`); an invalid cursor is a 400. Replaces `page`."
       parameter name: :limit, in: :query, type: :integer, required: false
 
-      response "200", "A page of tasks" do
-        schema envelope.call(ref.call("Task"), list: true)
+      response "200", "A page of tasks (`meta` has `page`, `count`...; with `cursor`, `next_cursor` and `has_more` and no total)" do
+        schema OpenapiSchemas.listing(ref.call("Task"))
         let(:tag) { "bug" }
         let(:sort) { "-priority,due_on" }
         let(:q) { task.title }
         run_test! { expect(data.pluck("id")).to eq([ task.id ]) }
-      end
-
-      response "200", "A page of tasks by cursor (`meta` has `next_cursor` and `has_more`, no total)" do
-        schema type: :object, properties: { data: { type: :array, items: ref.call("Task") }, meta: ref.call("KeysetMeta") }, required: %i[data meta]
-        let(:cursor) { "" }
-        run_test! { expect(meta).to include("has_more" => false, "next_cursor" => nil) }
       end
 
       response "400", "Invalid filter, sort or cursor value" do

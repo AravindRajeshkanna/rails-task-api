@@ -8,6 +8,9 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Added
+- `cursor` on `GET /api/v1/projects/{id}/audit_events`, `GET /api/v1/organizations/{id}/audit_events` and `GET /api/v1/activity`: keyset pagination as on the task list
+  (`?cursor=` first page, then `meta.next_cursor`; `meta` is `{limit, next_cursor, has_more}` with no total; an invalid cursor is `400`). The same cost at any depth of history.
+  `page=` is unchanged.
 - **Notification settings.** `GET|PATCH /api/v1/notification_settings` (`digest`: `off` or `daily`; `digest_hour` 0-23; `time_zone`, an IANA name) and
   `GET|POST /api/v1/notification_mutes`, `DELETE /api/v1/notification_mutes/{id}` (give `kind`, `project_id`, or both). A muted notification is not stored in the inbox,
   emailed, or put in the digest. With a daily digest there is no email per assignment or reminder: one summary of what is new and unread arrives at the chosen hour in the

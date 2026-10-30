@@ -105,7 +105,7 @@ Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it.
 `pages`, `next`, `previous`) and responses carry `Link` (RFC 8288), `Total-Count`, `Total-Pages`,
 `Current-Page` and `Page-Limit` headers.
 
-**Cursor pagination** (optional, for long task lists). `GET /projects/:id/tasks?cursor=` returns the first page, and `?cursor=<meta.next_cursor>`
+**Cursor pagination** (optional, for long lists: the task list, both audit logs `GET /projects/:id/audit_events` and `GET /organizations/:id/audit_events`, and `GET /activity`). `GET /projects/:id/tasks?cursor=` returns the first page, and `?cursor=<meta.next_cursor>`
 the following ones (`meta` is `{limit, next_cursor, has_more}`; `Link` has `rel="next"`; there is no total). Unlike `page=`, a page costs the same at any depth
 and no task is skipped or repeated when others are added meanwhile. It works with every filter, and with sorts by `created_at`, `updated_at` and `title`
 (not relevance, `priority`, `status` or `due_on`); use the cursor with the filters and sort that produced it.
@@ -304,7 +304,7 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 ## Known limitations
 
 - People join an organization by invitation, and the API never says whether an address is registered. Two narrow exceptions: an administrator is told when an address already belongs to a *member of their own organization*, and adding a user directly to a project that has **no** organization (`POST /projects/:id/memberships`) still answers 404 for an unknown address. Both are listed in [security.md](docs/security.md).
-- `page=` is offset pagination: fine for this data shape, but a deep page of a huge project costs more (14 ms at row 49,000 of 50,000). The task list offers `cursor=` (keyset) for that; the other lists do not need it.
+- `page=` is offset pagination: fine for this data shape, but a deep page of a huge project costs more (14 ms at row 49,000 of 50,000). The task list, the audit logs and the activity feed offer `cursor=` (keyset) for that (the feed needed a different query as well, [performance.md](docs/performance.md#the-lists-that-only-grow-audit-logs-and-the-activity-feed)); the other lists do not grow without limit.
 - Active Storage defaults to local disk; on Kubernetes set `ACTIVE_STORAGE_SERVICE=amazon` (S3).
 - Image dimension analysis needs `libvips` at runtime (it is in the Docker image; locally `brew install vips`). Without it uploads still work, their dimensions are just not recorded. No image variants are generated.
 - Notification settings are per person (mute a kind or a project, or take a daily digest instead of an email per event), but there is no per-channel choice beyond that (no Slack or push preferences, no per-event email toggle) and the digest is sent in the hour you pick, not instantly on a threshold; see [ADR 49](docs/decisions.md). Teams grant project access but are flat (no team roles, no nested teams), and a person with an administrator's implicit access to a project, or access only through a team, is not in `GET /projects/:id/memberships`: that lists direct members; `GET /projects/:id/teams` lists the teams.
