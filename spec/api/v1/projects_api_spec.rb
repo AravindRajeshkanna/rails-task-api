@@ -40,6 +40,7 @@ RSpec.describe "Projects API", type: :request do
 
     post "Create a project" do
       tags "Projects"
+      parameter name: "Idempotency-Key", in: :header, type: :string, required: false, description: "Retry safely: the same key returns the first response instead of creating again"
       description "The caller becomes the owner and an admin member."
       security [ { bearer_auth: [] } ]
       consumes "application/json"

@@ -4,6 +4,7 @@ module Api
     # request fails loudly in development and test instead of leaking data.
     class BaseController < ApplicationController
       include ApiVersioning
+      include Idempotency
 
       api_version "v1"
 

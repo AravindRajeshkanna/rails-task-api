@@ -1,6 +1,7 @@
 module Api
   module V1
     class ProjectsController < BaseController
+      idempotent :create # a retried POST with the same Idempotency-Key answers the first one's response (Idempotency)
       before_action :set_project, only: %i[show update destroy]
 
       def index

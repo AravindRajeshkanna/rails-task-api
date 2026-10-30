@@ -73,6 +73,7 @@ RSpec.describe "Tasks API", type: :request do
 
     post "Create a task" do
       tags "Tasks"
+      parameter name: "Idempotency-Key", in: :header, type: :string, required: false, description: "Retry safely: the same key returns the first response instead of creating again"
       security [ { bearer_auth: [] } ]
       consumes "application/json"
       produces "application/json"

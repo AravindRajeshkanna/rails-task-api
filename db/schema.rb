@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_30_190010) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_31_090000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -87,6 +87,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_30_190010) do
     t.index ["task_id"], name: "index_comments_on_task_id"
     t.index ["user_id"], name: "index_comments_on_user_id"
     t.check_constraint "char_length(btrim(body)) > 0", name: "comments_body_present"
+  end
+
+  create_table "idempotency_keys", force: :cascade do |t|
+    t.bigint "user_id", null: false
+    t.string "key", null: false
+    t.string "request_fingerprint", null: false
+    t.integer "response_status"
+    t.text "response_body"
+    t.datetime "locked_at", null: false
+    t.datetime "created_at", null: false
+    t.index ["created_at"], name: "index_idempotency_keys_on_created_at"
+    t.index ["user_id", "key"], name: "index_idempotency_keys_on_user_id_and_key", unique: true
   end
 
   create_table "memberships", force: :cascade do |t|
@@ -362,6 +374,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_30_190010) do
   add_foreign_key "audit_events", "users", column: "actor_id"
   add_foreign_key "comments", "tasks"
   add_foreign_key "comments", "users"
+  add_foreign_key "idempotency_keys", "users", on_delete: :cascade
   add_foreign_key "memberships", "projects"
   add_foreign_key "memberships", "users"
   add_foreign_key "notification_mutes", "projects", on_delete: :cascade

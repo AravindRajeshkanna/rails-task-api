@@ -2,6 +2,7 @@ module Api
   module V1
     # /organizations/:organization_id/teams. Who may do what is in TeamPolicy.
     class TeamsController < BaseController
+      idempotent :create # a retried POST with the same Idempotency-Key answers the first one's response (Idempotency)
       before_action :set_organization
       before_action :set_team, only: %i[show update destroy]
 

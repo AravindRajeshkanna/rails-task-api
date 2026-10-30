@@ -23,6 +23,10 @@ production:
     class: NotificationDigestJob
     schedule: every hour at minute 5
 
+  prune_idempotency_keys:
+    class: PurgeIdempotencyKeysJob
+    schedule: every day at 4:10am
+
   purge_discarded_records:
     class: PurgeDiscardedJob
     schedule: every day at 3am

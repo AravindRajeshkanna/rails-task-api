@@ -2,6 +2,7 @@ module Api
   module V1
     # What the caller has silenced: a kind everywhere, a project entirely, or one kind in one project (see NotificationMute).
     class NotificationMutesController < BaseController
+      idempotent :create # a retried POST with the same Idempotency-Key answers the first one's response (Idempotency)
       # GET /notification_mutes
       def index
         authorize NotificationMute

@@ -8,6 +8,9 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Added
+- **Idempotency keys.** The `Idempotency-Key` request header on every create endpoint (projects, tasks, comments, memberships, tags, webhooks, organizations and their invitations, teams
+  and their members and project grants, notification mutes, and `POST /ai/create_from_text`): a retry with the same key returns the first response (`Idempotent-Replayed: true`) and does
+  nothing twice. New errors: `422 idempotency_key_reused`, `409 idempotency_in_progress` (with `Retry-After`). Optional; behavior without the header is unchanged.
 - CORS now exposes `X-Demo-Mode` to browsers (a front end can show a "this is a demo" banner), alongside the headers it already exposed.
 - **Nested teams.** `parent_id` on `POST|PATCH /api/v1/organizations/{id}/teams` (null to move a team out) and on team responses. A team can have a parent in the same organization; teams nest one
   level. The members of a sub-team have the project access its parent was granted, on top of its own; a grant to a sub-team reaches only that sub-team. A team with sub-teams cannot be deleted

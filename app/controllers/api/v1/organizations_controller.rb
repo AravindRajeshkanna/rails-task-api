@@ -1,6 +1,7 @@
 module Api
   module V1
     class OrganizationsController < BaseController
+      idempotent :create # a retried POST with the same Idempotency-Key answers the first one's response (Idempotency)
       before_action :set_organization, only: %i[show update destroy]
 
       # GET /organizations: the ones the caller belongs to.

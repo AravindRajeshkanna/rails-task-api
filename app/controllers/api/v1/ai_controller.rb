@@ -4,6 +4,7 @@ module Api
     # only ever sees data the caller may read. Calls are rate limited per user and metered against the
     # daily token budget (see Ai::Budget).
     class AiController < BaseController
+      idempotent :create_from_text # it creates tasks and spends model budget: a retry must do neither twice
       rate_limit to: Ai.config.requests_per_minute, within: 1.minute, by: -> { current_user.id },
         except: :usage, with: -> { render_error :too_many_requests, "rate_limited", "Too many AI requests. Slow down." }
 

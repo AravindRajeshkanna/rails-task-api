@@ -1,6 +1,7 @@
 module Api
   module V1
     class TagsController < BaseController
+      idempotent :create # a retried POST with the same Idempotency-Key answers the first one's response (Idempotency)
       before_action :set_project, only: %i[index create]
 
       def index

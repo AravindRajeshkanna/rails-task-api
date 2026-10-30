@@ -3,33 +3,38 @@ openapi: 3.0.3
 info:
   title: Task API
   version: v1
-  description: |
-    A task / project management API.
+  description: |2
+          A task / project management API.
 
-    **Authentication.** `POST /api/v1/registrations` or `POST /api/v1/session` returns a bearer token.
-    Send it as `Authorization: Bearer <token>`.
+          **Authentication.** `POST /api/v1/registrations` or `POST /api/v1/session` returns a bearer token.
+          Send it as `Authorization: Bearer <token>`.
 
-    **Errors.** Every failure uses the same envelope:
-    `{ "error": { "status": 422, "code": "validation_failed", "message": "...", "details": { ... } } }`.
+          **Errors.** Every failure uses the same envelope:
+          `{ "error": { "status": 422, "code": "validation_failed", "message": "...", "details": { ... } } }`.
 
-    **Pagination.** List endpoints accept `page` and `limit` (default 25, max 100) and return
-    `meta` plus `Link`, `Total-Count`, `Total-Pages`, `Current-Page` and `Page-Limit` headers.
+          **Pagination.** List endpoints accept `page` and `limit` (default 25, max 100) and return
+          `meta` plus `Link`, `Total-Count`, `Total-Pages`, `Current-Page` and `Page-Limit` headers.
 
-    **AI.** `/api/v1/ai/*` and `/api/v1/projects/{id}/summary` use language models. Calls are rate limited per
-    user (`429 rate_limited`) and metered against a daily token budget (`429 ai_budget_exceeded`, with
-    `Retry-After`). `503 ai_not_configured` means the server has no model provider; `503 ai_unavailable`
-    means the provider is busy.
+          **AI.** `/api/v1/ai/*` and `/api/v1/projects/{id}/summary` use language models. Calls are rate limited per
+          user (`429 rate_limited`) and metered against a daily token budget (`429 ai_budget_exceeded`, with
+          `Retry-After`). `503 ai_not_configured` means the server has no model provider; `503 ai_unavailable`
+          means the provider is busy.
+
+          **Idempotency.** Endpoints that create things accept an optional `Idempotency-Key` header (a unique token of your choosing, up to 255
+    visible characters). Retry a request that timed out with the same key and you get the first response back (marked `Idempotent-Replayed: true`)
+    instead of a second record. The same key with a different request is `422 idempotency_key_reused`; a retry that arrives while the first is
+    still running is `409 idempotency_in_progress` with `Retry-After`. Keys are yours alone and are forgotten after 24 hours. Only successes are remembered.
 
     **Read-only mode.** While a database promotion or maintenance is under way, reads keep working and every write
-    answers `503 read_only` with `Retry-After`. Nothing was changed, so retry the request as it is. Existing tokens keep
-    working; signing in is a write and waits too.
+          answers `503 read_only` with `Retry-After`. Nothing was changed, so retry the request as it is. Existing tokens keep
+          working; signing in is a write and waits too.
 
-    **Authorization.** Resources inside a project you do not belong to answer `404`, not `403`,
-    so their existence is not disclosed. Owners and admins of an organization administer all of its
-    projects without being added to each one.
+          **Authorization.** Resources inside a project you do not belong to answer `404`, not `403`,
+          so their existence is not disclosed. Owners and admins of an organization administer all of its
+          projects without being added to each one.
 
-    **Versioning.** Every response carries `API-Version`. A version being retired also sends
-    `Deprecation` and `Sunset` headers (RFC 9745, RFC 8594).
+          **Versioning.** Every response carries `API-Version`. A version being retired also sends
+          `Deprecation` and `Sunset` headers (RFC 9745, RFC 8594).
 servers:
 - url: http://localhost:3000
   description: Local development
@@ -2849,10 +2854,17 @@ paths:
       summary: Create a project
       tags:
       - Projects
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        description: 'Retry safely: the same key returns the first response instead
+          of creating again'
+        schema:
+          type: string
       description: The caller becomes the owner and an admin member.
       security:
       - bearer_auth: []
-      parameters: []
       responses:
         '201':
           description: Created
@@ -3506,9 +3518,16 @@ paths:
       summary: Create a task
       tags:
       - Tasks
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        description: 'Retry safely: the same key returns the first response instead
+          of creating again'
+        schema:
+          type: string
       security:
       - bearer_auth: []
-      parameters: []
       responses:
         '201':
           description: Created

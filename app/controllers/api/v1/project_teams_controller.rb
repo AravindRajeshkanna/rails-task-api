@@ -3,6 +3,7 @@ module Api
     # /projects/:project_id/teams: which teams of the project's organization have access, and as what.
     # Who may do what is in ProjectTeamPolicy.
     class ProjectTeamsController < BaseController
+      idempotent :create # a retried POST with the same Idempotency-Key answers the first one's response (Idempotency)
       before_action :set_project
       before_action :set_project_team, only: %i[update destroy]
 
