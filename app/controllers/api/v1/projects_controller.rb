@@ -6,9 +6,10 @@ module Api
 
       def index
         authorize Project
-        projects = policy_scope(Project).kept.includes(:owner).order(created_at: :desc, id: :desc)
+        fields = requested_fields(ProjectResource) # ?fields=id,name: only those; the owner is loaded only if asked for
+        projects = preload_for(policy_scope(Project).kept, ProjectResource, fields).order(created_at: :desc, id: :desc)
         records, meta = paginate(projects)
-        render_resource ProjectResource, records, meta: meta
+        render_resource ProjectResource, records, meta: meta, params: { fields: fields }
       end
 
       def show

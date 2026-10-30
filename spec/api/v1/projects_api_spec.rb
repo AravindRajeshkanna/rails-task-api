@@ -20,6 +20,7 @@ RSpec.describe "Projects API", type: :request do
       security [ { bearer_auth: [] } ]
       produces "application/json"
       pagination_params.call(self)
+      parameter name: :fields, in: :query, type: :string, required: false, description: "Sparse fieldset, e.g. `id,name`: only those attributes (`id` is always included); `owner` is loaded only if named"
 
       response "200", "A page of projects" do
         schema envelope.call(ref.call("Project"), list: true)

@@ -143,6 +143,19 @@ The keyset query is `WHERE (created_at, id) < (cutoff)` on the same partial inde
 runs a `COUNT(*)` for the total, which keyset paging skips (that is why a cursor page has no total). Offset stays the default because
 nothing is wrong with it at these sizes and a total is useful in a UI; the cursor is for feeds, exports and infinite scroll.
 
+## Sparse fieldsets
+
+`?fields=` lets a client ask for the few attributes a list needs. Measured on a page of 100 tasks from the 50,000-task project (in-process, 25 runs, median; the same query, the same preloads the default uses):
+
+| `fields` | Bytes | Queries | Time |
+| --- | ---: | ---: | ---: |
+| everything (the default) | 54,521 | 5 | 16.0 ms |
+| `id,title,status` | 7,289 (**-87%**) | 1 | **3.7 ms** |
+| `id,title,status,assignee` | 10,853 | 2 | 5.1 ms |
+| `id,title,status,tags,attachments` | 9,989 | 3 | 8.9 ms |
+
+The saving is not just bytes: Alba evaluates a field's condition before it computes the value, and the controller preloads only the associations the fields need, so a list that shows a title and a status does not load the creator, the assignee, the tags and the attachments' blobs for 100 rows ([ADR 56](decisions.md)).
+
 ## The lists that only grow: audit logs and the activity feed
 
 Audit events are appended on every change, so these lists have no ceiling, unlike a project's task list. Measured in PostgreSQL 17 with one busy project holding **1,000,000 events**

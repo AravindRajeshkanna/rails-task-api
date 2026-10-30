@@ -5,6 +5,7 @@ module Api
     class BaseController < ApplicationController
       include ApiVersioning
       include Idempotency
+      include SparseFieldsets
 
       api_version "v1"
 

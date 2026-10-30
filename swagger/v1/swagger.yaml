@@ -2819,6 +2819,13 @@ paths:
         description: Items per page (default 25, max 100)
         schema:
           type: integer
+      - name: fields
+        in: query
+        required: false
+        description: 'Sparse fieldset, e.g. `id,name`: only those attributes (`id`
+          is always included); `owner` is loaded only if named'
+        schema:
+          type: string
       responses:
         '200':
           description: A page of projects
@@ -3473,6 +3480,15 @@ paths:
         required: false
         schema:
           type: integer
+      - name: fields
+        in: query
+        required: false
+        description: 'Sparse fieldset: a comma-separated list of the attributes you
+          want (`id` is always included), e.g. `id,title,status`. Associations you
+          do not name (`creator`, `assignee`, `tags`, `attachments`) are not loaded.
+          An unknown name is a 400 that lists the valid ones'
+        schema:
+          type: string
       responses:
         '200':
           description: A page of tasks (`meta` has `page`, `count`...; with `cursor`,

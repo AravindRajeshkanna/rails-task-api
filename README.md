@@ -98,6 +98,9 @@ Send `Authorization: Bearer <token>`. `DELETE /api/v1/session` revokes it.
 | 429 | `rate_limited` | Honour `Retry-After` |
 | 503 | `read_only`, `ai_unavailable`, `ai_not_configured` | `read_only`: a database promotion or maintenance is under way. Reads work, nothing was changed, retry the write after `Retry-After` |
 
+**Sparse fieldsets.** `?fields=id,title,status` on the task list and a single task (and `?fields=id,name` on the project list) returns only those attributes, and only loads the associations you name. On a page of 100 tasks that is
+87% fewer bytes, one query instead of five, and 4x less time ([performance.md](docs/performance.md#sparse-fieldsets)). `id` is always there; an unknown name is a `400` that lists the valid ones.
+
 **Idempotency keys.** Every endpoint that creates something takes an optional `Idempotency-Key: <token>` header. Retry a request that timed out with the same key and you get the first response back (`Idempotent-Replayed: true`)
 instead of a second task, a second invitation email, a second model call. Same key with a different request: `422`; a retry while the first still runs: `409` with `Retry-After`; keys are per user and kept for 24 hours; only
 successes are remembered. Not offered on sign-in, registration or password reset (their answers hold credentials), uploads, or GraphQL. See [ADR 55](docs/decisions.md).

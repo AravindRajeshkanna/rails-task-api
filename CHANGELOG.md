@@ -8,6 +8,8 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Added
+- **Sparse fieldsets.** `fields=` on `GET /projects/{id}/tasks`, `GET /tasks/{id}` and `GET /projects`: a comma-separated list of the attributes and associations wanted (`id` is always included). Unrequested
+  associations are not loaded. An unknown name is `400` with the valid names. Without `fields`, responses are unchanged.
 - **Idempotency keys.** The `Idempotency-Key` request header on every create endpoint (projects, tasks, comments, memberships, tags, webhooks, organizations and their invitations, teams
   and their members and project grants, notification mutes, and `POST /ai/create_from_text`): a retry with the same key returns the first response (`Idempotent-Replayed: true`) and does
   nothing twice. New errors: `422 idempotency_key_reused`, `409 idempotency_in_progress` (with `Retry-After`). Optional; behavior without the header is unchanged.

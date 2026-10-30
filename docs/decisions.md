@@ -701,3 +701,15 @@ A client that times out on a POST cannot know whether it happened. If it retries
 
 Cost: one insert per request that carries a key, and a transaction around that request; requests without the header pay nothing. Alternatives: storing the key on the created record (a column on every table, and no way to replay the response); Rack-level caching of POST responses (cannot be atomic with the write, and would cache failures); `If-None-Match`-style preconditions (they guard updates, not creation). Not done: keys for PATCH and DELETE (an update carries `lock_version`, which already makes a retry safe, and a repeated DELETE is a no-op), and keys on the services (they are internal and consume events at least once, deduplicated on event id).
 
+## 56. Sparse fieldsets that skip the work, not just the bytes
+
+A client that renders a list of titles and statuses should not download or make the server load a task's description, its tags, its creator, its assignee and its attachment blobs for a hundred rows. The roadmap asked for "filtering, sorting, and sparse fieldsets design"; the first two existed, the third did not.
+
+**`?fields=a,b,c`, flat.** JSON:API's `fields[tasks]=` is for responses with several resource types; this API's envelope has one per endpoint, so a flat list is enough and easier to type. `id` is always included (a response you cannot key is useless). The resource declares what can be asked for (`sparse_fields`), a name it does not know is a `400` that lists the valid ones, and an empty or absent `fields` is everything, so existing clients see no change.
+
+**Skipping the work needs two things, and the second is easy to forget.** Filtering the JSON after serializing saves bytes and nothing else. Here the resource's condition is evaluated by Alba *before* it computes a field (checked, not assumed: a block that logs when it runs does not run for a field left out), and the controller preloads only the associations the requested fields need. That second part is what the measurement shows: one query instead of five for `id,title,status`.
+It is also not optional: the repository raises on an eager load nothing uses (Bullet), so loading the associations "just in case" would fail the test suite, rightly.
+
+**Opt-in per resource, declared once.** `sparse_fields preloads: { assignee: :assignee, ... }` on TaskResource and ProjectResource; the DSL wraps each attribute and association declared after it, so a new attribute is selectable by default without anyone remembering to register it, and a spec fixes the field names of both resources so the list cannot change unnoticed. What a client may select is exactly what the resource already exposed: the creator and assignee are `{id, name}` and nothing else, and nothing in the list is an internal column.
+
+Not done: nested selection (`assignee.name`), sparse fields on the other resources (comments, notifications and so on are small; the ones worth it are the two hot lists), and on GraphQL, which selects fields natively. The ETag differs between a sparse and a full response because the bodies differ, so conditional requests stay correct.

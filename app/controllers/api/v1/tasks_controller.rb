@@ -11,15 +11,16 @@ module Api
 
         query = TaskQuery.new(policy_scope(@project.tasks).kept, params, current_user: current_user)
         query.ensure_keyset_sort! if params.key?(:cursor)
-        tasks = query.call.includes(:creator, :assignee, :tags, attachments_attachments: :blob)
+        fields = requested_fields(TaskResource) # ?fields=id,title: only those, and only the associations they need are loaded
+        tasks = preload_for(query.call, TaskResource, fields)
         # ?cursor= (even empty) pages by keyset: constant cost at any depth, no total. Otherwise ?page=.
         records, meta = params.key?(:cursor) ? paginate_by_cursor(tasks, params[:cursor]) : paginate(tasks)
-        render_resource TaskResource, records, meta: meta
+        render_resource TaskResource, records, meta: meta, params: { fields: fields }
       end
 
       def show
         authorize @task
-        render_resource TaskResource, @task
+        render_resource TaskResource, @task, params: { fields: requested_fields(TaskResource) }
       end
 
       def create
