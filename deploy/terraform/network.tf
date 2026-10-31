@@ -58,6 +58,7 @@ module "vpc_endpoints" {
     ecr_api         = { service = "ecr.api", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
     ecr_dkr         = { service = "ecr.dkr", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
     sts             = { service = "sts", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
+    kms             = { service = "kms", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
     secretsmanager  = { service = "secretsmanager", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
     sqs             = { service = "sqs", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
     sns             = { service = "sns", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }

@@ -27,10 +27,44 @@ locals {
     }
   ]
 
+  # Encrypted columns (gems/kms_encryption). The api makes keys for the values it writes and unwraps them to read; the worker only reads (it delivers
+  # webhooks, which needs a webhook's secret). Neither may use the key without saying it is the application (the key policy also refuses that), which
+  # puts the label in every CloudTrail record. No Encrypt, no DescribeKey: the application calls neither.
+  data_key_write = [
+    {
+      sid       = "WrapDataKeys"
+      effect    = "Allow"
+      actions   = ["kms:GenerateDataKey", "kms:Decrypt"]
+      resources = local.data_key_arns
+      condition = [{ test = "StringEquals", variable = "kms:EncryptionContext:app", values = [local.kms_app_context] }]
+    }
+  ]
+
+  data_key_read = [
+    {
+      sid       = "UnwrapDataKeys"
+      effect    = "Allow"
+      actions   = ["kms:Decrypt"]
+      resources = local.data_key_arns
+      condition = [{ test = "StringEquals", variable = "kms:EncryptionContext:app", values = [local.kms_app_context] }]
+    }
+  ]
+
+  # The bucket's key, only through S3: the application cannot use it for anything else.
+  storage_key_use = var.storage_kms_encryption ? [
+    {
+      sid       = "StorageKeyThroughS3"
+      effect    = "Allow"
+      actions   = ["kms:GenerateDataKey", "kms:Decrypt"]
+      resources = [aws_kms_key.storage[0].arn]
+      condition = [{ test = "StringEquals", variable = "kms:ViaService", values = ["s3.${var.region}.amazonaws.com"] }]
+    }
+  ] : []
+
   workload_statements = {
-    # The Task API (web) and its jobs worker: files in S3, domain events to SNS.
-    api    = concat(local.storage_statements, local.publish_events)
-    worker = concat(local.storage_statements, local.publish_events)
+    # The Task API (web) and its jobs worker: files in S3, domain events to SNS, encrypted columns.
+    api    = concat(local.storage_statements, local.publish_events, local.data_key_write, local.storage_key_use)
+    worker = concat(local.storage_statements, local.publish_events, local.data_key_read, local.storage_key_use)
 
     # The Auth service publishes password-reset events.
     auth = local.publish_events
@@ -92,6 +126,12 @@ module "aws_lb_controller_identity" {
   }
 }
 
+# Without this grant every ExternalSecret in the primary region fails to sync and no pod can start. The primary's secrets are under the customer-managed key;
+# a standby's replicas are not (they are under that region's AWS-managed key), and neither are secrets when the switch is off.
+locals {
+  external_secrets_kms_key_arns = compact([local.secrets_key_arn])
+}
+
 module "external_secrets_identity" {
   source  = "terraform-aws-modules/eks-pod-identity/aws"
   version = "~> 2.0"
@@ -99,6 +139,7 @@ module "external_secrets_identity" {
   name                                  = "${local.name}-external-secrets"
   attach_external_secrets_policy        = true
   external_secrets_secrets_manager_arns = ["arn:${data.aws_partition.current.partition}:secretsmanager:${var.region}:${local.account_id}:secret:${local.secret_prefix}/*"]
+  external_secrets_kms_key_arns         = local.external_secrets_kms_key_arns
 
   associations = {
     main = { cluster_name = module.eks.cluster_name, namespace = "external-secrets", service_account = "external-secrets" }

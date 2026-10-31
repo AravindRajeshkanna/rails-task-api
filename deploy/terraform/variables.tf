@@ -246,3 +246,44 @@ variable "dump_retention_days" {
   default     = 90
 }
 
+
+# --- Encryption keys (KMS): docs/aws/kms.md ---
+variable "data_key_generations" {
+  description = "Generations of the application's data key (the one that protects the keys of encrypted database columns). Normally [1]. A manual rotation adds the next number: new values are made under the newest key straight away, the older ones stay allowed to Decrypt until `bin/rails kms:status` shows that no value refers to them, and only then is the old number removed (which schedules that key's deletion). Set the same list in both regions of a pair. Routine yearly rotation needs none of this: it is on, and AWS does it."
+  type        = list(number)
+  default     = [1]
+  validation {
+    condition     = length(var.data_key_generations) > 0 && length(distinct(var.data_key_generations)) == length(var.data_key_generations) && alltrue([for generation in var.data_key_generations : generation >= 1 && floor(generation) == generation])
+    error_message = "data_key_generations must be a non-empty list of distinct whole numbers from 1 up."
+  }
+}
+
+variable "storage_kms_encryption" {
+  description = "Encrypt the Active Storage bucket with a customer-managed key (SSE-KMS) instead of the S3-managed one. Needs the same setting in both regions of a pair. Objects written before it was turned on stay under the old encryption until they are copied over themselves."
+  type        = bool
+  default     = true
+}
+
+variable "secrets_kms_encryption" {
+  description = "Encrypt Secrets Manager's secrets with a customer-managed key. A standby region's replicas stay under that region's AWS-managed key."
+  type        = bool
+  default     = true
+}
+
+variable "enable_kms_audit" {
+  description = "A CloudTrail trail for KMS events only (who generated and decrypted keys, who changed a key), kept in S3 and CloudWatch Logs, with alarms on decrypt volume, refusals and key changes. Set false where the account already has a trail that records KMS events: a second copy of management events is billed."
+  type        = bool
+  default     = true
+}
+
+variable "kms_decrypt_alarm_threshold" {
+  description = "Decrypt requests from the application in five minutes above which the unusual-volume alarm fires. CHOSEN, NOT MEASURED: the application caches unwrapped keys, so steady state is a few requests per webhook per pod per five minutes. Read the TaskApi/KMS DecryptRequests metric for a few weeks, then set it to a multiple of the busiest ordinary window."
+  type        = number
+  default     = 2000
+}
+
+variable "kms_audit_retention_days" {
+  description = "How long CloudTrail's log files for KMS events stay in S3 (CloudWatch Logs keeps 90 days)."
+  type        = number
+  default     = 365
+}
