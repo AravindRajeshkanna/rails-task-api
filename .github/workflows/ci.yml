@@ -234,9 +234,22 @@ jobs:
           cp deploy/observability/prometheus/slo-tests.yaml tmp/slo-tests.yml
           docker run --rm --entrypoint promtool -v "$PWD/tmp:/work" prom/prometheus:v3.1.0 check rules /work/slo-rules.yml
           docker run --rm --entrypoint promtool -v "$PWD/tmp:/work" prom/prometheus:v3.1.0 test rules /work/slo-tests.yml
+          # The KMS alerts (task-api-rules.yaml), tested the same way against rules.yml extracted above.
+          cp deploy/observability/prometheus/kms-tests.yaml tmp/kms-tests.yml
+          docker run --rm --entrypoint promtool -v "$PWD/tmp:/work" prom/prometheus:v3.1.0 test rules /work/kms-tests.yml
 
       - name: Shell scripts
         run: shellcheck deploy/docker/*.sh deploy/local/*.sh deploy/scripts/*.sh
+
+      # The workflow that applies Terraform and the stack that makes its role are never exercised by a pull request, so a slip in either is found
+      # at the worst time. These two checks find the slips a linter can.
+      - name: Lint the GitHub workflows
+        run: docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:1.7.12 -color
+
+      - name: Lint the bootstrap stack
+        run: |
+          python3 -m pip install --quiet --user "cfn-lint==1.59.0"
+          ~/.local/bin/cfn-lint deploy/bootstrap/bootstrap.yaml
 
   # The demo front end (demo/web): plain static files with no build step and no dependencies, tested with Node's own runner.
   demo_web:
