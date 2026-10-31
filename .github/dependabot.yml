@@ -5,6 +5,13 @@ updates:
   schedule:
     interval: weekly
   open-pull-requests-limit: 10
+# The three services have lockfiles of their own, which Dependabot does not see from "/": a rack advisory reached all four lockfiles and only the
+# root one would have got a pull request.
+- package-ecosystem: bundler
+  directories: [ "/services/ai", "/services/auth", "/services/notifications" ]
+  schedule:
+    interval: weekly
+  open-pull-requests-limit: 10
 - package-ecosystem: github-actions
   directory: "/"
   schedule:
