@@ -10,7 +10,7 @@ The rules the design follows: keep the least that the product needs; give every 
 
 | Data | Where | Why | Kept for | When the person is erased |
 | --- | --- | --- | --- | --- |
-| Name, email address, password hash (bcrypt) | `users` in the monolith (in JWT mode also the Auth service's `users`) | Identify, sign in, address notifications | Until erased | Name becomes `Deleted user`, address `erased-<id>@erased.invalid`, hash removed. **The Auth service's copy is not reached** (see "Not built") |
+| Name, email address, password hash (bcrypt) | `users` in the monolith (in JWT mode also the Auth service's `users`). **The address is encrypted by the application** (deterministic, under a key KMS protects; [kms.md](aws/kms.md)); the name and hash are not | Identify, sign in, address notifications | Until erased | Name becomes `Deleted user`, address `erased-<id>@erased.invalid`, hash removed. **The Auth service's copy is not reached** (see "Not built") |
 | Avatar image | Active Storage (S3) | Profile | Until replaced or erased | Purged |
 | Sign-ins: token digest, IP address, user agent | `sessions` | Authenticate; show "where am I signed in" | 30 days at most, 14 days unused; ended by sign-out, rotation, revocation; pruned daily | Deleted |
 | Project, organization and team memberships, with roles | `memberships`, `organization_memberships`, `team_memberships` | Access control | While a member | Deleted |
@@ -21,7 +21,7 @@ The rules the design follows: keep the least that the product needs; give every 
 | Invitation addresses (of anyone, registered or not) | `organization_invitations` | Invite by address | Until **90 days after** it concluded (accepted, revoked or expired) | Invitations addressed to the person are deleted; their address is also removed from the audit trail |
 | Audit trail | `audit_events` | Accountability: who changed what | **Indefinitely**, append-only | `actor_id` keeps pointing at the tombstone. The trail holds the changed values of audited records (tasks, projects, organizations, teams, roles): task titles and descriptions among them |
 | Webhook delivery log | `webhook_deliveries` | Debug an endpoint that did not get an event | 30 days | Not specific to a person; bounded by retention |
-| Webhook signing secrets | `webhooks.secret`, encrypted (Active Record Encryption) | Sign payloads | While the webhook exists | Not personal data |
+| Webhook signing secrets | `webhooks.secret`, encrypted by the application with a data key of its own that KMS wraps ([kms.md](aws/kms.md)) | Sign payloads | While the webhook exists | Not personal data |
 | Idempotency keys and stored responses | `idempotency_keys` | Make retries safe | 24 hours | Deleted |
 | Events in flight: the outbox, then the queue | `outbox_events`; SNS; the Notification service's SQS queue and its dead-letter queue | Publish events reliably | Outbox: published rows 7 days. Queue: 14 days at most (dead-letter queue) | **Not reached.** `task.assigned` and `task.due_soon` carry the recipient's name and email address (`data.recipient`), so an address sits in these for up to those periods after the event |
 | AI usage ledger | `ai_usages` | Budgets and cost | Indefinitely; **no prompt or answer text** | Rows stay, pointing at the tombstone |
@@ -52,6 +52,14 @@ ids.each { |id| AccountErasure.call(User.find(id)) }   # bin/rails runner
 ```
 
 This is manual and bounded by log retention. If restores are routine, keep the list of erased ids somewhere durable.
+
+## Encryption
+
+What the application encrypts, beyond what the platform does: `users.email_address` and `webhooks.secret`, with keys that AWS KMS protects, so that a copy of the database (a dump, a snapshot, a replica, a stolen backup, a SQL injection that reads a table) holds ciphertext for them, and reading it back needs permission on a KMS key that is logged. The full list, the reasons for each omission, the plaintext copies that remain and how it fails are in [kms.md](aws/kms.md); the decisions are [ADR 69 and 70](decisions.md).
+
+What it does not do: hide an address from anyone who can run the application's role, or read the audit trail, the outbox (7 days), the Notification service's `deliveries` (90 days) or the logs; protect a value from a person with permission on the key and the database. It adds a second thing an attacker needs and a record of its use; it does not remove the need for the first.
+
+A restore of a backup brings back ciphertext that only a principal with access to the key (or its replica, in the other region) can read. A copy restored into **another account** is unreadable, deliberately.
 
 ## Retention, enforced
 
@@ -84,6 +92,6 @@ The webhook delivery log, the invitations and the Notification service's tables 
 - **Ownership transfer.** It would make erasing an owner a one-step action.
 - **Retention for the audit trail.** It is the largest personal-data holding that has none, and a deliberate one: an append-only trail is worth little if it expires quickly. It is a growth question as well (see [architecture/data-lifecycle.md](architecture/data-lifecycle.md)); the decision is a policy one and belongs to whoever owns compliance.
 - **Redaction of free text.** Nothing scans task or comment text for personal data.
-- **Encryption of personal data columns.** Data is encrypted at rest by the platform (Aurora storage, S3) and in transit; only webhook secrets are encrypted by the application. A database reader sees names and addresses.
+- **Encryption of the rest of the personal data.** Data is encrypted at rest by the platform (Aurora storage, S3) and in transit. The application also encrypts users' email addresses and webhook secrets (["Encryption"](#encryption), [kms.md](aws/kms.md)). Names, task and comment text, and invitation addresses are not, and the audit trail, the outbox and the Notification service's delivery log still hold addresses in plaintext, so **a database reader still sees names and, for a time, addresses**.
 - **Automated re-application of erasures after a restore** (above).
 - **Consent records.** The system does not collect consent; it has no analytics or marketing use of the data.

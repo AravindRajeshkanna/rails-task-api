@@ -43,7 +43,9 @@ In the standby region the secrets are read-only replicas. To write after losing 
 | `AI_SERVICE_TOKEN` | `task-api/<env>/ai-service-token` | API, worker (callers), AI service (verifier) | AI spend, from inside the network | [3](#3-ai_service_token) |
 | `METRICS_TOKEN` | `task-api/<env>/api` `metrics_token` | API (verifier); the PodMonitor sends it | read the metrics | [4](#4-metrics_token) |
 | Database passwords | `task-api/<env>/{api,auth,notifications}` `database_password` | each service | read and write that service's database | [5](#5-database-passwords) |
-| Rails credentials: `secret_key_base`, encryption keys | `config/credentials*.yml.enc`, key in `task-api/<env>/api` `rails_master_key` | API, worker | forge signed links; decrypt webhook secrets | [6](#6-the-rails-credentials) |
+| Rails credentials: `secret_key_base`, encryption keys | `config/credentials*.yml.enc`, key in `task-api/<env>/api` `rails_master_key` | API, worker | forge signed links; decrypt any webhook secret still under the credentials key (none, once [moved to KMS](kms-key-rotation.md#3-moving-webhook-secrets-off-the-credentials-key)) | [6](#6-the-rails-credentials) |
+| The wrapped master for encrypted email addresses | `task-api/<env>/api` `kms_wrapped_deterministic_key` | API, worker | nothing by itself: it is useless without `kms:Decrypt` on the data key (the unwrapped master is in Terraform's state) | [kms-key-rotation](kms-key-rotation.md#5-rotating-the-master-that-email-addresses-derive-their-keys-from) |
+| The KMS keys | AWS KMS | API, worker, S3, External Secrets (one key each) | the wrapped keys they protect | [kms-key-rotation](kms-key-rotation.md) |
 | SES SMTP username and password | `task-api/<env>/notifications` `smtp_*` | Notification service | send mail as the platform | [7](#7-ses-smtp-credentials) |
 | Slack webhook URL | `task-api/<env>/notifications` `slack_webhook_url` | Notification service | post to the channel | [8](#8-the-slack-webhook-url) |
 | Customers' webhook signing secrets | `webhooks.secret`, encrypted | the delivery job | forge events to that customer | [9](#9-a-customers-webhook-signing-secret) |
@@ -97,7 +99,7 @@ Do `api` and `worker` together (they share a database and a secret). A rotation 
 The API's `config/credentials.yml.enc` holds `secret_key_base`, the Active Record encryption keys and an SMTP fallback; `RAILS_MASTER_KEY` decrypts it. Back up the master key outside AWS.
 
 - **`secret_key_base`.** Change it with `bin/rails credentials:edit` (the repository has one credentials file, `config/credentials.yml.enc`; add `--environment production` if you have moved to per-environment credentials, as the setup guide recommends), deploy. Everything signed with it stops verifying: outstanding invitation links (7 days), password reset links (15 minutes) and signed file URLs. People ask again. There are no cookies and no server-side session store keyed by it.
-- **Encryption keys (webhook secrets).** Add the new `primary_key` while keeping the old one in the list Active Record decrypts with, deploy, then re-encrypt every row and only then remove the old key:
+- **Encryption keys (webhook secrets).** *On a deployment whose keys are in KMS this is mostly history: webhook secrets are under KMS once `bin/rails kms:encrypt` has run ([ADR 69](../decisions.md)), and the credentials key matters only for the values still under it (`bin/rails kms:status`). Rotating the KMS keys is [its own runbook](kms-key-rotation.md). What follows is for a deployment on the credentials source (Kamal, docker compose).* Add the new `primary_key` while keeping the old one in the list Active Record decrypts with, deploy, then re-encrypt every row and only then remove the old key:
 
   ```ruby
   Webhook.find_each(&:encrypt)   # bin/rails runner; re-saves each secret under the current key
@@ -140,4 +142,4 @@ Not enforced by anything yet. A sensible one: the JWT key and the AI token every
 
 ## Not covered
 
-KMS key rotation (AWS rotates its managed keys yearly), TLS certificates (ACM renews its own), the Terraform state bucket (its contents include the generated secrets: keep it private and encrypted), and secret scanning in CI (not built; [security.md](../security.md)).
+The KMS keys (rotation, replacement, the wrapped master: [kms-key-rotation.md](kms-key-rotation.md)), TLS certificates (ACM renews its own), the Terraform state bucket (its contents include the generated secrets: keep it private and encrypted), and secret scanning in CI (not built; [security.md](../security.md)).

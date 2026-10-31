@@ -8,12 +8,15 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Changed
+- Users' email addresses and webhook secrets are stored encrypted. Nothing a client sends or receives changes: addresses are matched exactly as before, sign-in included.
 - **New limits and a new refusal.** `429 rate_limited` can now also mean: the endpoint's own budget (search, analytics, the activity feed, audit logs and GraphQL: 120 per 5 minutes per token) or the organization's budget
   (3,000 writes per 5 minutes across all its clients; `Retry-After` is the end of the window). Under load the expensive reads (the same endpoints, and `/ai/*`) answer `503 overloaded` with a `Retry-After` of one or two
   seconds while cheap reads and all writes keep being served.
 - `503 ai_unavailable` now carries a `Retry-After` that reflects the circuit breaker: 5 seconds for a single failure, and the rest of the pause (30 seconds, doubling to 5 minutes) once the AI dependency has been failing. After five consecutive failures AI calls fail at once instead of waiting out their timeout.
 
 ### Added
+- **`503 encryption_unavailable`** with `Retry-After: 5`, for a request that needs a key from AWS KMS and cannot get it. Today only creating a webhook (its signing secret needs a new key); nothing else on the API touches KMS while serving. Safe to retry.
+- `GET /readyz` has a second check, `"encryption"`, beside `"database"`. A pod whose encryption keys are not usable answers 503 there, like one whose database is not.
 - **Erase my account.** `DELETE /me` with the current password: the name, address, password, sign-ins, memberships, inbox, preferences and avatar go; the account stays as `Deleted user` so tasks,
   comments and history keep pointing at something, and the address can register again. `422 owns_projects` while you own a project that is not archived, `422 last_organization_owner`
   while you are an organization's only owner, `422 incorrect_password`, `409 managed_by_auth_service` when the Auth service owns accounts. 5 attempts an hour; refused in the public demo.

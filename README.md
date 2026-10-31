@@ -307,6 +307,10 @@ rendered for every environment and checked against Kubernetes and CRD schemas), 
 [docs/aws/setup-guide.md](docs/aws/setup-guide.md) lists every manual step in order (Bedrock access, SES, state bucket, secrets, database bootstrap, Argo CD,
 DNS), with a verification checklist. Runbooks for the alerts are in [docs/runbooks/](docs/runbooks/).
 
+**One click, by hand:** the **Provision AWS** workflow (`workflow_dispatch` only) runs Terraform for one environment, shows the plan and applies exactly that plan, with no AWS key stored in GitHub (a one-time CloudFormation stack in `deploy/bootstrap/` creates the role it assumes and the state bucket). It stops where Terraform stops: [docs/aws/one-click.md](docs/aws/one-click.md). **It has never run.**
+
+**Encryption keys:** users' email addresses and webhook secrets are encrypted by the application with keys that AWS KMS protects (envelope encryption; a key per purpose; the data key is multi-Region so the standby can read what the primary wrote; a KMS-only CloudTrail trail with alarms). Where KMS is not available (Kamal, docker compose) `ENCRYPTION_KEY_SOURCE=credentials` keeps Rails' own keys. What is encrypted and what is not, and how it fails: [docs/aws/kms.md](docs/aws/kms.md); rotation and conversion: [runbook](docs/runbooks/kms-key-rotation.md).
+
 A second region (an active/passive warm standby built from the same Terraform with `dr_role`, with a Route 53 failover pair) is written and checked offline with `terraform test`, but has never been applied: [docs/aws/multi-region.md](docs/aws/multi-region.md).
 
 The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE=local` and the monolith's own auth.
@@ -325,19 +329,20 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 - Tasks and Projects stay in the monolith on purpose ([decision 21](docs/decisions.md)). Webhooks stay there too.
 - Events for the other services go through a transactional outbox ([ADR 41](docs/decisions.md)): delivery is at-least-once and never lossy, but not ordered, and can be late during an SNS outage (alarm: oldest unpublished event over 5 minutes; [runbook](docs/runbooks/event-outbox.md)). Webhooks and Action Cable are separate and are not retried from the outbox.
 - Access tokens from the Auth service live up to 15 minutes after logout.
+- Only email addresses and webhook secrets are encrypted by the application; names, task and comment text and invitation addresses are not, and the audit trail, the outbox (7 days) and the Notification service's log (90 days) still hold addresses in plaintext ([docs/aws/kms.md](docs/aws/kms.md#what-is-encrypted)). The KMS integration and the one-click workflow have not run against AWS.
 
 ## Documentation
 
 | | |
 | --- | --- |
 | [docs/roadmap.md](docs/roadmap.md) | Everything that was planned and built, by pull request, with status and what is next |
-| [docs/decisions.md](docs/decisions.md) | Why (68 architecture decisions) |
+| [docs/decisions.md](docs/decisions.md) | Why (71 architecture decisions) |
 | [docs/architecture/](docs/architecture/overview.md) | System overview, AI, observability and AIOps, microservices, service contracts |
 | [docs/testing.md](docs/testing.md) · [docs/performance.md](docs/performance.md) · [docs/security.md](docs/security.md) · [docs/threat-model.md](docs/threat-model.md) · [docs/data-protection.md](docs/data-protection.md) | How it is tested, measured and defended; what is held about people |
 | [docs/slo.md](docs/slo.md) · [docs/capacity-planning.md](docs/capacity-planning.md) · [docs/architecture/failure-domains.md](docs/architecture/failure-domains.md) · [docs/architecture/boundaries.md](docs/architecture/boundaries.md) · [docs/architecture/data-lifecycle.md](docs/architecture/data-lifecycle.md) | Objectives and alerts, how many pods, what fails together, who owns what, how the data ages |
 | [docs/api-versioning.md](docs/api-versioning.md) · [CHANGELOG.md](CHANGELOG.md) | Versioning policy and what changed for API clients |
 | [docs/runbooks/](docs/runbooks/) | Operating it: alerts, backups and restores, zero-downtime migrations |
-| [docs/aws/setup-guide.md](docs/aws/setup-guide.md) · [deploy/README.md](deploy/README.md) | Standing the platform up on AWS |
+| [docs/aws/setup-guide.md](docs/aws/setup-guide.md) · [docs/aws/one-click.md](docs/aws/one-click.md) · [docs/aws/kms.md](docs/aws/kms.md) · [deploy/README.md](deploy/README.md) | Standing the platform up on AWS, in one click, and the encryption keys |
 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) | Working on it; reporting a vulnerability |
 
 ## License
