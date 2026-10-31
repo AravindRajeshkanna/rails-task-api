@@ -5,6 +5,13 @@ PATH
       aws-sdk-bedrockruntime (~> 1.0)
 
 PATH
+  remote: gems/kms_encryption
+  specs:
+    kms_encryption (0.1.0)
+      activerecord (>= 8.0)
+      aws-sdk-kms (~> 1.0)
+
+PATH
   remote: gems/service_kit
   specs:
     service_kit (0.1.0)
@@ -618,6 +625,7 @@ DEPENDENCIES
   graphql (~> 2.6)
   image_processing (~> 2.2)
   kamal
+  kms_encryption!
   neighbor
   opentelemetry-exporter-otlp
   opentelemetry-instrumentation-aws_sdk
@@ -740,6 +748,7 @@ CHECKSUMS
   json-schema (6.2.1) sha256=c0bf6113d772348bfd159fb096950beeb1e1e25aaeea50b676bd45191d8dbdf3
   jwt (3.3.0) sha256=44cc34fbc341c148233cf66641522b4bce0dfb1ce55e8073f05c56f44f4ee546
   kamal (2.12.0) sha256=c51d1ab085e515470f98d0c0f043637122b5ebf76e8b610cb1fbbed0b7f9b8fa
+  kms_encryption (0.1.0)
   language_server-protocol (3.17.0.6) sha256=5ef2c0c138f8267e1bc631d3328347d354f96724b0af22f2c79516120443b7f0
   lint_roller (1.1.0) sha256=2c0c845b632a7d172cb849cc90c1bce937a28c5c8ccccb50dfd46a485003cc87
   logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
