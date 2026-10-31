@@ -54,6 +54,13 @@ module TaskApi
     # Signed blob URLs handed to clients stop working after 10 minutes.
     config.active_storage.urls_expire_in = 10.minutes
 
+    # Encrypting a column that already holds plaintext (docs/runbooks/kms-key-rotation.md, "Encrypting an existing column"): while ENCRYPTION_ALLOW_PLAINTEXT is
+    # true, unencrypted values still read and queries match both forms, so the rows can be encrypted (bin/rails kms:encrypt) while the app runs. Off
+    # otherwise: a plaintext value in an encrypted column then raises, which is what a deployment that never had plaintext wants.
+    transition = ENV["ENCRYPTION_ALLOW_PLAINTEXT"] == "true"
+    config.active_record.encryption.support_unencrypted_data = transition
+    config.active_record.encryption.extend_queries = transition
+
     # App-specific settings (read with Rails.configuration.x.*).
     config.x.base_url = ENV.fetch("APP_BASE_URL", "http://localhost:3000")
     config.x.frontend_url = ENV.fetch("FRONTEND_URL", "http://localhost:5173")

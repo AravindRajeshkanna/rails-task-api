@@ -38,6 +38,8 @@ env:
     - TASK_API_DATABASE_PASSWORD
     # - SENTRY_DSN
   clear:
+    # Not on AWS: encrypted columns use Rails' own keys from config/credentials.yml.enc. On AWS, set KMS_KEY_ID instead (docs/aws/kms.md).
+    ENCRYPTION_KEY_SOURCE: credentials
     # Run Solid Queue's supervisor inside Puma: one container serves requests and background jobs.
     # Split into a dedicated `job` role (cmd: bin/jobs) when traffic grows.
     SOLID_QUEUE_IN_PUMA: true
