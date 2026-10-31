@@ -20,6 +20,7 @@ env:
   EVENTS_SNS_TOPIC_ARN: arn:aws:sns:us-west-2:123456789012:task-api-staging-dr-events
   AI_PROVIDER: ""
   AWS_S3_BUCKET: task-api-staging-dr-storage
+  KMS_KEY_ID: alias/task-api-staging-data   # the data key's alias (deploy/terraform/kms.tf): the same name in both regions of a pair
   READ_ONLY: "true"        # true on the standby until its database is promoted (config/initializers/read_only_mode.rb)
 ingress:
   host: api.staging.taskapi.example.com

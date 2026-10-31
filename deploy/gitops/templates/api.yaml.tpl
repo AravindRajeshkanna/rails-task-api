@@ -20,6 +20,7 @@ env:
   EVENTS_SNS_TOPIC_ARN: ${SNS_TOPIC_ARN}
   AI_PROVIDER: ""
   AWS_S3_BUCKET: ${STORAGE_BUCKET}
+  KMS_KEY_ID: ${KMS_DATA_KEY_ALIAS}   # the data key's alias (deploy/terraform/kms.tf): the same name in both regions of a pair
   READ_ONLY: "${READ_ONLY}"        # true on the standby until its database is promoted (config/initializers/read_only_mode.rb)
 ingress:
   host: ${DOMAIN}

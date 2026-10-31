@@ -14,5 +14,6 @@ env:
   AUTH_JWKS_URL: http://auth/.well-known/jwks.json
   EVENTS_SNS_TOPIC_ARN: arn:aws:sns:us-east-1:123456789012:task-api-prod-events
   AWS_S3_BUCKET: task-api-prod-storage
+  KMS_KEY_ID: alias/task-api-prod-data
 networkPolicy:
   egressToCIDRs: [ { cidr: 10.0.0.0/16, ports: [ 5432 ] } ]

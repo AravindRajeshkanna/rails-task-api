@@ -44,7 +44,7 @@ placeholders = {
   NOTIFICATIONS_QUEUE_URL: "https://sqs.#{region}.amazonaws.com/123456789012/task-api-#{env}-notifications",
   ACM_CERTIFICATE_ARN: "arn:aws:acm:#{region}:123456789012:certificate/00000000-0000-0000-0000-000000000000",
   WAF_ACL_ARN: "arn:aws:wafv2:#{region}:123456789012:regional/webacl/task-api-#{env}/00000000-0000-0000-0000-000000000000",
-  STORAGE_BUCKET: "task-api-#{env}-storage", BEDROCK_MODEL_ID: "REPLACE_WITH_BEDROCK_INFERENCE_PROFILE_ID",
+  STORAGE_BUCKET: "task-api-#{env}-storage", KMS_DATA_KEY_ALIAS: "alias/task-api-#{env.delete_suffix('-dr')}-data", BEDROCK_MODEL_ID: "REPLACE_WITH_BEDROCK_INFERENCE_PROFILE_ID",
   BEDROCK_EMBEDDING_MODEL_ID: "amazon.titan-embed-text-v2:0",
   CLUSTER_NAME: "task-api-#{env}", VPC_ID: "vpc-00000000000000000", KARPENTER_NODE_ROLE: "task-api-#{env}-karpenter-node",
   KARPENTER_QUEUE: "task-api-#{env}"
@@ -55,7 +55,7 @@ if (path = ARGV[1])
   mapping = {
     REGION: "region", ECR_REGISTRY: "ecr_registry", DOMAIN: "api_domain", FRONTEND_DOMAIN: "frontend_domain", VPC_CIDR: "vpc_cidr",
     DB_ENDPOINT: "database_endpoint", DB_READER_ENDPOINT: "database_reader_endpoint", SNS_TOPIC_ARN: "events_topic_arn", NOTIFICATIONS_QUEUE_URL: "notifications_queue_url",
-    ACM_CERTIFICATE_ARN: "certificate_arn", WAF_ACL_ARN: "waf_acl_arn", STORAGE_BUCKET: "storage_bucket",
+    ACM_CERTIFICATE_ARN: "certificate_arn", WAF_ACL_ARN: "waf_acl_arn", STORAGE_BUCKET: "storage_bucket", KMS_DATA_KEY_ALIAS: "kms_data_key_alias",
     BEDROCK_MODEL_ID: "bedrock_model_id", BEDROCK_EMBEDDING_MODEL_ID: "bedrock_embedding_model_id",
     CLUSTER_NAME: "cluster_name", VPC_ID: "vpc_id", KARPENTER_NODE_ROLE: "karpenter_node_role_name", KARPENTER_QUEUE: "karpenter_interruption_queue"
   }
