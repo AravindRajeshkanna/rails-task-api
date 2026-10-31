@@ -33,7 +33,7 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}   # terraform output github_deploy_role_arn
           aws-region: ${{ vars.AWS_REGION }}
