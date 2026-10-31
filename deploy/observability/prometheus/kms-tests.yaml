@@ -1,0 +1,70 @@
+# promtool unit tests for the KMS alerts in task-api-rules.yaml. Run by CI, or by hand:
+#
+#   ruby -ryaml -e 'File.write("tmp/rules.yml", { "groups" => YAML.load_file("deploy/observability/prometheus/task-api-rules.yaml")["spec"]["groups"] }.to_yaml)'
+#   cp deploy/observability/prometheus/kms-tests.yaml tmp/kms-tests.yml && promtool test rules tmp/kms-tests.yml
+#
+# "a+bxn" is a counter that starts at a and rises by b a minute, n times.
+rule_files:
+  - rules.yml
+evaluation_interval: 1m
+
+tests:
+  - name: refused requests raise a ticket once they have gone on for ten minutes, and say which
+    interval: 1m
+    input_series:
+      - series: 'taskapi_kms_requests_total{operation="decrypt",outcome="access_denied",pod="api-1"}'
+        values: '0+3x40'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: TaskApiKmsFailing
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: TaskApiKmsFailing
+        exp_alerts:
+          - exp_labels: { severity: ticket, operation: decrypt, outcome: access_denied }
+            exp_annotations:
+              summary: "KMS requests are failing (decrypt: access_denied)"
+              description: "Creating a webhook answers 503 encryption_unavailable, webhook deliveries wait and retry, and a pod that starts cannot become ready. access_denied: the role lost its permission or the key policy changed. throttled: see the KMS request quota. key_unusable: the key or alias is disabled, pending deletion or missing."
+              runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/kms-key-rotation.md
+
+  - name: successful requests, even many, are not failures
+    interval: 1m
+    input_series:
+      - series: 'taskapi_kms_requests_total{operation="decrypt",outcome="ok",pod="api-1"}'
+        values: '0+30x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: TaskApiKmsFailing
+        exp_alerts: []
+
+  - name: an ordinary trickle of requests says nothing
+    interval: 1m
+    input_series:
+      - series: 'taskapi_kms_requests_total{operation="decrypt",outcome="ok",pod="api-1"}'
+        values: '0+2x60'
+      - series: 'taskapi_kms_requests_total{operation="generate_data_key",outcome="ok",pod="api-1"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: TaskApiKmsUnusualVolume
+        exp_alerts: []
+
+  - name: several requests a second for a quarter of an hour is unusual, across all pods
+    interval: 1m
+    input_series:
+      - series: 'taskapi_kms_requests_total{operation="decrypt",outcome="ok",pod="api-1"}'
+        values: '0+90x60'
+      - series: 'taskapi_kms_requests_total{operation="decrypt",outcome="ok",pod="api-2"}'
+        values: '0+90x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TaskApiKmsUnusualVolume
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: TaskApiKmsUnusualVolume
+        exp_alerts:
+          - exp_labels: { severity: ticket }
+            exp_annotations:
+              summary: "The application is calling KMS 3.0 times a second"
+              description: "Unwrapped keys are cached, so this should be a trickle. A cache that stopped working, a loop that reads many different encrypted values, or a rollout storm. Each request is billed and counts against the KMS quota."
+              runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/kms-key-rotation.md
