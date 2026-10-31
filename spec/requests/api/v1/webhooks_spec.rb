@@ -19,6 +19,18 @@ RSpec.describe "Webhooks" do
       expect(data).not_to have_key("secret")
     end
 
+    it "answers 503 and Retry-After, not 500, when KMS cannot make a key for the secret, and creates nothing" do
+      down = Class.new { def generate_data_key(**) = raise(KmsEncryption::Unavailable.new("AccessDeniedException: no", reason: :access_denied)) }.new
+      allow(KmsEncryption.configuration).to receive(:client).and_return(down)
+
+      expect { api :post, path, { url: "https://hooks.example.com/in" }, as: owner }.not_to change(Webhook, :count)
+
+      expect(response).to have_http_status(:service_unavailable)
+      expect(response.headers["Retry-After"]).to eq("5")
+      expect(error).to include("code" => "encryption_unavailable")
+      expect(response.body).not_to include("AccessDenied") # why is for the logs, not the client
+    end
+
     it "validates url and events" do
       api :post, path, { url: "javascript:alert(1)", events: %w[nope] }, as: owner
 

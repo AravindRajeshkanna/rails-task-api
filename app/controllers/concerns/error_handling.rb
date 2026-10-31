@@ -64,6 +64,11 @@ module ErrorHandling
       response.headers["Retry-After"] = "5"
       render_error :service_unavailable, "auth_unavailable", "The authentication service is unreachable. Try again shortly."
     end
+    # KMS could not be reached or refused us. The reason (throttled, access denied, key disabled) is for the logs and metrics, not for the client.
+    rescue_from KmsEncryption::Unavailable do
+      response.headers["Retry-After"] = "5"
+      render_error :service_unavailable, "encryption_unavailable", "The encryption keys are unavailable right now. Try again shortly."
+    end
     rescue_from OrganizationBudget::Exceeded do |error|
       response.headers["Retry-After"] = error.retry_after.to_s
       render_error :too_many_requests, "rate_limited", error.message

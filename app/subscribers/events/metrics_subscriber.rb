@@ -12,6 +12,7 @@ module Events
         when "ai.completed" then ai_completed(payload)
         when "ai.budget_exceeded" then Observability::Metrics::AI_BUDGET_REJECTIONS.increment
         when /\Aidempotency\.(stored|replayed|refused)\z/ then Observability::Metrics::IDEMPOTENCY.increment(labels: { outcome: Regexp.last_match(1), source: payload[:source].to_s })
+        when /\Akms\.(request|failed)\z/ then kms_request(payload)
         when "load_shed.rejected" then Observability::Metrics::LOAD_SHED.increment
         when "organization_budget.exceeded" then Observability::Metrics::ORGANIZATION_BUDGET_EXCEEDED.increment
         when "read_only.refused" then Observability::Metrics::READ_ONLY_REFUSALS.increment(labels: { source: payload[:source].to_s })
@@ -23,6 +24,12 @@ module Events
         route = { controller: payload[:controller].to_s, action: payload[:action].to_s }
         Observability::Metrics::HTTP_REQUESTS.increment(labels: route.merge(status: payload[:status].to_s))
         Observability::Metrics::HTTP_DURATION.observe(payload[:duration_ms].to_f / 1000, labels: route)
+      end
+
+      def kms_request(payload)
+        operation = payload[:operation].to_s
+        Observability::Metrics::KMS_REQUESTS.increment(labels: { operation: operation, outcome: payload[:outcome].to_s })
+        Observability::Metrics::KMS_DURATION.observe(payload[:duration_ms].to_f / 1000, labels: { operation: operation })
       end
 
       def ai_completed(payload)

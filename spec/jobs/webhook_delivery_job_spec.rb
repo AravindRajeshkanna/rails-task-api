@@ -32,6 +32,18 @@ RSpec.describe WebhookDeliveryJob do
     expect(delivery.reload.error).to be_present
   end
 
+  it "waits and tries again, without a request to the receiver, when KMS cannot unwrap the secret's key: the event must not be lost for that" do
+    stub_request(:post, "https://hooks.example.com/in").to_return(status: 200)
+    fresh = WebhookDelivery.find(delivery.id) # a job loads its delivery, and the webhook's secret, from the database
+    KmsEncryption.cache.clear
+    down = Class.new { def decrypt(**) = raise(KmsEncryption::Unavailable.new("ThrottlingException", reason: :throttled)) }.new
+    allow(KmsEncryption.configuration).to receive(:client).and_return(down)
+
+    expect { described_class.perform_now(fresh) }.to have_enqueued_job(described_class).with(delivery).at(be > 1.second.from_now)
+    expect(a_request(:any, /.*/)).not_to have_been_made
+    expect(delivery.reload.delivered_at).to be_nil
+  end
+
   it "gives up after 6 attempts, leaving the failure in the log" do
     request = stub_request(:post, "https://hooks.example.com/in").to_return(status: 500)
 
