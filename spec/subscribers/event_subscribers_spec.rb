@@ -14,6 +14,28 @@ RSpec.describe "Event subscribers" do
     end
   end
 
+  describe "KMS requests" do
+    def request_kms(outcome)
+      ActiveSupport::Notifications.instrument("request.kms_encryption", operation: "decrypt") { |payload| payload[:outcome] = outcome }
+    end
+
+    it "become a kms.request event for the ones that worked, which feeds the metrics and is not logged" do
+      allow(Rails.logger).to receive(:info).and_call_original
+
+      expect { request_kms("ok") }.to change { Observability::Metrics::KMS_REQUESTS.get(labels: { operation: "decrypt", outcome: "ok" }) }.by(1)
+
+      expect(Rails.logger).not_to have_received(:info).with(/kms\./)
+    end
+
+    it "become a kms.failed event for the ones that did not, which is logged as well as counted, with the reason" do
+      allow(Rails.logger).to receive(:info).and_call_original
+
+      expect { request_kms("throttled") }.to change { Observability::Metrics::KMS_REQUESTS.get(labels: { operation: "decrypt", outcome: "throttled" }) }.by(1)
+
+      expect(Rails.logger).to have_received(:info).with(/event=kms\.failed operation=decrypt outcome=throttled duration_ms=/)
+    end
+  end
+
   describe Events::BroadcastSubscriber do
     it "broadcasts task events to the project stream" do
       expect { create(:task, project:, title: "Live!") }

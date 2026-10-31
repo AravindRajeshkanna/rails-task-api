@@ -37,6 +37,9 @@ module Observability
     CIRCUIT_TRANSITIONS = counter(:taskapi_circuit_breaker_transitions_total, "Circuit breaker state changes", %i[breaker to])
     READ_ONLY_REFUSALS = counter(:taskapi_read_only_refusals_total, "Writes answered 503 read_only (switch = READ_ONLY=true, database = Postgres refused it)", %i[source])
 
+    KMS_REQUESTS = counter(:taskapi_kms_requests_total, "AWS KMS requests by operation and outcome (ok, or why not: access_denied, key_unusable, throttled, network, credentials, service, invalid_ciphertext)", %i[operation outcome])
+    KMS_DURATION = histogram(:taskapi_kms_request_duration_seconds, "AWS KMS request latency", %i[operation], LATENCY_BUCKETS)
+
     IDEMPOTENCY = counter(:taskapi_idempotency_total, "Requests that carried an Idempotency-Key, by outcome (stored, replayed, refused)", %i[outcome source])
 
     AI_REQUESTS = counter(:taskapi_ai_requests_total, "Model calls by feature and outcome", %i[feature outcome])

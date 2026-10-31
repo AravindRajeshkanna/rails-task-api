@@ -1,0 +1,205 @@
+name: Provision AWS
+
+# Creates, changes or removes one environment's AWS resources with Terraform, by hand, in one click:
+#   Actions > Provision AWS > Run workflow > pick the environment > Run workflow.
+# It never runs by itself: no push, no pull request, no schedule. CI (ci.yml) only validates and tests the Terraform; this is the only place it is applied.
+#
+#   apply    plan, show the plan, then apply exactly that plan (not a second one made a minute later). The default.
+#   plan     only show the plan. Safe anywhere, from any branch.
+#   destroy  remove the environment. Needs its name typed again, and read the warning on that input first.
+#
+# No AWS keys are stored in GitHub. The job asks GitHub for a short-lived identity token and trades it for the role that deploy/bootstrap/bootstrap.yaml created,
+# which trusts only this repository's runs of this GitHub Environment. Put required reviewers on the Environments (prod above all) and restrict their
+# deployment branch to main: that is where "who may press the button" is decided. Setup, once: docs/aws/one-click.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to provision (a GitHub Environment of the same name holds its variables and approvals)
+        type: choice
+        options: [ dev, staging, staging-dr, prod, prod-dr ]
+        default: dev
+      action:
+        description: "apply = plan then apply that plan. plan = show it only. destroy = remove everything (confirm below)"
+        type: choice
+        options: [ apply, plan, destroy ]
+        default: apply
+      alb_exists:
+        description: "Second pass only: tick after Argo CD has created the Ingress and so the load balancer, to add its DNS record and alarms (setup guide, step 10)"
+        type: boolean
+        default: false
+      peer_ready:
+        description: "Multi-region only: tick once the OTHER region's stack exists (docs/aws/multi-region.md)"
+        type: boolean
+        default: false
+      replace:
+        description: "Rare, and not for destroy: Terraform addresses to replace, separated by spaces. For example random_bytes.deterministic_master[0] makes a new master for the encrypted email addresses (docs/runbooks/kms-key-rotation.md)"
+        type: string
+        default: ""
+      confirm_destroy:
+        description: "Only for destroy: type the environment's name again. First delete the Argo CD apps, Ingresses and node pools (setup guide, Tearing down), or the VPC will not delete"
+        type: string
+        default: ""
+
+# One run per environment at a time, and a run that has started is never cancelled: a half-applied change is the worst state to leave.
+concurrency:
+  group: provision-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # the identity token that AWS trusts
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180   # EKS and Aurora alone take about half an hour
+    environment: ${{ inputs.environment }}   # its protection rules (reviewers, branch) apply here, and its variables are read below
+    env:
+      ENVIRONMENT: ${{ inputs.environment }}
+      ACTION: ${{ inputs.action }}
+      ALB_EXISTS: ${{ inputs.alb_exists }}
+      PEER_READY: ${{ inputs.peer_ready }}
+      CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
+      REPLACE: ${{ inputs.replace }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_STATE_REGION: ${{ vars.TF_STATE_REGION || 'us-east-1' }}
+      # Everything environment-specific that is not in envs/<environment>.tfvars (a JSON object; see docs/aws/one-click.md).
+      TF_VARS_JSON: ${{ vars.TF_VARS_JSON }}
+      TF_VARS_SECRET_JSON: ${{ secrets.TF_VARS_SECRET_JSON }}
+      AWS_TERRAFORM_ROLE_ARN: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+    steps:
+      - name: Refuse, before anything is created, what must not run
+        run: |
+          if [ "$ACTION" != plan ] && [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::$ACTION runs from main only (this is $GITHUB_REF). A plan can run from any branch."
+            exit 1
+          fi
+          if [ "$ACTION" = destroy ] && [ "$CONFIRM_DESTROY" != "$ENVIRONMENT" ]; then
+            echo "::error::To destroy $ENVIRONMENT, type exactly '$ENVIRONMENT' in the confirm_destroy input."
+            exit 1
+          fi
+          if [ -n "$REPLACE" ] && [ "$ACTION" = destroy ]; then
+            echo "::error::replace is for apply and plan, not destroy."
+            exit 1
+          fi
+          if [ -z "$TF_STATE_BUCKET" ]; then
+            echo "::error::The repository variable TF_STATE_BUCKET is not set. Run the bootstrap stack first: docs/aws/one-click.md."
+            exit 1
+          fi
+          if [ -z "$AWS_TERRAFORM_ROLE_ARN" ]; then
+            echo "::error::The variable AWS_TERRAFORM_ROLE_ARN is not set on the $ENVIRONMENT GitHub Environment. Run the bootstrap stack for it: docs/aws/one-click.md."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.14"
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.TF_STATE_REGION }}
+          role-duration-seconds: 14400
+
+      # Written outside the checkout and passed last, so that it wins over envs/<environment>.tfvars (a file named *.auto.tfvars would lose to it).
+      - name: Variables for this environment
+        run: |
+          environment_json="${TF_VARS_JSON:-}"; [ -n "$environment_json" ] || environment_json='{}'
+          secret_json="${TF_VARS_SECRET_JSON:-}"; [ -n "$secret_json" ] || secret_json='{}'
+          echo "$environment_json" | jq -e 'type == "object"' > /dev/null || { echo "::error::TF_VARS_JSON must be a JSON object"; exit 1; }
+          echo "$secret_json" | jq -e 'type == "object"' > /dev/null || { echo "::error::TF_VARS_SECRET_JSON must be a JSON object"; exit 1; }
+          printf '%s' "$environment_json" > "$RUNNER_TEMP/environment.tfvars.json"
+          printf '%s' "$secret_json" > "$RUNNER_TEMP/secret.tfvars.json"
+
+      - name: Terraform init
+        working-directory: deploy/terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
+            -backend-config="key=$ENVIRONMENT/terraform.tfstate" \
+            -backend-config="region=$TF_STATE_REGION" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Terraform validate
+        working-directory: deploy/terraform
+        run: terraform validate
+
+      - name: Terraform plan
+        id: plan
+        working-directory: deploy/terraform
+        run: |
+          args=()
+          if [ "$ACTION" = destroy ]; then args+=(-destroy); fi
+          # Each address goes to the command as one argument, after being checked to be only what a resource address is made of.
+          read -ra addresses <<< "$REPLACE"
+          pattern='^[][A-Za-z0-9_."-]+$'
+          for address in "${addresses[@]}"; do
+            [[ $address =~ $pattern ]] || { echo "::error::'$address' is not a Terraform resource address"; exit 1; }
+            args+=("-replace=$address")
+          done
+          # create_github_oidc_provider is false because the bootstrap stack made the account's provider (there can be only one).
+          terraform plan "${args[@]}" -out=tfplan \
+            -var-file="envs/$ENVIRONMENT.tfvars" \
+            -var-file="$RUNNER_TEMP/environment.tfvars.json" \
+            -var-file="$RUNNER_TEMP/secret.tfvars.json" \
+            -var="github_repository=$GITHUB_REPOSITORY" \
+            -var="create_github_oidc_provider=false" \
+            -var="alb_exists=$ALB_EXISTS" \
+            -var="peer_ready=$PEER_READY"
+
+      - name: Show the plan
+        working-directory: deploy/terraform
+        run: |
+          {
+            echo "## $ACTION $ENVIRONMENT"
+            echo
+            terraform show -json tfplan | jq -r '
+              [.resource_changes[]?.change.actions | join("+")] | group_by(.) | map("\(.[0]): \(length)") | join("   ")' | sed 's/^$/no changes/'
+            echo
+            echo '<details><summary>The plan</summary>'
+            echo
+            echo '```'
+            terraform show -no-color tfplan | head -c 400000
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Terraform apply (the plan above, as it is)
+        if: inputs.action != 'plan'
+        working-directory: deploy/terraform
+        run: terraform apply tfplan
+
+      - name: What was made, and what is left to do by hand
+        if: inputs.action == 'apply'
+        working-directory: deploy/terraform
+        run: |
+          {
+            echo "## Done: $ENVIRONMENT"
+            echo
+            echo "Terraform made the AWS resources. The cluster itself still needs these steps, in this order (docs/aws/setup-guide.md):"
+            echo
+            echo "1. \`aws eks update-kubeconfig --name task-api-$ENVIRONMENT\`, then create the per-service databases (step 6) and put the two secrets only you have in (step 5)"
+            echo "2. Install Argo CD and hand it the repository (step 7), render the GitOps values from these outputs and push (step 8)"
+            echo "3. Build the first images by pushing to main, or by hand (step 9)"
+            echo "4. When the Ingress has an address, run this workflow again with **alb_exists** ticked (step 10)"
+            echo
+            echo "The key the application uses: \`$(terraform output -raw kms_data_key_alias)\` (docs/aws/kms.md)"
+            echo
+            echo '<details><summary>Outputs</summary>'
+            echo
+            echo '```json'
+            terraform output -json | jq 'with_entries(select(.value.sensitive | not)) | map_values(.value)'
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"

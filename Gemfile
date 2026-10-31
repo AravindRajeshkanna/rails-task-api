@@ -79,6 +79,10 @@ gem "aws-sdk-s3", require: false
 # tracing for the extracted services) out of the monolith, which has its own; see config/initializers.
 gem "service_kit", path: "gems/service_kit", require: false
 
+# Field-level encryption whose keys AWS KMS protects (ADR 69): key providers for Active Record Encryption. Lives in gems/ so the extracted
+# services can use it too. Loaded at boot because config/initializers/kms_encryption.rb configures it.
+gem "kms_encryption", path: "gems/kms_encryption"
+
 # pgvector support for Active Record (embeddings and nearest-neighbor search)
 gem "neighbor"
 

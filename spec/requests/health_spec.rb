@@ -27,7 +27,7 @@ RSpec.describe "Health checks" do
       get "/readyz"
 
       expect(response).to have_http_status(:ok)
-      expect(response.parsed_body).to eq("status" => "ok", "checks" => { "database" => "ok" })
+      expect(response.parsed_body).to eq("status" => "ok", "checks" => { "database" => "ok", "encryption" => "ok" })
     end
 
     it "says it cannot when the database does not, so the pod is taken out of rotation, and gives away nothing about why" do
@@ -36,13 +36,34 @@ RSpec.describe "Health checks" do
       get "/readyz"
 
       expect(response).to have_http_status(:service_unavailable)
-      expect(response.parsed_body).to eq("status" => "unavailable", "checks" => { "database" => "failed" })
+      expect(response.parsed_body).to eq("status" => "unavailable", "checks" => { "database" => "failed", "encryption" => "ok" })
       expect(response.body).not_to include("10.0.3.14", "Connection refused")
     end
 
     it "does not wait for a database that is hanging: it gives up after a couple of seconds" do
       allow(ActiveRecord::Base).to receive(:connection_pool).and_wrap_original { |original| sleep 5; original.call }
       stub_const("HealthController::DATABASE_TIMEOUT", 0.2)
+
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      get "/readyz"
+
+      expect(response).to have_http_status(:service_unavailable)
+      expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - started).to be < 1.5
+    end
+
+    it "says it cannot while it has no encryption keys, so a rollout with a bad KMS setting waits instead of serving errors, and says nothing about the setting" do
+      allow(KmsEncryption).to receive(:ready?).and_return(false)
+
+      get "/readyz"
+
+      expect(response).to have_http_status(:service_unavailable)
+      expect(response.parsed_body).to eq("status" => "unavailable", "checks" => { "database" => "ok", "encryption" => "failed" })
+      expect(response.body).not_to include("KMS_KEY_ID", "AccessDenied")
+    end
+
+    it "does not wait on a KMS that is hanging: it gives up and reports not ready" do
+      allow(KmsEncryption).to receive(:ready?) { sleep 5 }
+      stub_const("HealthController::ENCRYPTION_TIMEOUT", 0.2)
 
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       get "/readyz"

@@ -35,6 +35,14 @@ RSpec.describe "Prometheus metrics", type: :request do
     expect { emit("something.else", {}) }.not_to change { metrics::REGISTRY.metrics.sum { |metric| metric.values.size } }
   end
 
+  it "counts KMS requests by operation and outcome, and times them" do
+    expect { emit("kms.request", { operation: "decrypt", outcome: "ok", duration_ms: 12.0 }) }
+      .to change { metrics::KMS_REQUESTS.get(labels: { operation: "decrypt", outcome: "ok" }) }.by(1)
+    expect { emit("kms.failed", { operation: "generate_data_key", outcome: "throttled", duration_ms: 300.0 }) }
+      .to change { metrics::KMS_REQUESTS.get(labels: { operation: "generate_data_key", outcome: "throttled" }) }.by(1)
+    expect(metrics::KMS_DURATION.get(labels: { operation: "decrypt" })["0.025"]).to be >= 1
+  end
+
   it "accounts for AI calls: tokens, cost and latency" do
     payload = { feature: "parse_task", outcome: "ok", input_tokens: 1_000, output_tokens: 200, cost_micros: 4_500, latency_ms: 1_500 }
 

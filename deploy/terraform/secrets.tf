@@ -64,6 +64,8 @@ locals {
       rails_master_key  = "REPLACE_ME" # cat config/master.key; see docs/aws/setup-guide.md
       database_password = random_password.api_database[0].result
       metrics_token     = random_password.metrics_token[0].result
+      # The secret that the keys of deterministic columns derive from, wrapped by the data key (kms.tf). Only the wrapped form is stored here.
+      kms_wrapped_deterministic_key = aws_kms_ciphertext.deterministic_master[0].ciphertext_blob
     }
     auth = {
       secret_key_base   = random_password.secret_key_base["auth"].result
@@ -88,6 +90,7 @@ resource "aws_secretsmanager_secret" "service" {
 
   name                    = "${local.secret_prefix}/${each.key}"
   recovery_window_in_days = local.is_prod ? 30 : 0
+  kms_key_id              = local.secrets_key_arn # null: the AWS-managed key. A replica below is encrypted by its own region's AWS-managed key.
 
   # Multi-region: a read-only copy in the standby's region, kept in step by Secrets Manager. The standby's External
   # Secrets reads it under the same name. To write to it after the primary region is lost, promote it first
@@ -117,6 +120,7 @@ resource "aws_secretsmanager_secret" "ai_service_token" {
 
   name                    = "${local.secret_prefix}/ai-service-token"
   recovery_window_in_days = local.is_prod ? 30 : 0
+  kms_key_id              = local.secrets_key_arn
 
   dynamic "replica" {
     for_each = local.is_primary ? [var.peer_region] : []

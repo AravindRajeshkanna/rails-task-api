@@ -57,4 +57,5 @@ trust it, and the response headers say so.
 - Access tokens from the Auth service remain valid up to 15 minutes after sign-out.
 - What is held about people, for how long, and what erasing an account does and does not reach: [data-protection.md](data-protection.md) ([ADR 67](decisions.md)). The audit trail has no retention and keeps task text.
 - Monolith sessions are not bound to a device: a copied token works from anywhere until it is rotated, revoked or goes idle (14 days), and a sign-in from a new place is not announced to the user ([ADR 66](decisions.md)).
+- Application-level encryption: users' email addresses and webhook secrets are encrypted with keys that AWS KMS protects, under a key policy that refuses any request without the application's encryption context ([kms.md](aws/kms.md), [ADR 69](decisions.md), [ADR 70](decisions.md)). Names, task text and invitation addresses are not, and the audit trail, outbox and Notification service still hold addresses in plaintext ([data-protection.md](data-protection.md)). Not run on AWS.
 - No automated secret scanning in CI (e.g. gitleaks); add it before the repository takes outside contributions.

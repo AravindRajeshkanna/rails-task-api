@@ -36,6 +36,8 @@ secrets:
     - { secretKey: TASK_API_DATABASE_PASSWORD, key: api, property: database_password }
     - { secretKey: AI_SERVICE_TOKEN, key: ai-service-token }
     - { secretKey: METRICS_TOKEN, key: api, property: metrics_token }
+    # What the keys of encrypted email addresses derive from, wrapped by KMS: useless without kms:Decrypt on the key (docs/aws/kms.md).
+    - { secretKey: KMS_WRAPPED_DETERMINISTIC_KEY, key: api, property: kms_wrapped_deterministic_key }
 
 migration:
   enabled: true

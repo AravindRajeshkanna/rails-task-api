@@ -6,6 +6,8 @@ about 25 minutes to create; the rest is waiting for things to sync).
 
 Do **dev** end to end first. Staging and production repeat steps 4 to 12 with their own tfvars.
 
+> **Steps 2 and 4 can be one click.** [one-click.md](one-click.md) replaces the state bucket (step 2) and the Terraform run (step 4) with a one-time CloudFormation stack and a manual GitHub workflow, **Provision AWS**, which needs no AWS key in GitHub. Everything else here (Bedrock, SES, the secrets only you have, the databases, Argo CD, DNS) is unchanged. The workflow has never run: do `plan` in dev first.
+
 ## What you need
 
 | Tool | Version | Used for |
@@ -87,7 +89,7 @@ terraform plan -var-file=envs/dev.tfvars -out=dev.plan      # read it: VPC, EKS,
 terraform apply dev.plan
 ```
 
-Expect 25 to 40 minutes. If `aws_acm_certificate_validation` waits a long time, the hosted zone's name servers are not
+Expect 25 to 40 minutes. This also creates the encryption keys (the application's data key and a replica in a second region if you use a pair, the bucket's, and Secrets Manager's), the wrapped master for encrypted email addresses, and a CloudTrail trail for KMS events ([kms.md](kms.md)). If `aws_acm_certificate_validation` waits a long time, the hosted zone's name servers are not
 delegated yet (step 1.5). If the apply fails on `aws_chatbot_…`, leave `slack_workspace_id` empty for now (step 12).
 
 Then connect to the cluster:
@@ -111,6 +113,7 @@ pathlib.Path("/tmp/api.json").write_text(json.dumps(secret))
 PY
 aws secretsmanager put-secret-value --secret-id task-api/dev/api --secret-string file:///tmp/api.json && shred -u /tmp/api.json 2>/dev/null || rm -f /tmp/api.json
 ```
+Terraform also generated `kms_wrapped_deterministic_key` in that secret: leave it alone (it is useless without KMS access, and changing it makes every encrypted email address unreadable).
 Optional: the same way, set `slack_webhook_url` in `task-api/dev/notifications` if you want Slack announcements.
 Terraform will not overwrite values you set (`ignore_changes`). **Back up `config/master.key`** somewhere safe: it decrypts the
 production credentials, including the webhook-secret encryption keys. For a deployed environment, prefer giving production its
@@ -300,3 +303,4 @@ Destroy in this order, or the VPC will not delete (the ALB and node ENIs are cre
 2. `kubectl delete nodepools --all` and wait for Karpenter nodes to terminate.
 3. Remove `deletion_protection` (`db_deletion_protection = false`, apply), then `terraform destroy -var-file=envs/dev.tfvars`. With a standby (`dr_role`), destroy the standby's stack first, and detach its cluster from the global database before the primary's.
 4. Empty and delete the storage and state buckets if you no longer need them.
+5. **The encryption keys are scheduled for deletion** (30 days in prod, 7 elsewhere). When that period ends, every encrypted value in any backup is unreadable, for good. Cancel the deletion first (`aws kms cancel-key-deletion`) if a backup must stay usable.

@@ -24,5 +24,11 @@ Rails.application.config.after_initialize do
     Webhook::EVENTS.include?(event[:name])
   end
 
+  # Every KMS request the encryption keys cause (kms_encryption gem): a metric for each, and a log line for the ones that failed.
+  ActiveSupport::Notifications.subscribe("request.kms_encryption") do |event|
+    outcome = event.payload[:outcome].to_s
+    Rails.event.notify(outcome == "ok" ? "kms.request" : "kms.failed", operation: event.payload[:operation], outcome: outcome, duration_ms: event.duration.round(1))
+  end
+
   Observability::Metrics::BUILD_INFO.set(1, labels: { version: ENV.fetch("APP_VERSION", "dev"), ruby: RUBY_VERSION, rails: Rails.version })
 end

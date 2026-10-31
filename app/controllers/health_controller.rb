@@ -9,19 +9,29 @@
 # check: it is unauthenticated, so an error message would be reconnaissance.
 class HealthController < ActionController::API
   DATABASE_TIMEOUT = 2 # seconds
+  ENCRYPTION_TIMEOUT = 5 # seconds: one KMS request at most, and only until the first one succeeds
 
   def livez
     render_status(:ok, {})
   end
 
   def readyz
-    checks = { database: database_ok? ? "ok" : "failed" }
+    checks = { database: database_ok? ? "ok" : "failed", encryption: encryption_ok? ? "ok" : "failed" }
     render_status(checks.values.all?("ok") ? :ok : :service_unavailable, checks)
   end
 
   private
     def database_ok?
       Timeout.timeout(DATABASE_TIMEOUT) { ActiveRecord::Base.connection_pool.with_connection { |connection| connection.select_value("SELECT 1") == 1 } }
+    rescue StandardError # including Timeout::Error
+      false
+    end
+
+    # Can this process read and write its encrypted attributes? On AWS that means it has unwrapped the key the deterministic attributes derive theirs
+    # from, which is the one thing that needs KMS to be up when a pod starts. It is remembered once done, so this costs nothing afterwards and a later KMS
+    # outage does not take a serving pod out of rotation. A pod that cannot do it stays unready, and a rollout waits instead of serving 500s.
+    def encryption_ok?
+      Timeout.timeout(ENCRYPTION_TIMEOUT) { KmsEncryption.ready? }
     rescue StandardError # including Timeout::Error
       false
     end

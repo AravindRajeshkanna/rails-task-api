@@ -14,5 +14,6 @@ env:
   AUTH_JWKS_URL: http://auth/.well-known/jwks.json
   EVENTS_SNS_TOPIC_ARN: ${SNS_TOPIC_ARN}
   AWS_S3_BUCKET: ${STORAGE_BUCKET}
+  KMS_KEY_ID: ${KMS_DATA_KEY_ALIAS}
 networkPolicy:
   egressToCIDRs: [ { cidr: ${VPC_CIDR}, ports: [ 5432 ] } ]

@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  One-time setup, per environment, so that the "Provision AWS" GitHub workflow can run Terraform without any stored AWS keys: GitHub's identity provider,
+  the bucket that holds Terraform's state, and the role the workflow assumes. Nothing else. See docs/aws/one-click.md.
+
+Parameters:
+  GitHubRepository:
+    Type: String
+    Description: owner/name of the repository whose workflow may assume the role
+    AllowedPattern: "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+  Environment:
+    Type: String
+    Description: The GitHub Environment (and Terraform environment) this role is for. The role trusts runs of that GitHub Environment and no other.
+    AllowedValues: [ dev, staging, staging-dr, prod, prod-dr ]
+  CreateOidcProvider:
+    Type: String
+    Description: "true the first time in an account. An account can have only one GitHub identity provider: say false if it already has one (this stack or another)."
+    AllowedValues: [ "true", "false" ]
+    Default: "true"
+  CreateStateBucket:
+    Type: String
+    Description: "true the first time in an account. Every environment in the account keeps its state in the same bucket, under its own key."
+    AllowedValues: [ "true", "false" ]
+    Default: "true"
+  PermissionsPolicyArn:
+    Type: String
+    Description: >-
+      What Terraform may do. The default is administrator, because the configuration creates a VPC, EKS, Aurora, IAM roles, KMS keys and more; narrowing it
+      means listing everything those need, and a role that can create IAM roles can grant itself the rest anyway. Protect the GitHub Environment instead
+      (required reviewers, deployment branch main). The role can only be assumed by that Environment's runs.
+    Default: arn:aws:iam::aws:policy/AdministratorAccess
+
+Conditions:
+  MakeOidcProvider: !Equals [ !Ref CreateOidcProvider, "true" ]
+  MakeStateBucket: !Equals [ !Ref CreateStateBucket, "true" ]
+
+Resources:
+  GitHubIdentityProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: MakeOidcProvider
+    DeletionPolicy: Retain # other stacks and roles may rely on it
+    UpdateReplacePolicy: Retain
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [ sts.amazonaws.com ]
+      ThumbprintList: [ 6938fd4d98bab03faadb97b34396831e3780aea1 ]
+
+  StateBucket:
+    Type: AWS::S3::Bucket
+    Condition: MakeStateBucket
+    DeletionPolicy: Retain # it holds the state of everything Terraform made, including generated passwords and keys
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub task-api-tfstate-${AWS::AccountId}
+      VersioningConfiguration: { Status: Enabled }
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-old-state-versions
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 90 }
+
+  StateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: MakeStateBucket
+    Properties:
+      Bucket: !Ref StateBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [ !GetAtt StateBucket.Arn, !Sub "${StateBucket.Arn}/*" ]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  TerraformRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub task-api-terraform-${Environment}
+      Description: !Sub "Assumed by the Provision AWS workflow for the ${Environment} GitHub Environment"
+      MaxSessionDuration: 14400 # EKS and Aurora take about 25 minutes to create; the default hour is too tight with a slow apply
+      ManagedPolicyArns: [ !Ref PermissionsPolicyArn ]
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRoleWithWebIdentity
+            Principal:
+              Federated: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Condition:
+              StringEquals:
+                "token.actions.githubusercontent.com:aud": sts.amazonaws.com
+                # Only a run of this repository that deploys to this GitHub Environment. The Environment is where the approval rules live.
+                "token.actions.githubusercontent.com:sub": !Sub repo:${GitHubRepository}:environment:${Environment}
+
+Outputs:
+  RoleArn:
+    Description: "Save as the GitHub Environment variable AWS_TERRAFORM_ROLE_ARN"
+    Value: !GetAtt TerraformRole.Arn
+  StateBucket:
+    Description: "Save as the repository variable TF_STATE_BUCKET"
+    Value: !Sub task-api-tfstate-${AWS::AccountId}

@@ -8,8 +8,9 @@ class Webhook < ApplicationRecord
   belongs_to :project
   has_many :deliveries, class_name: "WebhookDelivery", dependent: :destroy
 
-  # The secret signs payloads, so it must be recoverable: encrypted, not hashed.
-  encrypts :secret
+  # The secret signs payloads, so it must be recoverable: encrypted, not hashed. The key is KMS's (ADR 69). Secrets written before that were encrypted with the
+  # Rails credentials key and still read; `bin/rails kms:encrypt` re-encrypts them.
+  encrypts_with_kms :secret, legacy_credentials: true
 
   before_validation :generate_secret, on: :create
 

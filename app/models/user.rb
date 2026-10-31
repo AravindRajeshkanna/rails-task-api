@@ -19,6 +19,10 @@ class User < ApplicationRecord
   has_many :notification_mutes, dependent: :delete_all
   has_many :ai_usages, dependent: :nullify
 
+  # The address is what people sign in with, so it must be findable: deterministic encryption (the same address, the same ciphertext), under a key that
+  # KMS protects. Names are not encrypted: they are shown in every list and a ciphertext cannot be sorted or searched. See docs/data-protection.md.
+  encrypts_with_kms :email_address, deterministic: true
+
   normalizes :email_address, with: ->(email) { email.strip.downcase }
   normalizes :name, with: ->(name) { name.squish }
 

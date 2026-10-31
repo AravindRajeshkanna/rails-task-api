@@ -56,3 +56,19 @@ output "dump_bucket" { value = try(aws_s3_bucket.dumps[0].bucket, null) }
 output "dump_copy_bucket" { value = try(aws_s3_bucket.dumps_copy[0].bucket, null) }
 output "dump_upload_policy_arn" { value = try(aws_iam_policy.dump_upload[0].arn, null) }
 
+
+# Encryption keys (docs/aws/kms.md)
+output "kms_data_key_alias" {
+  description = "What the application is configured with as KMS_KEY_ID. The same name in both regions of a pair."
+  value       = local.data_alias
+}
+output "kms_data_key_ids" {
+  description = "The key id of each generation of the data key, which is also what the application stores beside each wrapped value (kms:<id>)"
+  value       = local.is_secondary ? { for generation, alias in data.aws_kms_alias.data_generation : generation => alias.target_key_id } : { for generation, key in aws_kms_key.data : generation => key.key_id }
+}
+output "kms_wrapped_deterministic_key" {
+  description = "The secret that deterministic columns derive their keys from, wrapped by the current data key. Useless without kms:Decrypt on that key. Put it in Secrets Manager (task-api/<env>/api, property kms_wrapped_deterministic_key) after a rotation changes it."
+  value       = try(aws_kms_ciphertext.deterministic_master[0].ciphertext_blob, null)
+}
+output "kms_storage_key_arn" { value = try(aws_kms_key.storage[0].arn, null) }
+output "kms_secrets_key_arn" { value = local.secrets_key_arn }

@@ -14,5 +14,6 @@ env:
   AUTH_JWKS_URL: http://auth/.well-known/jwks.json
   EVENTS_SNS_TOPIC_ARN: arn:aws:sns:us-west-2:123456789012:task-api-staging-dr-events
   AWS_S3_BUCKET: task-api-staging-dr-storage
+  KMS_KEY_ID: alias/task-api-staging-data
 networkPolicy:
   egressToCIDRs: [ { cidr: 10.0.0.0/16, ports: [ 5432 ] } ]

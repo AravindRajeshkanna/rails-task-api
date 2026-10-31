@@ -26,6 +26,7 @@ secrets:
     - { secretKey: RAILS_MASTER_KEY, key: api, property: rails_master_key }
     - { secretKey: TASK_API_DATABASE_PASSWORD, key: api, property: database_password }
     - { secretKey: AI_SERVICE_TOKEN, key: ai-service-token }
+    - { secretKey: KMS_WRAPPED_DETERMINISTIC_KEY, key: api, property: kms_wrapped_deterministic_key }
 
 # No HTTP: liveness checks that the Solid Queue supervisor (which renames its process) is still running.
 probes:

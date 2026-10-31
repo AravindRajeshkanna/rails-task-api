@@ -154,3 +154,27 @@ spec:
           labels: { severity: ticket }
           annotations:
             summary: "The {{ $labels.collector }} collector keeps failing; queue and pool metrics may be stale"
+
+    # The application's own view of KMS (the same events CloudTrail records from the other side, docs/aws/kms.md). Only requests that reach KMS are counted:
+    # a value whose key is cached, and every lookup of an email address, makes none.
+    - name: task-api.encryption
+      rules:
+        - alert: TaskApiKmsFailing
+          expr: sum by (operation, outcome) (increase(taskapi_kms_requests_total{outcome!="ok"}[10m])) > 0
+          for: 10m
+          labels: { severity: ticket }
+          annotations:
+            summary: "KMS requests are failing ({{ $labels.operation }}: {{ $labels.outcome }})"
+            description: "Creating a webhook answers 503 encryption_unavailable, webhook deliveries wait and retry, and a pod that starts cannot become ready. access_denied: the role lost its permission or the key policy changed. throttled: see the KMS request quota. key_unusable: the key or alias is disabled, pending deletion or missing."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/kms-key-rotation.md
+
+        # CHOSEN, NOT MEASURED. Steady state is a few requests a minute (one per webhook secret per pod per five minutes, plus one at each pod start); two a
+        # second for a quarter of an hour is far outside that. The CloudTrail alarm (deploy/terraform/kms_audit.tf) is the same question asked of AWS's records.
+        - alert: TaskApiKmsUnusualVolume
+          expr: sum(rate(taskapi_kms_requests_total[15m])) > 2
+          for: 15m
+          labels: { severity: ticket }
+          annotations:
+            summary: "The application is calling KMS {{ $value | printf \"%.1f\" }} times a second"
+            description: "Unwrapped keys are cached, so this should be a trickle. A cache that stopped working, a loop that reads many different encrypted values, or a rollout storm. Each request is billed and counts against the KMS quota."
+            runbook_url: https://github.com/AravindRajeshkanna/rails-task-api/blob/main/docs/runbooks/kms-key-rotation.md

@@ -17,8 +17,10 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "storage" {
   bucket = aws_s3_bucket.storage.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = var.storage_kms_encryption ? "aws:kms" : "AES256"
+      kms_master_key_id = var.storage_kms_encryption ? aws_kms_key.storage[0].arn : null
     }
+    # One data key per bucket for a while instead of one per object: this is what keeps KMS requests (and their cost) low.
     bucket_key_enabled = true
   }
 }
@@ -83,6 +85,15 @@ data "aws_iam_policy_document" "replication_trust" {
   }
 }
 
+# The other region's bucket key, found by its alias (kms.tf names it). It exists once the peer's stack has been applied: the same moment replication starts.
+# S3 replication re-encrypts each object under the key in the destination region, so the two regions' storage keys are independent keys, not replicas.
+data "aws_kms_alias" "peer_storage" {
+  provider = aws.peer
+  count    = local.replicate && var.storage_kms_encryption ? 1 : 0
+
+  name = "alias/${local.peer_name}-storage"
+}
+
 data "aws_iam_policy_document" "replication" {
   statement {
     sid       = "ReadReplicationConfiguration"
@@ -98,6 +109,44 @@ data "aws_iam_policy_document" "replication" {
     sid       = "WriteToThePeerBucket"
     actions   = ["s3:ReplicateObject", "s3:ReplicateDelete", "s3:ReplicateTags"]
     resources = ["arn:${data.aws_partition.current.partition}:s3:::${local.peer_name}-storage-${local.account_id}/*"]
+  }
+
+  # Objects under the bucket's key are read through S3 with that key and written to the peer's bucket under the peer's.
+  dynamic "statement" {
+    for_each = local.replicate && var.storage_kms_encryption ? [1] : []
+    content {
+      sid       = "DecryptSourceObjects"
+      actions   = ["kms:Decrypt"]
+      resources = [aws_kms_key.storage[0].arn]
+      condition {
+        test     = "StringLike"
+        variable = "kms:ViaService"
+        values   = ["s3.${var.region}.amazonaws.com"]
+      }
+      condition {
+        test     = "StringLike"
+        variable = "kms:EncryptionContext:aws:s3:arn"
+        values   = ["${aws_s3_bucket.storage.arn}/*"]
+      }
+    }
+  }
+  dynamic "statement" {
+    for_each = local.replicate && var.storage_kms_encryption ? [1] : []
+    content {
+      sid       = "EncryptReplicas"
+      actions   = ["kms:Encrypt", "kms:GenerateDataKey"]
+      resources = [data.aws_kms_alias.peer_storage[0].target_key_arn]
+      condition {
+        test     = "StringLike"
+        variable = "kms:ViaService"
+        values   = ["s3.${var.peer_region}.amazonaws.com"]
+      }
+      condition {
+        test     = "StringLike"
+        variable = "kms:EncryptionContext:aws:s3:arn"
+        values   = ["arn:${data.aws_partition.current.partition}:s3:::${local.peer_name}-storage-${local.account_id}/*"]
+      }
+    }
   }
 }
 
@@ -133,9 +182,26 @@ resource "aws_s3_bucket_replication_configuration" "storage" {
       status = "Disabled"
     }
 
+    # S3 does not replicate objects encrypted with a KMS key unless the rule says to: without this the standby's bucket would quietly stay empty.
+    dynamic "source_selection_criteria" {
+      for_each = var.storage_kms_encryption ? [1] : []
+      content {
+        sse_kms_encrypted_objects {
+          status = "Enabled"
+        }
+      }
+    }
+
     destination {
       bucket        = "arn:${data.aws_partition.current.partition}:s3:::${local.peer_name}-storage-${local.account_id}"
       storage_class = "STANDARD"
+
+      dynamic "encryption_configuration" {
+        for_each = var.storage_kms_encryption ? [1] : []
+        content {
+          replica_kms_key_id = data.aws_kms_alias.peer_storage[0].target_key_arn
+        }
+      }
 
       dynamic "replication_time" {
         for_each = var.dr_s3_replication_time_control ? [1] : []

@@ -13,6 +13,7 @@ name: task-api
 
 x-rails-env: &rails-env
   RAILS_ENV: production
+  ENCRYPTION_KEY_SOURCE: credentials   # Rails' own keys (RAILS_MASTER_KEY); there is no KMS in this stack. docs/aws/kms.md
   FORCE_SSL: "false"
   ASSUME_SSL: "false"
   RAILS_LOG_LEVEL: ${RAILS_LOG_LEVEL:-info}
