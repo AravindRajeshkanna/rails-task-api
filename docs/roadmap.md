@@ -1,6 +1,6 @@
 # Roadmap and implementation record
 
-What was planned, what was built, where it lives, and what was deliberately left. Eight roadmaps have been worked through, in order;
+What was planned, what was built, where it lives, and what was deliberately left. Nine roadmaps have been worked through, in order;
 each section is a ledger, not a plan, so every line says what actually happened.
 
 | # | Roadmap | Delivered in | Result |
@@ -13,6 +13,7 @@ each section is a ledger, not a plan, so every line says what actually happened.
 | 6 | [Improve it from a system-design perspective](#roadmap-6-improving-it-from-a-system-design-perspective) (eight phases) | [#10](https://github.com/AravindRajeshkanna/rails-task-api/pull/10) | Idempotency keys, replicas, circuit breakers, load shedding, SLO alerts, session lifecycle, account erasure and retention, a threat model, and the architecture written down. Found that the API's metrics could never be scraped |
 | 7 | [AWS KMS and one-click provisioning](#roadmap-7-aws-kms-and-one-click-provisioning) (seven phases, plus a manual Terraform workflow) | [#11](https://github.com/AravindRajeshkanna/rails-task-api/pull/11) | Email addresses and webhook secrets encrypted with keys KMS protects, a key per purpose with the data key replicated for the standby, rotation by generation, a KMS-only audit trail with alarms, SSE-KMS for files and Secrets Manager, and a **Provision AWS** workflow. None of it applied to AWS |
 | 8 | [Only the owner reaches AWS](#roadmap-8-only-the-owner-reaches-aws) (a hardening request, audited rather than checklisted) | [#21](https://github.com/AravindRajeshkanna/rails-task-api/pull/21) | A fork-triggered deploy closed, the AWS roles trusting the subject this repository's tokens actually carry, all five Environments locked to `main` with the owner as reviewer, and a script that keeps GitHub's settings that way. Not exercised by a real run |
+| 9 | [A deployment smoke test](#roadmap-9-a-deployment-smoke-test) (a request for a manual create-check-destroy run in GitHub Actions at minimum cost) | [#22](https://github.com/AravindRajeshkanna/rails-task-api/pull/22) | A **Smoke test AWS** workflow that builds a throwaway `smoke` stack with Terraform, checks it, destroys it and scans for leftovers; a profile that costs about $0.26 an hour instead of $1.19; two new Terraform variables. Never run |
 
 **Status key.** ✅ done and verified as described · 🟡 done in part, or done differently on purpose (the note says how) · ⏭ deliberately not done (the note says why, and what would trigger it).
 
@@ -21,7 +22,7 @@ Terraform, Helm, Argo CD, Kamal) is validated statically and by CI (images build
 checks) but **has never been applied to AWS or run under Docker/Kubernetes**. The AI features run against the offline provider; **Bedrock has
 not been called**. Those boundaries are repeated where they matter.
 
-The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) (ADRs 1-71); user-visible changes are in [../CHANGELOG.md](../CHANGELOG.md).
+The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) (ADRs 1-73); user-visible changes are in [../CHANGELOG.md](../CHANGELOG.md).
 
 ---
 
@@ -280,6 +281,26 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | **Found on the way** | `deploy.yml` fails on every merge to `main` today | Expected until `AWS_DEPLOY_ROLE_ARN` exists (nothing is applied); not changed |
 | | Dependabot merged its action bumps (#13-#20) while this was open | resolved by merging `main` in | They edited the same `uses:` lines this change pins to commits. Kept the pins and took the **new** versions (`checkout` 7, `configure-aws-credentials` 6, `setup-terraform` 4, `setup-buildx` 4, `build-push` 7), after reading each action's inputs at the pinned commit: every input the two workflows pass still exists. Dependabot proposes pinned updates from here on |
 
+## Roadmap 9: A deployment smoke test
+
+*Goal: "a smoke test automation configuration to deploy the AWS resources via Terraform and destroy after testing", at minimum cost, run manually from GitHub Actions. There was no checklist: the first step was to read what the stack costs per hour (from AWS's price list), what a destroy leaves behind, and what already existed (Provision AWS, the bootstrap stack, the access controls). Decision record: [ADR 73](decisions.md); guide: [aws/smoke-test.md](aws/smoke-test.md).*
+
+| Item | Status | Implemented as |
+| --- | --- | --- |
+| Audit: what an idle dev stack costs | measured, from the price list | $1.19 an hour; the ten interface endpoints in three zones are $0.30 of it, more than the control plane and the NAT gateway together; Kubernetes 1.33, the repository default, is in paid extended support (+$0.50) since 2026-07-29 |
+| Audit: does a destroy leave nothing behind | **existed**, with two gaps | Buckets `force_destroy`, secrets with no recovery window, no final snapshot and seven-day keys outside prod already made a second run possible. Gaps: the ECR repositories are named for the account, and the CloudWatch add-on makes log groups Terraform does not know |
+| A throwaway environment | built | `smoke`: its own state key, names, GitHub Environment and role (the bootstrap stack and Provision AWS accept it, so a leftover stack can be cleared from there); `create_ecr = false` |
+| A cheap profile | built | `envs/smoke.tfvars`; two variables with unchanged defaults: `vpc_interface_endpoints`, `system_node_count`. 34 `terraform test` runs (5 new): the defaults still give the ten endpoints, the profile gives the free one, and smoke is named apart and destroys cleanly |
+| The workflow | built | `.github/workflows/smoke-test.yml`: manual, no input, fixed to `smoke`. `create` (plan, check the plan, apply, check, plan again) and `destroy` (`always()`, a fresh runner). The size comes from the committed profile and a variable file the workflow writes and passes last, never from a repository variable |
+| The script | built | `deploy/scripts/smoke_test.sh`: `preflight` (the plan must be the smoke profile, on a Kubernetes version in standard support today), `check` (13 checks, all run), `destroy` (retries; clears a lock only if the create job did not finish; removes the add-on's log groups), `leftovers` (13 kinds of resource; a failed call is not an absence) |
+| Specs | built | 66 examples run the script against stand-ins for `aws`, `kubectl` and `terraform`; 68 on the workflow and the profile (its refusal, variable and second-plan steps are run); the two shared steps must be byte-identical to Provision AWS's |
+| Mutation check | done | 110 deliberate breakages (the script's checks, retries, lock handling and scan; the workflow's guards, ordering and forced variables; the profile; the Terraform switches), each failing a test. The first pass of 108 left **one survivor**, a real gap: the scan asked for instances in whatever state, and a stand-in that answers any call could not tell. A test on the states that bill closed it, with two siblings (NAT gateways, endpoints), all killed |
+| A budget alarm as a safety net | **not built** | A tag-filtered budget needs the tag activated for cost allocation and updates about daily. The red run and the scan are the net |
+| Reusing `provision.yml` as a called workflow | **not done** | Environment variables, secrets and concurrency in a called workflow could not be tested here; two steps are copied and held identical by a spec |
+| Deploying the application | **not done** | Out of scope: it needs images and Argo CD. The test proves the AWS resources, not the application |
+| **Found on the way** | `scan_ruby` was already red on `main` | `bundler-audit` reported four advisories against `addressable 2.9.0` (fixed in 2.9.1), published after #21's checks had passed. Bumped to 2.9.2 in the four lockfiles (root, auth, ai, notifications), nothing else in them changed; the audit is clean in all four and the suites pass on it (1,679; services 26/19/33). Fixed in this pull request at the owner's instruction, not in a separate one |
+| **Not verified** | everything above | Nothing has run on GitHub or in AWS ([the guide](aws/smoke-test.md#not-verified)) |
+
 ## Next
 
 What is left, ordered by what a real user would hit first. Each of these needs something this repository cannot supply (an AWS account, a host, a browser, a client, or evidence), which is why they are here and not done.
@@ -298,12 +319,13 @@ What is left, ordered by what a real user would hit first. Each of these needs s
 12. **Encrypt the other copies of an address**: the audit trail (a policy decision: encrypt or hash), the outbox payload, and the Auth and Notification services, which hold addresses of their own and could use the same gem. Until then [kms.md](aws/kms.md#what-is-encrypted) lists them.
 13. **A key per record in the context** (Lockbox-style), only if per-record audit or per-tenant keys become a requirement ([ADR 70](decisions.md)).
 14. **Run Provision AWS with `plan` in `dev` and read the identity table in its first step.** It is the first real evidence for the Environment subject's spelling and for every claim ADR 72 makes about GitHub. If the token carries what is inferred, consider putting the owner's ID in the subject so AWS itself refuses anyone else; and decide on required status checks for `main`.
+15. **Run the smoke test for real** ([guide](aws/smoke-test.md#once-per-account-set-it-up): the bootstrap stack for `smoke`, `github_settings.rb --apply`, two variables). It is the first time this Terraform meets AWS. Read the plan check, then each failed check: they are the findings. Afterwards, decide whether the repository's Kubernetes default (1.33, in extended support) should move to the smoke profile's version.
 
 ## How this was verified
 
 | Claim | Evidence |
 | --- | --- |
-| The application behaves as documented | 1,507 examples across the app, shared gems and Lambdas (+78 in the three services), run with branch coverage under `CI=true` (93.7% line, 83.7% branch; floors 92/81); 32 Node tests for the demo front end; 26 `terraform test` runs |
+| The application behaves as documented | 1,679 examples across the app, shared gems, Lambdas and the deploy files (+78 in the three services), run with branch coverage under `CI=true` (93.6% line, 83.0% branch; floors 92/81); 32 Node tests for the demo front end; 34 `terraform test` runs |
 | Search, deep paging and the inbox are fast | `EXPLAIN (ANALYZE)` and in-process timings on a 149,000-task database, 300,000 synthetic notifications ([performance.md](performance.md), the ADRs) |
 | The outbox loses nothing | specs: rolled-back changes leave no event; a failing SNS keeps the event and delivers it exactly once when it returns; two relays never send the same row (including from four threads); a request through to a stubbed SNS |
 | Access is as documented | `tenant_isolation_spec` (every route, now including teams, invitations, search, the inbox, GraphQL), `project_policy_team_spec` (both role lookups agree for every combination), `graphql_spec` ("who can see what") |

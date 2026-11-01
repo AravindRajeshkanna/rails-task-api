@@ -1,6 +1,6 @@
 # One-click provisioning
 
-Creating an environment's AWS resources (network, cluster, database, queues, keys, buckets, alarms) by pressing a button in GitHub, instead of running Terraform from a laptop. Why it is built this way: [ADR 71](../decisions.md). Why only the repository's owner can press it: [ADR 72](../decisions.md). The cluster steps that follow Terraform are still in the [setup guide](setup-guide.md).
+Creating an environment's AWS resources (network, cluster, database, queues, keys, buckets, alarms) by pressing a button in GitHub, instead of running Terraform from a laptop. Why it is built this way: [ADR 71](../decisions.md). Why only the repository's owner can press it: [ADR 72](../decisions.md). To check that all of it works on a real account for about thirty cents, see the [smoke test](smoke-test.md). The cluster steps that follow Terraform are still in the [setup guide](setup-guide.md).
 
 > **Never run.** The workflow passes `actionlint`, its structure is pinned by specs, and the bootstrap stack passes `cfn-lint` and was created in a CloudFormation-compatible stand-in. Neither has touched a real AWS account or GitHub's runners. Expect the first run to find something; run `plan` in `dev` first.
 
@@ -9,7 +9,7 @@ Creating an environment's AWS resources (network, cluster, database, queues, key
 | It does | It does not |
 | --- | --- |
 | Runs `terraform plan`, shows it in the run's summary, and applies **that plan** (not a second one) | Run by itself: no push, pull request or schedule can start it |
-| Works on one environment at a time: `dev`, `staging`, `prod`, and the standbys `staging-dr`, `prod-dr` | Install Argo CD, create the per-service databases, or put the two secrets only you have into Secrets Manager (setup guide steps 5-8). Those are `kubectl` and `helm`; the summary lists them |
+| Works on one environment at a time: `dev`, `staging`, `prod`, the standbys `staging-dr`, `prod-dr`, and `smoke`, the throwaway stack of the [smoke test](smoke-test.md) | Install Argo CD, create the per-service databases, or put the two secrets only you have into Secrets Manager (setup guide steps 5-8). Those are `kubectl` and `helm`; the summary lists them |
 | Needs no AWS key in GitHub: a short-lived identity token, traded for a role that trusts only this repository's runs of that GitHub Environment | Enable Bedrock model access, verify SES, request quotas, or create the hosted zone (setup guide step 1) |
 | Runs from `main` only (the GitHub Environments accept no other branch); `destroy` only when the name is typed again; starts only for the account that owns the repository | Make the second pass for DNS by itself: after Argo CD has created the Ingress, run it again with `alb_exists` ticked |
 
@@ -62,7 +62,7 @@ It needs `gh` logged in as an admin of the repository. It sets:
 | What | To | Why |
 | --- | --- | --- |
 | Each Environment's deployment branches | `main` only | The role's trust cannot see the branch; this is the only branch rule between a feature branch and the account |
-| Required reviewer | you, on `staging`, `staging-dr`, `prod`, `prod-dr` (not `dev`, which deploys by itself after every merge) | A confirmation before it starts. In a one-person repository it is a pause, not a second pair of eyes |
+| Required reviewer | you, on `staging`, `staging-dr`, `prod`, `prod-dr` (not `dev`, which deploys by itself after every merge, nor `smoke`, whose destroy job would wait for an approval in the middle of the run) | A confirmation before it starts. In a one-person repository it is a pause, not a second pair of eyes |
 | Administrators bypass the Environment's rules | off | Otherwise the rules above are advice to the one person they exist for |
 | Who must approve a fork's pull request before its workflows run | every outside contributor, every time | The repository is public |
 | The default token, and approving reviews | read-only, and may not approve | |

@@ -1,9 +1,9 @@
 variable "environment" {
-  description = "dev, staging or prod. Each environment is a separate state and, ideally, a separate AWS account."
+  description = "dev, staging, prod, or smoke (the throwaway stack the Smoke test AWS workflow creates and destroys: docs/aws/smoke-test.md). Each environment is a separate state and, ideally, a separate AWS account."
   type        = string
   validation {
-    condition     = contains(["dev", "staging", "prod"], var.environment)
-    error_message = "environment must be dev, staging or prod."
+    condition     = contains(["dev", "staging", "prod", "smoke"], var.environment)
+    error_message = "environment must be dev, staging, prod or smoke."
   }
 }
 
@@ -111,6 +111,22 @@ variable "system_node_instance_types" {
   description = "The small on-demand node group that runs Karpenter and cluster add-ons. Everything else runs on nodes Karpenter creates."
   type        = list(string)
   default     = ["m7g.large"]
+}
+
+variable "system_node_count" {
+  description = "How many nodes the system group starts with and keeps at least. Two keeps the add-ons running while one node is replaced; the smoke test, which runs no workload, uses one."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.system_node_count >= 1 && floor(var.system_node_count) == var.system_node_count
+    error_message = "system_node_count must be a whole number from 1 up."
+  }
+}
+
+variable "vpc_interface_endpoints" {
+  description = "Private endpoints (ECR, STS, KMS, Secrets Manager, SQS, SNS, Logs, Bedrock, X-Ray) so that the cluster's traffic to those services, and the NAT bill, stays inside the VPC. Each is billed per hour in every availability zone, which is more than the NAT gateway and more than the EKS control plane. False keeps only the free S3 gateway endpoint: the traffic goes through the NAT gateway instead. For a stack that is up for an hour and carries no traffic (the smoke test)."
+  type        = bool
+  default     = true
 }
 
 # --- Database ---

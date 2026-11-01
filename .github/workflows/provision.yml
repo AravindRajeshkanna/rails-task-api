@@ -20,7 +20,7 @@ on:
       environment:
         description: Environment to provision (a GitHub Environment of the same name holds its variables and approvals)
         type: choice
-        options: [ dev, staging, staging-dr, prod, prod-dr ]
+        options: [ dev, smoke, staging, staging-dr, prod, prod-dr ]
         default: dev
       action:
         description: "apply = plan then apply that plan. plan = show it only. destroy = remove everything (confirm below)"
