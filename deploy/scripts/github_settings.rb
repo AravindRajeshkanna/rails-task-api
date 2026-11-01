@@ -17,8 +17,9 @@ require "optparse"
 
 module GithubSettings
   BRANCH = "main".freeze
-  # Environment => whether the owner must approve a run before it starts. dev deploys by itself after every merge to main (deploy.yml), so it asks for none.
-  ENVIRONMENTS = { "dev" => false, "staging" => true, "staging-dr" => true, "prod" => true, "prod-dr" => true }.freeze
+  # Environment => whether the owner must approve a run before it starts. dev deploys by itself after every merge to main (deploy.yml), so it asks for none;
+  # smoke is created and destroyed by one run of the Smoke test AWS workflow, whose destroy job would otherwise wait for an approval in the middle of it.
+  ENVIRONMENTS = { "dev" => false, "smoke" => false, "staging" => true, "staging-dr" => true, "prod" => true, "prod-dr" => true }.freeze
   FORK_APPROVAL = "all_external_contributors".freeze # the repository is public: a fork's pull request runs CI only once the owner has looked at it, every time
 
   Check = Struct.new(:area, :what, :wanted, :actual, :fix, keyword_init: true) do

@@ -16,7 +16,7 @@ Parameters:
   Environment:
     Type: String
     Description: The GitHub Environment (and Terraform environment) this role is for. The role trusts runs of that GitHub Environment and no other.
-    AllowedValues: [ dev, staging, staging-dr, prod, prod-dr ]
+    AllowedValues: [ dev, smoke, staging, staging-dr, prod, prod-dr ]
   CreateOidcProvider:
     Type: String
     Description: "true the first time in an account. An account can have only one GitHub identity provider: say false if it already has one (this stack or another)."
