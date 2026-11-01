@@ -4,10 +4,15 @@ Description: >-
   the bucket that holds Terraform's state, and the role the workflow assumes. Nothing else. See docs/aws/one-click.md.
 
 Parameters:
-  GitHubRepository:
+  GitHubSubjectPrefix:
     Type: String
-    Description: owner/name of the repository whose workflow may assume the role
-    AllowedPattern: "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+    Description: >-
+      What GitHub puts in the token's subject before ":environment:<name>". Get it from GitHub, do not type it from memory:
+      gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix
+      On a repository made since 2026-07-15 it holds the owner's and the repository's IDs (repo:OWNER@123/REPO@456), which is what stops a deleted and
+      re-registered name from inheriting the trust. On an older one, repo:OWNER/REPO. A wrong value makes the role refuse every run.
+    AllowedPattern: "repo:[A-Za-z0-9_.-]+(@[0-9]+)?/[A-Za-z0-9_.-]+(@[0-9]+)?"
+    ConstraintDescription: "Use repo:OWNER/REPO or repo:OWNER@OWNER_ID/REPO@REPO_ID (no wildcard)"
   Environment:
     Type: String
     Description: The GitHub Environment (and Terraform environment) this role is for. The role trusts runs of that GitHub Environment and no other.
@@ -95,8 +100,10 @@ Resources:
             Condition:
               StringEquals:
                 "token.actions.githubusercontent.com:aud": sts.amazonaws.com
-                # Only a run of this repository that deploys to this GitHub Environment. The Environment is where the approval rules live.
-                "token.actions.githubusercontent.com:sub": !Sub repo:${GitHubRepository}:environment:${Environment}
+                # Exactly one subject (StringEquals, no wildcard): a run of this repository that deploys to this GitHub Environment. AWS evaluates only
+                # aud and sub, so who may start such a run is decided in GitHub: the Environment's branch rule and reviewer, and the repository having no
+                # other collaborator (deploy/scripts/github_settings.rb checks all three; ADR 72).
+                "token.actions.githubusercontent.com:sub": !Sub ${GitHubSubjectPrefix}:environment:${Environment}
 
 Outputs:
   RoleArn:

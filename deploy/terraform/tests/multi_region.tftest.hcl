@@ -787,3 +787,50 @@ run "kms_storage_replication_without_kms_is_as_it_was" {
     error_message = "And looks up no key."
   }
 }
+
+# Who may push images from GitHub: one exact subject, never a wildcard, never "any run on main". AWS evaluates only aud and sub, so this is the whole of what
+# the trust can say about the caller (ADR 72).
+run "github_deploy_role_trusts_one_subject" {
+  command = apply
+
+  assert {
+    condition     = length([for condition in one(data.aws_iam_policy_document.github_trust.statement).condition : condition if condition.variable == "token.actions.githubusercontent.com:sub"]) == 1
+    error_message = "One condition on the subject."
+  }
+  assert {
+    condition     = one([for condition in one(data.aws_iam_policy_document.github_trust.statement).condition : condition.test if condition.variable == "token.actions.githubusercontent.com:sub"]) == "StringEquals"
+    error_message = "The subject is matched exactly: a StringLike would let a pattern in."
+  }
+  assert {
+    condition     = join(",", one([for condition in one(data.aws_iam_policy_document.github_trust.statement).condition : tolist(condition.values) if condition.variable == "token.actions.githubusercontent.com:sub"])) == "repo:owner/repo:environment:prod"
+    error_message = "Without a prefix the subject is the repository's name, in this environment's GitHub Environment, and nothing else (not the main branch on its own)."
+  }
+  assert {
+    condition     = one([for condition in one(data.aws_iam_policy_document.github_trust.statement).condition : tolist(condition.values) if condition.variable == "token.actions.githubusercontent.com:aud"])[0] == "sts.amazonaws.com"
+    error_message = "The audience is still checked."
+  }
+}
+
+run "github_deploy_role_follows_the_ids_when_github_uses_them" {
+  command = apply
+
+  variables {
+    environment                = "dev"
+    github_oidc_subject_prefix = "repo:owner@22373811/repo@1436955495"
+  }
+
+  assert {
+    condition     = join(",", one([for condition in one(data.aws_iam_policy_document.github_trust.statement).condition : tolist(condition.values) if condition.variable == "token.actions.githubusercontent.com:sub"])) == "repo:owner@22373811/repo@1436955495:environment:dev"
+    error_message = "A repository whose tokens carry the owner's and its own IDs is trusted by those IDs, so a re-registered name inherits nothing."
+  }
+}
+
+run "github_subject_prefix_cannot_carry_a_pattern" {
+  command = plan
+
+  variables {
+    github_oidc_subject_prefix = "repo:owner/*"
+  }
+
+  expect_failures = [var.github_oidc_subject_prefix]
+}

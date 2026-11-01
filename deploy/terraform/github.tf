@@ -8,6 +8,9 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 locals {
   github_oidc_provider_arn = var.create_github_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:oidc-provider/token.actions.githubusercontent.com"
+
+  # The one subject the deploy role trusts: this repository (by ID where GitHub uses IDs), running as this GitHub Environment.
+  github_subject = "${coalesce(var.github_oidc_subject_prefix, "repo:${var.github_repository}")}:environment:${var.environment}"
 }
 
 data "aws_iam_policy_document" "github_trust" {
@@ -22,11 +25,14 @@ data "aws_iam_policy_document" "github_trust" {
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
-    # Only runs of the main branch, or of this environment's GitHub Environment, may push images.
+    # Only a run that deploys to this environment's GitHub Environment may push images, and the Environment is where the branch rule (main) and the
+    # approvals live. Not "any run on main": a workflow with no Environment has none of those, and no wildcard (StringEquals) so that nothing but this
+    # exact subject matches. AWS evaluates only aud and sub, so this is the whole of what the trust can say; who may start the run is decided in GitHub
+    # (docs/aws/one-click.md, ADR 72).
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/main", "repo:${var.github_repository}:environment:${var.environment}"]
+      values   = [local.github_subject]
     }
   }
 }

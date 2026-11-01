@@ -52,7 +52,7 @@ RSpec.describe "Provision AWS workflow" do
       condition = bootstrap.dig("Resources", "TerraformRole", "Properties", "AssumeRolePolicyDocument", "Statement").sole.fetch("Condition").fetch("StringEquals")
       subject_claim = condition.fetch("token.actions.githubusercontent.com:sub")
 
-      expect(subject_claim.to_s).to include("repo:").and include("environment:").and include("GitHubRepository").and include("Environment")
+      expect(subject_claim.to_s).to include("GitHubSubjectPrefix").and include(":environment:").and include("Environment")
       expect(subject_claim.to_s).not_to include("*")
       expect(condition.fetch("token.actions.githubusercontent.com:aud")).to eq("sts.amazonaws.com")
     end
