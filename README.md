@@ -309,6 +309,8 @@ DNS), with a verification checklist. Runbooks for the alerts are in [docs/runboo
 
 **One click, by hand:** the **Provision AWS** workflow (`workflow_dispatch` only) runs Terraform for one environment, shows the plan and applies exactly that plan, with no AWS key stored in GitHub (a one-time CloudFormation stack in `deploy/bootstrap/` creates the role it assumes and the state bucket). It stops where Terraform stops: [docs/aws/one-click.md](docs/aws/one-click.md). **It has never run.**
 
+**A deployment smoke test, by hand:** the **Smoke test AWS** workflow builds a throwaway `smoke` stack with Terraform at about $0.26 an hour, checks it, destroys it and scans for anything left, about thirty cents a run: [docs/aws/smoke-test.md](docs/aws/smoke-test.md). **It has never run.**
+
 **Encryption keys:** users' email addresses and webhook secrets are encrypted by the application with keys that AWS KMS protects (envelope encryption; a key per purpose; the data key is multi-Region so the standby can read what the primary wrote; a KMS-only CloudTrail trail with alarms). Where KMS is not available (Kamal, docker compose) `ENCRYPTION_KEY_SOURCE=credentials` keeps Rails' own keys. What is encrypted and what is not, and how it fails: [docs/aws/kms.md](docs/aws/kms.md); rotation and conversion: [runbook](docs/runbooks/kms-key-rotation.md).
 
 A second region (an active/passive warm standby built from the same Terraform with `dr_role`, with a Route 53 failover pair) is written and checked offline with `terraform test`, but has never been applied: [docs/aws/multi-region.md](docs/aws/multi-region.md).
@@ -342,7 +344,7 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 | [docs/slo.md](docs/slo.md) · [docs/capacity-planning.md](docs/capacity-planning.md) · [docs/architecture/failure-domains.md](docs/architecture/failure-domains.md) · [docs/architecture/boundaries.md](docs/architecture/boundaries.md) · [docs/architecture/data-lifecycle.md](docs/architecture/data-lifecycle.md) | Objectives and alerts, how many pods, what fails together, who owns what, how the data ages |
 | [docs/api-versioning.md](docs/api-versioning.md) · [CHANGELOG.md](CHANGELOG.md) | Versioning policy and what changed for API clients |
 | [docs/runbooks/](docs/runbooks/) | Operating it: alerts, backups and restores, zero-downtime migrations |
-| [docs/aws/setup-guide.md](docs/aws/setup-guide.md) · [docs/aws/one-click.md](docs/aws/one-click.md) · [docs/aws/kms.md](docs/aws/kms.md) · [deploy/README.md](deploy/README.md) | Standing the platform up on AWS, in one click, and the encryption keys |
+| [docs/aws/setup-guide.md](docs/aws/setup-guide.md) · [docs/aws/one-click.md](docs/aws/one-click.md) · [docs/aws/smoke-test.md](docs/aws/smoke-test.md) · [docs/aws/kms.md](docs/aws/kms.md) · [deploy/README.md](deploy/README.md) | Standing the platform up on AWS, in one click, testing it for thirty cents, and the encryption keys |
 | [CONTRIBUTING.md](CONTRIBUTING.md) · [SECURITY.md](SECURITY.md) | Working on it; reporting a vulnerability |
 
 ## License
