@@ -27,6 +27,7 @@ trust it, and the response headers say so.
 | SSRF | Webhook URLs are resolved and refused if they point at private, loopback or metadata addresses, re-checked at delivery | `app/services/webhooks` | `url_guard_spec`, `deliverer_spec` |
 | Secrets | Rails credentials plus environment variables locally; AWS Secrets Manager through External Secrets in the cluster; nothing in git (`.env`, `master.key` ignored) | `.env.example`, `deploy/` | |
 | Supply chain | `bundler-audit` and Brakeman (the app and each service) on every PR; Dependabot for gems and Actions; images use immutable tags | `.github/workflows/ci.yml` | CI |
+| Access to AWS from GitHub | Only the repository's owner: `deploy.yml` builds only an owner's push to `main`; the AWS roles trust one exact subject (the repository's IDs, one Environment); Environments accept `main` only with the owner as reviewer; the Provision workflow refuses any other account; actions that hold the token are pinned to commits; `deploy/scripts/github_settings.rb` checks the settings and who has access ([ADR 72](decisions.md), [one-click.md](aws/one-click.md)) | `.github/workflows/`, `deploy/` | `spec/deploy/github_access_spec.rb`, `github_settings_spec.rb` |
 | Data integrity | Soft delete with restore, append-only audit log, optimistic locking | | |
 
 ## OWASP API Security Top 10 (2023)

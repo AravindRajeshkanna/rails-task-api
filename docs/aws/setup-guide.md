@@ -200,8 +200,8 @@ kubectl -n external-secrets get pods
 The services stay pending until images exist at the tag in `deploy/gitops/envs/dev/*.yaml`.
 
 **Through GitHub Actions (normal path).** Set repository *variables* `AWS_REGION` and `AWS_DEPLOY_ROLE_ARN` (from
-`terraform output github_deploy_role_arn`), create GitHub *Environments* named `dev`, `staging`, `prod` (add required reviewers on `prod`), and
-push to `main`. CI runs; on success `Deploy` builds the four images, pushes them to ECR over OIDC, and commits the new tag to `envs/dev`. Argo CD syncs.
+`terraform output github_deploy_role_arn`), lock the GitHub *Environments* (`ruby deploy/scripts/github_settings.rb --apply`: creates `dev`, `staging`, `prod` and the standbys, main-only, with you as
+reviewer where an approval is wanted; [one-click.md](one-click.md)), and push to `main`. CI runs; on success `Deploy` builds the four images, pushes them to ECR over OIDC, and commits the new tag to `envs/dev`. Argo CD syncs.
 
 **By hand, once, to get going:**
 ```sh
