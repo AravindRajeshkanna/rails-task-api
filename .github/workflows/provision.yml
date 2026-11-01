@@ -5,12 +5,14 @@ name: Provision AWS
 # It never runs by itself: no push, no pull request, no schedule. CI (ci.yml) only validates and tests the Terraform; this is the only place it is applied.
 #
 #   apply    plan, show the plan, then apply exactly that plan (not a second one made a minute later). The default.
-#   plan     only show the plan. Safe anywhere, from any branch.
+#   plan     only show the plan. Changes nothing. (Like the others it needs the Environment to accept the branch: main only, once github_settings.rb has run.)
 #   destroy  remove the environment. Needs its name typed again, and read the warning on that input first.
 #
 # No AWS keys are stored in GitHub. The job asks GitHub for a short-lived identity token and trades it for the role that deploy/bootstrap/bootstrap.yaml created,
-# which trusts only this repository's runs of this GitHub Environment. Put required reviewers on the Environments (prod above all) and restrict their
-# deployment branch to main: that is where "who may press the button" is decided. Setup, once: docs/aws/one-click.md.
+# which trusts only this repository's runs of this GitHub Environment. Who may press the button is decided in four places, none of them this file alone:
+# the Environment (required reviewer, deployment branch main: deploy/scripts/github_settings.rb sets and checks both), the first step below (the account
+# that owns the repository), the role's trust (this repository's immutable ID, this Environment) and the repository having no other collaborator.
+# Setup, once: docs/aws/one-click.md. Why: ADR 72.
 
 on:
   workflow_dispatch:
@@ -72,10 +74,21 @@ jobs:
       TF_VARS_SECRET_JSON: ${{ secrets.TF_VARS_SECRET_JSON }}
       AWS_TERRAFORM_ROLE_ARN: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
     steps:
+      # The Environment's reviewers and branch rule are the lock; this is the same promise written where a reader of this file sees it. It also stops a re-run
+      # by someone else: the actor of a re-run is the original one, the triggering actor is whoever pressed Re-run.
+      - name: Only the account that owns this repository
+        run: |
+          actor_login=$(printf '%s' "$GITHUB_TRIGGERING_ACTOR" | tr '[:upper:]' '[:lower:]')
+          owner_login=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          if [ "$GITHUB_ACTOR_ID" != "$GITHUB_REPOSITORY_OWNER_ID" ] || [ "$actor_login" != "$owner_login" ]; then
+            echo "::error::$GITHUB_TRIGGERING_ACTOR (started by $GITHUB_ACTOR, id $GITHUB_ACTOR_ID) is not the account that owns $GITHUB_REPOSITORY. Nothing was changed. If the repository now belongs to an organization, change this step on purpose (ADR 72)."
+            exit 1
+          fi
+
       - name: Refuse, before anything is created, what must not run
         run: |
           if [ "$ACTION" != plan ] && [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            echo "::error::$ACTION runs from main only (this is $GITHUB_REF). A plan can run from any branch."
+            echo "::error::$ACTION runs from main only (this is $GITHUB_REF). A plan runs from another branch only if the Environment allows that branch."
             exit 1
           fi
           if [ "$ACTION" = destroy ] && [ "$CONFIRM_DESTROY" != "$ENVIRONMENT" ]; then
@@ -96,16 +109,42 @@ jobs:
           fi
 
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false   # nothing here pushes; no token is left in the directory Terraform runs in
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
           terraform_version: "~1.14"
           terraform_wrapper: false
 
+      # Asks GitHub for the same identity token the next step trades for the role, and shows what is in it. Two uses: when the role refuses (its trust names
+      # one exact subject), the summary says what the subject actually was; and the deploy role that Terraform creates is told the same subject prefix,
+      # instead of a guess at the spelling GitHub uses for this repository (it includes the owner and repository IDs on repositories made since 2026-07-15).
+      - name: Show the identity AWS will be given
+        run: |
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          echo "::add-mask::$token"
+          claims=$(printf '%s' "$token" | cut -d. -f2 | tr '_-' '/+' | jq -R '@base64d | fromjson')
+          {
+            echo "### Identity token for $ENVIRONMENT"
+            echo
+            echo '| claim | value |'
+            echo '| --- | --- |'
+            jq -r '[.sub, .actor, .actor_id, .event_name, .ref, .environment, .repository_id] | "| sub | `\(.[0])` |\n| actor | \(.[1]) (\(.[2])) |\n| event | \(.[3]) on \(.[4]) |\n| environment | \(.[5]) |\n| repository id | \(.[6]) |"' <<< "$claims"
+          } >> "$GITHUB_STEP_SUMMARY"
+          subject=$(jq -r .sub <<< "$claims")
+          prefix=${subject%":environment:$ENVIRONMENT"}
+          pattern='^repo:[A-Za-z0-9_.-]+(@[0-9]+)?/[A-Za-z0-9_.-]+(@[0-9]+)?$'
+          if [ "$prefix" = "$subject" ] || ! [[ $prefix =~ $pattern ]]; then
+            echo "::error::The token's subject is '$subject', not 'repo:<owner>/<repo>:environment:$ENVIRONMENT'. The role would refuse it."
+            exit 1
+          fi
+          echo "TF_VAR_github_oidc_subject_prefix=$prefix" >> "$GITHUB_ENV"
+
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
           aws-region: ${{ env.TF_STATE_REGION }}

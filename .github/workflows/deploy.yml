@@ -14,38 +14,49 @@ concurrency:
   group: deploy
   cancel-in-progress: false
 
-permissions:
-  id-token: write   # OIDC token for AWS
-  contents: write   # commit the new image tag
+# Nothing by default; each job asks for what it needs. Only `build` can get a token AWS trusts, and only `gitops` can write to the repository.
+permissions: {}
 
 jobs:
   build:
-    if: github.event.workflow_run.conclusion == 'success'
+    # This workflow runs with the repository's own permissions whatever started CI, and the repository is public: anyone can open a pull request from a
+    # fork, CI runs on it, and `branches: [ main ]` above matches the pull request's branch NAME, so a fork's branch called main passes it. Hence all four:
+    # a push (not a pull request), to this repository (not a fork), to main, by the account that owns it. Anything else is skipped, not failed.
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.head_branch == 'main'
+      && github.event.workflow_run.triggering_actor.id == github.repository_owner_id
     runs-on: ubuntu-latest
     environment: dev   # the AWS role trusts this GitHub Environment (terraform/github.tf)
+    permissions:
+      id-token: write   # the identity token AWS trusts
+      contents: read
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       TAG: ${{ github.event.workflow_run.head_sha }}
     steps:
       - name: Checkout the commit that passed CI
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false   # the Docker builds below read this directory; they should not find a token in it
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}   # terraform output github_deploy_role_arn
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Log in to Amazon ECR
         id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build and push api
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile
@@ -65,12 +76,14 @@ jobs:
           done
 
   gitops:
-    needs: build
+    needs: build   # skipped whenever `build` is, so the guard above covers this job too
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # commit the new image tag
     steps:
       # GitOps_REPO lets the manifests live in a separate repository; by default they are in this one.
       - name: Check out the GitOps repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: ${{ vars.GITOPS_REPO || github.repository }}
           token: ${{ secrets.GITOPS_TOKEN || github.token }}
