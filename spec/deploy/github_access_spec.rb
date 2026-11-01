@@ -13,7 +13,8 @@ RSpec.describe "Who can reach AWS from GitHub" do
   let(:provision) { YAML.safe_load_file(provision_path, aliases: true) }
   let(:bootstrap) { YAML.load_file(Rails.root.join("deploy/bootstrap/bootstrap.yaml"), permitted_classes: [ Symbol ], aliases: true) }
   let(:github_tf) { Rails.root.join("deploy/terraform/github.tf").read }
-  let(:aws_workflows) { { "deploy.yml" => deploy_path, "provision.yml" => provision_path } }
+  let(:smoke_path) { workflows_dir.join("smoke-test.yml") }
+  let(:aws_workflows) { { "deploy.yml" => deploy_path, "provision.yml" => provision_path, "smoke-test.yml" => smoke_path } }
 
   describe "Deploy, which runs after CI and holds an AWS token" do
     let(:build) { deploy.dig("jobs", "build") }

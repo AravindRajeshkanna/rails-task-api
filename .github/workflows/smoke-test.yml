@@ -1,0 +1,343 @@
+name: Smoke test AWS
+
+# A deployment smoke test, by hand: creates the AWS stack with Terraform at the smallest size that still has every kind of resource in it, checks that it
+# works, and destroys it again, all in one run.
+#   Actions > Smoke test AWS > Run workflow > Run workflow.
+# It takes no input. What it builds is fixed in the code: the `smoke` environment (deploy/terraform/envs/smoke.tfvars) in its own Terraform state, under names no
+# other environment uses, so nothing it does can reach dev, staging or prod. About an hour, about thirty cents at list prices: docs/aws/smoke-test.md.
+#
+#   create    plan, check the plan (it must be the smoke profile, on an EKS version that is not in paid extended support), apply that plan, check the stack
+#             (cluster, nodes, add-ons, database, keys, bucket, certificate, queues, secrets, WAF, alarms), and plan again to find anything Terraform would
+#             change on a second run
+#   destroy   runs whatever happened in create, on a fresh runner (a failed, timed-out or cancelled create included): terraform destroy, again if it fails,
+#             then a look for anything that still costs money. It is what makes the run cheap, so a red run needs reading at once
+#
+# No AWS keys are stored in GitHub: like Provision AWS this trades GitHub's identity token for the role deploy/bootstrap/bootstrap.yaml made, which trusts only this
+# repository's runs of the `smoke` GitHub Environment. Who may press the button is decided as it is there (ADR 72): the Environment (branch main only), the
+# first step (the account that owns the repository), the role's trust. Setup, once: docs/aws/smoke-test.md. Why it is built this way: ADR 73.
+
+on:
+  workflow_dispatch:
+
+# The same group as Provision AWS uses for the smoke environment, so that a destroy pressed there for a stack left behind waits for this run and the other way
+# round, and a run that has started is never cancelled: a half-applied change is the worst state to leave.
+concurrency:
+  group: provision-smoke
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  STACK_REGION: us-east-1   # where the stack is made and looked for: the same as region in deploy/terraform/envs/smoke.tfvars (a spec keeps them equal)
+  SMOKE_HOURLY_USD: "0.26"  # what the stack costs per hour at list prices, from docs/aws/smoke-test.md; only used to print an estimate
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  create:
+    name: Create and check
+    runs-on: ubuntu-latest
+    timeout-minutes: 120   # EKS and Aurora take about half an hour to create; a certificate whose DNS never validates would wait 75 minutes more
+    environment: smoke
+    permissions:
+      id-token: write   # the identity token that AWS trusts
+      contents: read
+    outputs:
+      created_at: ${{ steps.clock.outputs.created_at }}
+    env:
+      ENVIRONMENT: smoke
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_STATE_REGION: ${{ vars.TF_STATE_REGION || 'us-east-1' }}
+      AWS_TERRAFORM_ROLE_ARN: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+      SMOKE_ROOT_DOMAIN: ${{ vars.SMOKE_ROOT_DOMAIN }}
+    steps:
+      # The Environment's branch rule is the lock; this is the same promise written where a reader of this file sees it. It also stops a re-run by someone else.
+      - name: Only the account that owns this repository
+        run: |
+          actor_login=$(printf '%s' "$GITHUB_TRIGGERING_ACTOR" | tr '[:upper:]' '[:lower:]')
+          owner_login=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          if [ "$GITHUB_ACTOR_ID" != "$GITHUB_REPOSITORY_OWNER_ID" ] || [ "$actor_login" != "$owner_login" ]; then
+            echo "::error::$GITHUB_TRIGGERING_ACTOR (started by $GITHUB_ACTOR, id $GITHUB_ACTOR_ID) is not the account that owns $GITHUB_REPOSITORY. Nothing was changed. If the repository now belongs to an organization, change this step on purpose (ADR 72)."
+            exit 1
+          fi
+
+      - name: Refuse, before anything is created, what must not run
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::The smoke test runs from main only (this is $GITHUB_REF)."
+            exit 1
+          fi
+          if [ -z "$TF_STATE_BUCKET" ]; then
+            echo "::error::The repository variable TF_STATE_BUCKET is not set. Run the bootstrap stack first: docs/aws/smoke-test.md."
+            exit 1
+          fi
+          if [ -z "$AWS_TERRAFORM_ROLE_ARN" ]; then
+            echo "::error::The variable AWS_TERRAFORM_ROLE_ARN is not set on the smoke GitHub Environment. Run the bootstrap stack for it: docs/aws/smoke-test.md."
+            exit 1
+          fi
+          pattern='^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$'
+          if ! [[ $SMOKE_ROOT_DOMAIN =~ $pattern ]]; then
+            echo "::error::The variable SMOKE_ROOT_DOMAIN on the smoke GitHub Environment must be a Route 53 public hosted zone you own, such as example.com."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token is left in the directory Terraform runs in
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "~1.14"
+          terraform_wrapper: false
+
+      # Asks GitHub for the same identity token the next step trades for the role, and shows what is in it. Two uses: when the role refuses (its trust names
+      # one exact subject), the summary says what the subject actually was; and the deploy role that Terraform creates is told the same subject prefix,
+      # instead of a guess at the spelling GitHub uses for this repository (it includes the owner and repository IDs on repositories made since 2026-07-15).
+      - name: Show the identity AWS will be given
+        run: |
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          echo "::add-mask::$token"
+          claims=$(printf '%s' "$token" | cut -d. -f2 | tr '_-' '/+' | jq -R '@base64d | fromjson')
+          {
+            echo "### Identity token for $ENVIRONMENT"
+            echo
+            echo '| claim | value |'
+            echo '| --- | --- |'
+            jq -r '[.sub, .actor, .actor_id, .event_name, .ref, .environment, .repository_id] | "| sub | `\(.[0])` |\n| actor | \(.[1]) (\(.[2])) |\n| event | \(.[3]) on \(.[4]) |\n| environment | \(.[5]) |\n| repository id | \(.[6]) |"' <<< "$claims"
+          } >> "$GITHUB_STEP_SUMMARY"
+          subject=$(jq -r .sub <<< "$claims")
+          prefix=${subject%":environment:$ENVIRONMENT"}
+          pattern='^repo:[A-Za-z0-9_.-]+(@[0-9]+)?/[A-Za-z0-9_.-]+(@[0-9]+)?$'
+          if [ "$prefix" = "$subject" ] || ! [[ $prefix =~ $pattern ]]; then
+            echo "::error::The token's subject is '$subject', not 'repo:<owner>/<repo>:environment:$ENVIRONMENT'. The role would refuse it."
+            exit 1
+          fi
+          echo "TF_VAR_github_oidc_subject_prefix=$prefix" >> "$GITHUB_ENV"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.STACK_REGION }}
+          role-duration-seconds: 14400
+
+      # Written outside the checkout and passed last, so that nothing before it can say otherwise. The stack's own values are in envs/smoke.tfvars; these are the
+      # ones that make it this stack and no other (deploy/scripts/smoke_test.sh preflight checks the plan says so), and the one thing that is yours, the zone.
+      # Nothing else is read from the repository's variables: no TF_VARS_JSON here, so no variable can make the stack bigger, or turn into another environment.
+      - name: Variables for this stack
+        run: |
+          jq -n --arg root_domain "$SMOKE_ROOT_DOMAIN" --arg github_repository "$GITHUB_REPOSITORY" --arg region "$STACK_REGION" '{
+            environment: "smoke", region: $region, root_domain: $root_domain, github_repository: $github_repository,
+            create_ecr: false, dr_role: "none", create_github_oidc_provider: false, backup_copy_region: "", db_deletion_protection: false,
+            alb_exists: false, peer_ready: false }' > "$RUNNER_TEMP/smoke.override.tfvars.json"
+
+      - name: Terraform init
+        working-directory: deploy/terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
+            -backend-config="key=$ENVIRONMENT/terraform.tfstate" \
+            -backend-config="region=$TF_STATE_REGION" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Terraform validate
+        working-directory: deploy/terraform
+        run: terraform validate
+
+      - name: Terraform plan
+        working-directory: deploy/terraform
+        run: terraform plan -out=tfplan -var-file=envs/smoke.tfvars -var-file="$RUNNER_TEMP/smoke.override.tfvars.json"
+
+      - name: Show the plan
+        working-directory: deploy/terraform
+        run: |
+          {
+            echo "## Smoke test: plan"
+            echo
+            terraform show -json tfplan | jq -r '
+              [.resource_changes[]?.change.actions | join("+")] | group_by(.) | map("\(.[0]): \(length)") | join("   ")' | sed 's/^$/no changes/'
+            echo
+            echo '<details><summary>The plan</summary>'
+            echo
+            echo '```'
+            terraform show -no-color tfplan | head -c 400000
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Before the first thing that costs money: is this the smoke profile, and is its Kubernetes version still in standard support?
+      - name: Check the plan
+        working-directory: deploy/terraform
+        run: |
+          terraform show -json tfplan > "$RUNNER_TEMP/plan.json"
+          "$GITHUB_WORKSPACE/deploy/scripts/smoke_test.sh" preflight "$RUNNER_TEMP/plan.json"
+
+      - name: Note the time the stack starts to exist
+        id: clock
+        run: echo "created_at=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform apply (the plan above, as it is)
+        working-directory: deploy/terraform
+        timeout-minutes: 75
+        run: terraform apply tfplan
+
+      - name: Check what was made
+        working-directory: deploy/terraform
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          terraform output -json > "$RUNNER_TEMP/outputs.json"
+          EXPECTED_NODES=$(jq -r '.variables.system_node_count.value' "$RUNNER_TEMP/plan.json") \
+            "$GITHUB_WORKSPACE/deploy/scripts/smoke_test.sh" check "$RUNNER_TEMP/outputs.json"
+
+      # A resource that Terraform wants to change straight after creating it will do so on every run, and in every environment.
+      - name: Plan again, and find nothing to change
+        working-directory: deploy/terraform
+        run: |
+          code=0
+          terraform plan -detailed-exitcode -lock-timeout=5m -var-file=envs/smoke.tfvars -var-file="$RUNNER_TEMP/smoke.override.tfvars.json" || code=$?
+          case $code in
+            0) echo "A second plan finds nothing to change." >> "$GITHUB_STEP_SUMMARY" ;;
+            2) echo "::error::A second plan right after the apply still wants to change something: the configuration is not stable. The plan is in the log above."; exit 1 ;;
+            *) exit "$code" ;;
+          esac
+
+  destroy:
+    name: Destroy, and look for what is left
+    needs: create
+    if: ${{ always() }}   # whatever happened in create, including a failure, a timeout and a cancellation
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: smoke
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      ENVIRONMENT: smoke
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_STATE_REGION: ${{ vars.TF_STATE_REGION || 'us-east-1' }}
+      AWS_TERRAFORM_ROLE_ARN: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+      SMOKE_ROOT_DOMAIN: ${{ vars.SMOKE_ROOT_DOMAIN }}
+      # A lock left in the state is cleared only if create did not finish: then its terraform was killed, and nobody else holds it.
+      UNLOCK_STALE: ${{ needs.create.result != 'success' }}
+      CREATED_AT: ${{ needs.create.outputs.created_at }}
+    steps:
+      - name: Only the account that owns this repository
+        run: |
+          actor_login=$(printf '%s' "$GITHUB_TRIGGERING_ACTOR" | tr '[:upper:]' '[:lower:]')
+          owner_login=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          if [ "$GITHUB_ACTOR_ID" != "$GITHUB_REPOSITORY_OWNER_ID" ] || [ "$actor_login" != "$owner_login" ]; then
+            echo "::error::$GITHUB_TRIGGERING_ACTOR (started by $GITHUB_ACTOR, id $GITHUB_ACTOR_ID) is not the account that owns $GITHUB_REPOSITORY. Nothing was changed. If the repository now belongs to an organization, change this step on purpose (ADR 72)."
+            exit 1
+          fi
+
+      - name: Refuse, before anything is changed, what must not run
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::The smoke test runs from main only (this is $GITHUB_REF)."
+            exit 1
+          fi
+          if [ -z "$TF_STATE_BUCKET" ]; then
+            echo "::error::The repository variable TF_STATE_BUCKET is not set. Run the bootstrap stack first: docs/aws/smoke-test.md."
+            exit 1
+          fi
+          if [ -z "$AWS_TERRAFORM_ROLE_ARN" ]; then
+            echo "::error::The variable AWS_TERRAFORM_ROLE_ARN is not set on the smoke GitHub Environment. Run the bootstrap stack for it: docs/aws/smoke-test.md."
+            exit 1
+          fi
+          pattern='^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$'
+          if ! [[ $SMOKE_ROOT_DOMAIN =~ $pattern ]]; then
+            echo "::error::The variable SMOKE_ROOT_DOMAIN on the smoke GitHub Environment must be a Route 53 public hosted zone you own, such as example.com."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "~1.14"
+          terraform_wrapper: false
+
+      - name: Show the identity AWS will be given
+        run: |
+          token=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          echo "::add-mask::$token"
+          claims=$(printf '%s' "$token" | cut -d. -f2 | tr '_-' '/+' | jq -R '@base64d | fromjson')
+          {
+            echo "### Identity token for $ENVIRONMENT"
+            echo
+            echo '| claim | value |'
+            echo '| --- | --- |'
+            jq -r '[.sub, .actor, .actor_id, .event_name, .ref, .environment, .repository_id] | "| sub | `\(.[0])` |\n| actor | \(.[1]) (\(.[2])) |\n| event | \(.[3]) on \(.[4]) |\n| environment | \(.[5]) |\n| repository id | \(.[6]) |"' <<< "$claims"
+          } >> "$GITHUB_STEP_SUMMARY"
+          subject=$(jq -r .sub <<< "$claims")
+          prefix=${subject%":environment:$ENVIRONMENT"}
+          pattern='^repo:[A-Za-z0-9_.-]+(@[0-9]+)?/[A-Za-z0-9_.-]+(@[0-9]+)?$'
+          if [ "$prefix" = "$subject" ] || ! [[ $prefix =~ $pattern ]]; then
+            echo "::error::The token's subject is '$subject', not 'repo:<owner>/<repo>:environment:$ENVIRONMENT'. The role would refuse it."
+            exit 1
+          fi
+          echo "TF_VAR_github_oidc_subject_prefix=$prefix" >> "$GITHUB_ENV"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.STACK_REGION }}
+          role-duration-seconds: 14400
+
+      - name: Variables for this stack
+        run: |
+          jq -n --arg root_domain "$SMOKE_ROOT_DOMAIN" --arg github_repository "$GITHUB_REPOSITORY" --arg region "$STACK_REGION" '{
+            environment: "smoke", region: $region, root_domain: $root_domain, github_repository: $github_repository,
+            create_ecr: false, dr_role: "none", create_github_oidc_provider: false, backup_copy_region: "", db_deletion_protection: false,
+            alb_exists: false, peer_ready: false }' > "$RUNNER_TEMP/smoke.override.tfvars.json"
+
+      - name: Terraform init
+        working-directory: deploy/terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
+            -backend-config="key=$ENVIRONMENT/terraform.tfstate" \
+            -backend-config="region=$TF_STATE_REGION" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      # With nothing in the state (create stopped before it made anything) this finds nothing to destroy and succeeds at once.
+      - name: Terraform destroy
+        working-directory: deploy/terraform
+        run: |
+          "$GITHUB_WORKSPACE/deploy/scripts/smoke_test.sh" destroy -- -var-file=envs/smoke.tfvars -var-file="$RUNNER_TEMP/smoke.override.tfvars.json"
+
+      # Also after a destroy that failed, which is when it matters: it names what is still running and costing money.
+      - name: Look for what is left
+        if: ${{ always() }}
+        run: deploy/scripts/smoke_test.sh leftovers
+
+      - name: How long it was up
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### The stack"
+            echo
+            if [ -z "$CREATED_AT" ]; then
+              echo "Nothing was created."
+            else
+              minutes=$(( ($(date -u +%s) - CREATED_AT) / 60 ))
+              estimate=$(awk -v minutes="$minutes" -v rate="$SMOKE_HOURLY_USD" 'BEGIN { printf "%.2f", minutes / 60 * rate }')
+              echo "It existed for about $minutes minutes, which is about \$$estimate at list prices (\$$SMOKE_HOURLY_USD an hour, before CloudWatch). The bill is the authority."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
