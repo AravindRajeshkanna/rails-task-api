@@ -1,6 +1,6 @@
 # Roadmap and implementation record
 
-What was planned, what was built, where it lives, and what was deliberately left. Seven roadmaps have been worked through, in order;
+What was planned, what was built, where it lives, and what was deliberately left. Eight roadmaps have been worked through, in order;
 each section is a ledger, not a plan, so every line says what actually happened.
 
 | # | Roadmap | Delivered in | Result |
@@ -12,6 +12,7 @@ each section is a ledger, not a plan, so every line says what actually happened.
 | 5 | [The "Next" list of roadmap 4](#roadmap-5-the-next-list-of-roadmap-4) (eight items) | [#9](https://github.com/AravindRajeshkanna/rails-task-api/pull/9) | A read-only mode, cross-region backup copies, a failover drill kit, notification settings, cursor paging for the audit logs and a fast activity feed, GraphQL mutations, team maintainers and nested teams, a demo front end; two items could not be finished here and one was measured and not built |
 | 6 | [Improve it from a system-design perspective](#roadmap-6-improving-it-from-a-system-design-perspective) (eight phases) | [#10](https://github.com/AravindRajeshkanna/rails-task-api/pull/10) | Idempotency keys, replicas, circuit breakers, load shedding, SLO alerts, session lifecycle, account erasure and retention, a threat model, and the architecture written down. Found that the API's metrics could never be scraped |
 | 7 | [AWS KMS and one-click provisioning](#roadmap-7-aws-kms-and-one-click-provisioning) (seven phases, plus a manual Terraform workflow) | [#11](https://github.com/AravindRajeshkanna/rails-task-api/pull/11) | Email addresses and webhook secrets encrypted with keys KMS protects, a key per purpose with the data key replicated for the standby, rotation by generation, a KMS-only audit trail with alarms, SSE-KMS for files and Secrets Manager, and a **Provision AWS** workflow. None of it applied to AWS |
+| 8 | [Only the owner reaches AWS](#roadmap-8-only-the-owner-reaches-aws) (a hardening request, audited rather than checklisted) | [#21](https://github.com/AravindRajeshkanna/rails-task-api/pull/21) | A fork-triggered deploy closed, the AWS roles trusting the subject this repository's tokens actually carry, all five Environments locked to `main` with the owner as reviewer, and a script that keeps GitHub's settings that way. Not exercised by a real run |
 
 **Status key.** ✅ done and verified as described · 🟡 done in part, or done differently on purpose (the note says how) · ⏭ deliberately not done (the note says why, and what would trigger it).
 
@@ -257,6 +258,28 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | | A real defect in my first rotation design | fixed | The unit spec showed that after reading through the previous master and calling `encrypt`, nothing changed: Rails keeps writing a *fixed* deterministic attribute with its oldest scheme. The macro now sets `fixed: false` while previous masters are configured |
 | | A mutation harness that could not fail | fixed | The first Terraform mutation run reported 31 of 31 killed in three seconds each because the copy lacked `deploy/lambda`; the unmutated copy failed too. The harness now refuses to start unless its baseline passes |
 
+## Roadmap 8: Only the owner reaches AWS
+
+*Goal: "harden the GitHub configs to allow only myself to deploy and test on AWS resources". There was no checklist: the first step was to read what could reach AWS and from whom (the workflows, the two trust policies, and GitHub's live settings through the API), then close what was open. Decision record: [ADR 72](decisions.md).*
+
+| Item | Status | Implemented as |
+| --- | --- | --- |
+| Audit: who has access | clean | Public repository, one collaborator, no deploy keys, webhooks, invitations, Actions secrets or variables; secret scanning and push protection already on; the default token already read-only |
+| A fork's pull request could start `deploy.yml` | fixed (**reasoned, not demonstrated**) | `workflow_run` runs with the repository's permissions, and its `branches: [ main ]` filter matches the triggering run's branch *name*. The build job now requires a push, to this repository, to `main`, by the owner; the field names and types were checked against a real CI run |
+| The AWS roles could not have been assumed by this repository | **fixed; a defect in roadmap 7** | The repository was made after 2026-07-15, so its tokens carry the owner's and repository's IDs; both trusts (the bootstrap role and `github.tf`) wrote names. Read from `GET .../oidc/customization/sub`. Now one subject, `StringEquals`, with GitHub's own prefix: a required, pattern-checked bootstrap input, and for Terraform read by the Provision workflow from its own token |
+| The deploy role also trusted any run on `main` | fixed | Environment only |
+| Environments | **applied to the real repository**, read back | `dev` had no protection and administrators could bypass; the other four would have been created unprotected on first use. All five: deployment branch `main` only, the owner as required reviewer on `staging`, `staging-dr`, `prod`, `prod-dr` (not `dev`), administrators cannot bypass |
+| Provision AWS | built | First step refuses any account but the owner, including a re-run by someone else; a step that prints the token's claims and hands Terraform its subject prefix; actions pinned to commits; no repository token left on disk |
+| `deploy.yml` | built | Empty permissions by default; the AWS token only on the build job, write access only on the job that commits the tag; actions pinned; the build's checkout keeps no token |
+| Fork pull requests | **applied** | Approval needed from every outside contributor, every time (was: first-time contributors) |
+| `CODEOWNERS` | built | The owner for everything, and for `.github/` and `deploy/` by name |
+| Keeping it so | built | `deploy/scripts/github_settings.rb`: the wanted settings as data; read-only check by default (exit 1 on drift), `--apply` to fix; reports, and never changes, who has access and whether `main` refuses force pushes and deletion |
+| The owner in the token's subject (`actor_id`) | **not built** | GitHub's documentation does not say the key is accepted or how it renders. The Provision workflow now prints a real token's claims, which is the evidence to decide on |
+| Enforce rules for administrators, required status checks on `main` | **not changed** | With one maintainer and a required review it would lock the owner out of their own pull requests. The script reports it |
+| A private repository | not done | Removes strangers' pull requests entirely; this repository is a public portfolio |
+| **Found on the way** | `deploy.yml` fails on every merge to `main` today | Expected until `AWS_DEPLOY_ROLE_ARN` exists (nothing is applied); not changed |
+| | Dependabot merged its action bumps (#13-#20) while this was open | resolved by merging `main` in | They edited the same `uses:` lines this change pins to commits. Kept the pins and took the **new** versions (`checkout` 7, `configure-aws-credentials` 6, `setup-terraform` 4, `setup-buildx` 4, `build-push` 7), after reading each action's inputs at the pinned commit: every input the two workflows pass still exists. Dependabot proposes pinned updates from here on |
+
 ## Next
 
 What is left, ordered by what a real user would hit first. Each of these needs something this repository cannot supply (an AWS account, a host, a browser, a client, or evidence), which is why they are here and not done.
@@ -274,6 +297,7 @@ What is left, ordered by what a real user would hit first. Each of these needs s
 11. **Apply the KMS stack and run a real `plan`** (the bootstrap in dev, then **Provision AWS** with `plan`), then game day **E11** (take the api role's `kms:Decrypt` away for ten minutes). Every claim about KMS latency, throttling, key policy evaluation, CloudTrail's record shape and replication with KMS is unmeasured ([kms.md](aws/kms.md#not-verified)). Read `TaskApi/KMS DecryptRequests` for a few weeks, then set `kms_decrypt_alarm_threshold`.
 12. **Encrypt the other copies of an address**: the audit trail (a policy decision: encrypt or hash), the outbox payload, and the Auth and Notification services, which hold addresses of their own and could use the same gem. Until then [kms.md](aws/kms.md#what-is-encrypted) lists them.
 13. **A key per record in the context** (Lockbox-style), only if per-record audit or per-tenant keys become a requirement ([ADR 70](decisions.md)).
+14. **Run Provision AWS with `plan` in `dev` and read the identity table in its first step.** It is the first real evidence for the Environment subject's spelling and for every claim ADR 72 makes about GitHub. If the token carries what is inferred, consider putting the owner's ID in the subject so AWS itself refuses anyone else; and decide on required status checks for `main`.
 
 ## How this was verified
 

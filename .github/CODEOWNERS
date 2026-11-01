@@ -1,0 +1,7 @@
+# Who must look at a change before it can merge, once the protection on main asks for a code owner's review (it does; the owner merges their own work
+# with the bypass an administrator has, and this file is what stops that from being true of anyone else who is ever added).
+# The workflows and deploy/ are named on their own because they are what reaches AWS: a later, broader line for another owner must not take them over
+# (the last matching line wins). docs/aws/one-click.md, ADR 72.
+*          @AravindRajeshkanna
+/.github/  @AravindRajeshkanna
+/deploy/   @AravindRajeshkanna

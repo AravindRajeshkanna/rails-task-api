@@ -211,6 +211,21 @@ variable "github_repository" {
   type        = string
 }
 
+variable "github_oidc_subject_prefix" {
+  description = <<-EOT
+    What GitHub puts in the token's subject before ":environment:<name>". Repositories made since 2026-07-15 (and those that opted in) use the owner's and the
+    repository's immutable IDs, repo:OWNER@123/REPO@456, so a deleted and re-registered name cannot inherit the trust; older ones use repo:OWNER/REPO. Null
+    means repo:<github_repository>. The Provision AWS workflow sets it from its own token, so it is never a guess; by hand:
+    gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix
+  EOT
+  type        = string
+  default     = null
+  validation {
+    condition     = var.github_oidc_subject_prefix == null || can(regex("^repo:[A-Za-z0-9_.-]+(@[0-9]+)?/[A-Za-z0-9_.-]+(@[0-9]+)?$", var.github_oidc_subject_prefix))
+    error_message = "Use the form repo:OWNER/REPO or repo:OWNER@OWNER_ID/REPO@REPO_ID."
+  }
+}
+
 variable "monthly_budget_usd" {
   description = "Alerts at 80% forecast and 100% actual. 0 = no budget."
   type        = number
