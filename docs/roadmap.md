@@ -298,6 +298,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | A budget alarm as a safety net | **not built** | A tag-filtered budget needs the tag activated for cost allocation and updates about daily. The red run and the scan are the net |
 | Reusing `provision.yml` as a called workflow | **not done** | Environment variables, secrets and concurrency in a called workflow could not be tested here; two steps are copied and held identical by a spec |
 | Deploying the application | **not done** | Out of scope: it needs images and Argo CD. The test proves the AWS resources, not the application |
+| **Found on the way** | `scan_ruby` was already red on `main` | `bundler-audit` reported four advisories against `addressable 2.9.0` (fixed in 2.9.1), published after #21's checks had passed. Bumped to 2.9.2 in the four lockfiles (root, auth, ai, notifications), nothing else in them changed; the audit is clean in all four and the suites pass on it (1,679; services 26/19/33). Fixed in this pull request at the owner's instruction, not in a separate one |
 | **Not verified** | everything above | Nothing has run on GitHub or in AWS ([the guide](aws/smoke-test.md#not-verified)) |
 
 ## Next
