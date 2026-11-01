@@ -834,3 +834,81 @@ run "github_subject_prefix_cannot_carry_a_pattern" {
 
   expect_failures = [var.github_oidc_subject_prefix]
 }
+
+# --- The smoke test stack (envs/smoke.tfvars, docs/aws/smoke-test.md): created and destroyed within the hour, so it must be cheap and must leave nothing behind ---
+
+run "smoke_is_named_apart_and_leaves_nothing_that_blocks_the_next_run" {
+  command = apply
+
+  variables {
+    environment = "smoke"
+    create_ecr  = false
+  }
+
+  assert {
+    condition     = local.name == "task-api-smoke" && local.data_alias == "alias/task-api-smoke-data" && local.secret_prefix == "task-api/smoke"
+    error_message = "Every name carries the environment, so a smoke stack in the account of a dev or prod one shares none of them."
+  }
+  assert {
+    condition     = length(aws_ecr_repository.service) == 0
+    error_message = "The container repositories are named task-api/<service>, shared by every environment in the account: smoke must not create (or destroy) them."
+  }
+  # What would make a destroy leave something behind, or a second run collide with the first (a secret kept for 30 days still owns its name).
+  assert {
+    condition     = alltrue([for secret in aws_secretsmanager_secret.service : secret.recovery_window_in_days == 0]) && aws_secretsmanager_secret.ai_service_token[0].recovery_window_in_days == 0
+    error_message = "Secrets are deleted at once outside prod."
+  }
+  assert {
+    condition     = aws_s3_bucket.storage.force_destroy && alltrue([for key in aws_kms_key.data : key.deletion_window_in_days == 7])
+    error_message = "A bucket with objects in it is emptied by the destroy, and a key waits the shortest time AWS allows."
+  }
+}
+
+run "smoke_keeps_only_the_free_endpoint_and_one_system_node_when_asked_to" {
+  command = apply
+
+  variables {
+    environment             = "smoke"
+    create_ecr              = false
+    vpc_interface_endpoints = false
+    system_node_count       = 1
+  }
+
+  assert {
+    condition     = join(",", keys(module.vpc_endpoints.endpoints)) == "s3"
+    error_message = "Only the S3 gateway endpoint, which is free. The interface endpoints are billed per hour in every zone."
+  }
+  assert {
+    condition     = module.vpc_endpoints.endpoints["s3"].vpc_endpoint_type == "Gateway"
+    error_message = "And it is the gateway kind."
+  }
+}
+
+run "every_other_environment_still_has_the_ten_interface_endpoints" {
+  command = apply
+
+  assert {
+    condition     = length(module.vpc_endpoints.endpoints) == 11 && length([for endpoint in module.vpc_endpoints.endpoints : endpoint if endpoint.vpc_endpoint_type == "Interface"]) == 10
+    error_message = "The default is unchanged: the S3 gateway endpoint and ten interface endpoints."
+  }
+}
+
+run "an_environment_nobody_planned_for_is_refused" {
+  command = plan
+
+  variables {
+    environment = "qa"
+  }
+
+  expect_failures = [var.environment]
+}
+
+run "the_system_group_cannot_be_empty_or_half_a_node" {
+  command = plan
+
+  variables {
+    system_node_count = 0
+  }
+
+  expect_failures = [var.system_node_count]
+}

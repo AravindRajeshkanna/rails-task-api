@@ -58,9 +58,9 @@ module "eks" {
     system = {
       ami_type       = "AL2023_ARM_64_STANDARD"
       instance_types = var.system_node_instance_types
-      min_size       = 2
-      max_size       = 3
-      desired_size   = 2
+      min_size       = var.system_node_count
+      max_size       = max(3, var.system_node_count)
+      desired_size   = var.system_node_count
       labels         = { "node-role" = "system" }
       taints = {
         critical = { key = "CriticalAddonsOnly", value = "true", effect = "NO_SCHEDULE" }

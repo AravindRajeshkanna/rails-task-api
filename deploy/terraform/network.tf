@@ -49,21 +49,26 @@ module "vpc_endpoints" {
     }
   }
 
-  endpoints = {
-    s3 = {
-      service         = "s3"
-      service_type    = "Gateway"
-      route_table_ids = module.vpc.private_route_table_ids
-    }
-    ecr_api         = { service = "ecr.api", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
-    ecr_dkr         = { service = "ecr.dkr", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
-    sts             = { service = "sts", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
-    kms             = { service = "kms", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
-    secretsmanager  = { service = "secretsmanager", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
-    sqs             = { service = "sqs", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
-    sns             = { service = "sns", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
-    logs            = { service = "logs", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
-    bedrock_runtime = { service = "bedrock-runtime", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
-    xray            = { service = "xray", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
-  }
+  # The gateway endpoint for S3 is free and always there; the interface endpoints are billed per hour in each zone (var.vpc_interface_endpoints).
+  endpoints = merge(
+    {
+      s3 = {
+        service         = "s3"
+        service_type    = "Gateway"
+        route_table_ids = module.vpc.private_route_table_ids
+      }
+    },
+    var.vpc_interface_endpoints ? {
+      ecr_api         = { service = "ecr.api", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
+      ecr_dkr         = { service = "ecr.dkr", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
+      sts             = { service = "sts", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
+      kms             = { service = "kms", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
+      secretsmanager  = { service = "secretsmanager", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
+      sqs             = { service = "sqs", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
+      sns             = { service = "sns", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
+      logs            = { service = "logs", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
+      bedrock_runtime = { service = "bedrock-runtime", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
+      xray            = { service = "xray", subnet_ids = module.vpc.private_subnets, private_dns_enabled = true }
+    } : {}
+  )
 }
