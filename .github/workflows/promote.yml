@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Copy the image tags
         run: |
@@ -40,7 +40,7 @@ jobs:
           done
 
       - name: Open the pull request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: promote/${{ inputs.from }}-to-${{ inputs.to }}
           title: "Promote ${{ inputs.from }} to ${{ inputs.to }}"

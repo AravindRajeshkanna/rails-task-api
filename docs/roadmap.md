@@ -278,6 +278,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 | Enforce rules for administrators, required status checks on `main` | **not changed** | With one maintainer and a required review it would lock the owner out of their own pull requests. The script reports it |
 | A private repository | not done | Removes strangers' pull requests entirely; this repository is a public portfolio |
 | **Found on the way** | `deploy.yml` fails on every merge to `main` today | Expected until `AWS_DEPLOY_ROLE_ARN` exists (nothing is applied); not changed |
+| | Dependabot merged its action bumps (#13-#20) while this was open | resolved by merging `main` in | They edited the same `uses:` lines this change pins to commits. Kept the pins and took the **new** versions (`checkout` 7, `configure-aws-credentials` 6, `setup-terraform` 4, `setup-buildx` 4, `build-push` 7), after reading each action's inputs at the pinned commit: every input the two workflows pass still exists. Dependabot proposes pinned updates from here on |
 
 ## Next
 
@@ -297,7 +298,6 @@ What is left, ordered by what a real user would hit first. Each of these needs s
 12. **Encrypt the other copies of an address**: the audit trail (a policy decision: encrypt or hash), the outbox payload, and the Auth and Notification services, which hold addresses of their own and could use the same gem. Until then [kms.md](aws/kms.md#what-is-encrypted) lists them.
 13. **A key per record in the context** (Lockbox-style), only if per-record audit or per-tenant keys become a requirement ([ADR 70](decisions.md)).
 14. **Run Provision AWS with `plan` in `dev` and read the identity table in its first step.** It is the first real evidence for the Environment subject's spelling and for every claim ADR 72 makes about GitHub. If the token carries what is inferred, consider putting the owner's ID in the subject so AWS itself refuses anyone else; and decide on required status checks for `main`.
-15. **Dependabot's five open pull requests (#14, #16-#19) edit the action lines now pinned to commits**; ask it to recreate them after this merges (`@dependabot recreate`), and it will propose the pinned form.
 
 ## How this was verified
 
