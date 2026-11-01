@@ -28,7 +28,7 @@ jobs:
       TAG: ${{ github.event.workflow_run.head_sha }}
     steps:
       - name: Checkout the commit that passed CI
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
@@ -70,7 +70,7 @@ jobs:
     steps:
       # GitOps_REPO lets the manifests live in a separate repository; by default they are in this one.
       - name: Check out the GitOps repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: ${{ vars.GITOPS_REPO || github.repository }}
           token: ${{ secrets.GITOPS_TOKEN || github.token }}
