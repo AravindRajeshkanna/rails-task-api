@@ -2,7 +2,7 @@
 # services, with Postgres (pgvector), an AWS mock (SNS/SQS), a mail catcher and a path-routing gateway that
 # plays the part of the load balancer.
 #
-#   cp .env.example .env     # then set RAILS_MASTER_KEY=$(cat config/master.key)
+#   cp .env.example .env     # then set RAILS_MASTER_KEY=$(cat config/master.key); without that file (CI, a fresh clone): deploy/local/throwaway_credentials.rb
 #   docker compose up --build
 #   open http://localhost:8080/api-docs        # the API       http://localhost:8025   # caught emails
 #   docker compose --profile observability up  # + Prometheus :9090, Grafana :3001, Jaeger :16686 (traces need OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 in .env)
