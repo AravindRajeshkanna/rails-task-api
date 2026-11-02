@@ -224,7 +224,7 @@ docs/                   decisions.md, architecture/, aws/setup-guide.md, runbook
 | Mode | Command |
 | --- | --- |
 | The monolith alone (auth local, AI offline) | `bin/rails s` |
-| The whole architecture on Docker | `cp .env.example .env`, set `RAILS_MASTER_KEY` and `AUTH_JWT_PRIVATE_KEY` ([the one-liner](docs/local-platform.md#run-it)), then `docker compose up --build` (gateway on :8080, mail on :8025); `deploy/local/verify.sh` checks that it works |
+| The whole architecture on Docker | `cp .env.example .env`, set `RAILS_MASTER_KEY` and `AUTH_JWT_PRIVATE_KEY` ([the one-liner](docs/local-platform.md#run-it); without `config/master.key`, [make a throwaway one](docs/local-platform.md#run-it)), then `docker compose up --build` (gateway on :8080, mail on :8025); `deploy/local/verify.sh` checks that it works |
 | On a local Kubernetes cluster | `deploy/local/up.sh` (needs `kind`, `kubectl`, `helm`), then `deploy/local/verify.sh` ([guide](docs/local-platform.md)) |
 | AWS | [docs/aws/setup-guide.md](docs/aws/setup-guide.md) |
 
@@ -327,8 +327,9 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 - GraphQL has five mutations (create, update, delete task; comment; mark a notification read) and no subscriptions; every other write is REST only. A public demo is *supported* ([docs/demo.md](docs/demo.md): demo mode, a nightly reset, a Kamal destination, and a small static front end in [demo/web](demo/web/README.md)) but not deployed or hosted; that is yours to run.
 - The platform code is validated statically and by CI (the four images build, Terraform validates, every Helm release renders and passes
   Kubernetes/CRD schema checks), and the services were exercised together locally with an AWS mock. The Compose stack and the `kind` script
-  were run once, on one Mac, and passed `deploy/local/verify.sh` after nine fixes ([docs/local-platform.md](docs/local-platform.md)); they are not
-  run in CI. The Terraform has **not been run against AWS**. Expect a round of small fixes on first contact.
+  were run once, on one Mac, and passed `deploy/local/verify.sh` after nine fixes ([docs/local-platform.md](docs/local-platform.md)). CI runs the
+  same script against both (the `Platform` jobs, [ADR 75](docs/decisions.md)); those jobs have been rehearsed step by step on that Mac, and are still to be
+  seen on a GitHub runner. The Terraform has **not been run against AWS**. Expect a round of small fixes on first contact.
 - Tasks and Projects stay in the monolith on purpose ([decision 21](docs/decisions.md)). Webhooks stay there too.
 - Events for the other services go through a transactional outbox ([ADR 41](docs/decisions.md)): delivery is at-least-once and never lossy, but not ordered, and can be late during an SNS outage (alarm: oldest unpublished event over 5 minutes; [runbook](docs/runbooks/event-outbox.md)). Webhooks and Action Cable are separate and are not retried from the outbox.
 - Access tokens from the Auth service live up to 15 minutes after logout.

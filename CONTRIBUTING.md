@@ -14,7 +14,7 @@ bundle exec rspec                  # should be green before you change anything
 bin/dev                            # the server on :3000, docs at /api-docs
 ```
 
-Docker Compose runs the whole platform (API, Auth, AI, Notifications, mocks of AWS), and `kind` runs it on Kubernetes: see [docs/local-platform.md](docs/local-platform.md) for the commands and `deploy/local/verify.sh` for the check that it works.
+Docker Compose runs the whole platform (API, Auth, AI, Notifications, mocks of AWS), and `kind` runs it on Kubernetes: see [docs/local-platform.md](docs/local-platform.md) for the commands and `deploy/local/verify.sh` for the check that it works. CI runs that check on both, as the `Platform` jobs, so a change to a Dockerfile, the Compose file, the chart or a service's start-up is tried against a running stack before it merges.
 
 ## Workflow
 
