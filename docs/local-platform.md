@@ -61,7 +61,7 @@ A check that cannot fail proves nothing, so each component was stopped in turn (
 The `Platform` jobs in [`ci.yml`](../.github/workflows/ci.yml), one per stack, run on every pull request and push to `main`, and Deploy waits for them like every other job ([ADR 75](decisions.md)). Each starts on an empty runner and does what the sections above do by hand:
 
 1. **Makes credentials that belong to nobody** (`throwaway_credentials.rb`, and a fresh JWT key), masks them in the log and exports them to the later steps. No secret is used, so a pull request from a fork runs it too.
-2. **Builds the four images once**, from the checkout (`docker/bake-action` reading `docker-compose.yml`), with layers from the cache the `images` job fills, and checks that the credentials are inside the image. It prints the Docker, Compose and storage-driver versions and the free disk, because the first fault on this list depended on the image store.
+2. **Builds the four images once**, from the checkout (`docker/bake-action` reading `docker-compose.yml`), with layers from the cache the `images` job fills (the first run on a runner reused none of them; see below), and checks that the credentials are inside the image. It prints the Docker, Compose and storage-driver versions and the free disk, because the first fault on this list depended on the image store.
 3. **Starts the stack**: `docker compose up -d --no-build`, or, for kind, a pinned kind (v0.33.0) and Helm and `SKIP_BUILD=1 deploy/local/up.sh`.
 4. **Runs `deploy/local/verify.sh`** (patience 240 s for Compose, 420 s for kind; kind's mail catcher is read through `kubectl port-forward`).
 5. **On failure, `deploy/local/diagnose.sh`** prints the state of every container or pod and the tail of each log. Run it by hand after a failed `verify.sh` as well: `deploy/local/diagnose.sh compose|kind`.
@@ -76,6 +76,23 @@ The `Platform` jobs in [`ci.yml`](../.github/workflows/ci.yml), one per stack, r
 | kind | `SKIP_BUILD=1 up.sh` 356 s with the key from `RAILS_MASTER_KEY` only (the Mac was running a mutation check at the same time; roadmap 10 measured 257 s alone); then 25 checks in 39 s |
 | Linux userland | `verify.sh` passed 25 of 25 in an Ubuntu 24.04 container (bash 5.2, GNU sed 4.9, curl 8.5; arm64) against the kind cluster. A third run in a few minutes against the same cluster failed three checks with HTTP 429: the Auth service limits sign-in attempts, and a restart (which empties its in-memory counters) cleared it |
 | The failure path | with the Notification service stopped, `verify.sh` exits 1 (it failed the reset-email checks), and `diagnose.sh kind` prints the nodes, pods, events and each pod's log and exits 0. `diagnose.sh compose` printed nothing but an error in a shell without `RAILS_MASTER_KEY` (Compose will not read the file without it): fixed, and held by a spec |
+
+**What the first run on a runner showed** (2026-11-02, [run 41546518406](https://github.com/AravindRajeshkanna/rails-task-api/actions/runs/41546518406), the pull request that added the job; both jobs passed, 25 of 25 checks each, with no retry):
+
+| | Compose job | kind job |
+| --- | --- | --- |
+| The runner | `ubuntu-latest`: Linux on amd64, 16 GB of memory (about 5.9 GB free when the stack started), a 145 GB disk with 64 GB used and 81 GB free (45%) before any image was built | the same |
+| Docker | Engine 29.4.2 on the **containerd image store** (`overlayfs`, driver-type `io.containerd.snapshotter.v1`), Compose v5.1.3, BuildKit v0.33.1 | the same; plus kind v0.33.0 (go1.26.7, linux/amd64), kubectl client v1.37.1, Helm **v4.3.1** (`azure/setup-helm` with `latest`), node image `kindest/node:v1.37.0` |
+| Four images | 4 min 3 s; sizes: api 1.5 GB, ai 411 MB, auth 430 MB, notifications 429 MB | 4 min 20 s |
+| Start the stack | `docker compose up -d --no-build` 28 s | `SKIP_BUILD=1 up.sh` 2 min 46 s |
+| `verify.sh` | 13 s, 25 passed | 24 s, 25 passed |
+| Whole job | 5 min 34 s | 8 min 18 s |
+
+Three things in that table are worth knowing:
+
+- **The layer cache did not help.** `docker/bake-action` does hand BuildKit the cache token (each of the four cache manifests was imported in about half a second), but not one build step was reused in either job: `bundle install` ran in full, about two minutes on each service. The existing `images` job, in the same run, reused none either, so the cause is not something the `Platform` job does. The repository's Actions cache stands at 10,350 MB in 952 entries, which is the 10 GB limit, so layers are probably being evicted before anything reads them (an inference, not checked). The cache is read-only here, so the `Platform` jobs cannot make it better or worse; whether a second run on the same pull request reuses what the `images` job just wrote is the next thing to look at.
+- **The runner's image store is the Mac's.** Fault 1 of this document was reproduced on the containerd image store, and the runner uses it too, so it tests the fix on the store where the fault lives. The classic store is still untested.
+- **The failure path has not been run on a runner.** Both jobs passed, so `diagnose.sh` (`if: failure()`) never ran there. The job does not print the disk after kind has loaded its images, so how much of the 81 GB free it used is not measured; it fitted.
 
 ## What it measured
 
@@ -120,7 +137,7 @@ Nine faults, each fixed and each held by a test that fails without the fix. None
 - **Helm 4 only, as far as anything was run.** An earlier version of this page said CI uses Helm 3; that was not checked and is wrong for the jobs that install Helm themselves: `azure/setup-helm` installs the latest release (4.3.1 on 2026-11-02), so the chart checks in CI and the `Platform (kind)` job run Helm 4 too. Argo CD brings its own Helm, and I did not check which, or what Helm the runner has preinstalled for `chart_env_spec` (it is skipped where there is none). Nothing was run on Helm 3.
 - **The local overlay is not production.** One replica, no autoscaling, PodDisruptionBudgets, NetworkPolicies, External Secrets, Rollouts, KEDA or ALB, and the chart's cloud values are overridden. That the chart installs on `kind` says nothing about those templates.
 - **No KMS, no SES, no Bedrock**: keys come from Rails' credentials, mail goes to Mailpit, the AI provider is the offline fake.
-- **The CI job has been rehearsed, not seen on a runner.** Its steps were run in order, on this Mac, from a copy of the tree with no `.env` and no `config/master.key` ([In CI](#in-ci) says how it went), but the first time it runs on a GitHub runner is its own pull request. A runner is Linux on amd64, with a Docker, Helm and kubectl that I did not choose, a cold cache, and a network that pulls from Docker Hub, GitHub, `registry.k8s.io` and RubyGems on every run; any of those can fail a run that nothing in the repository got wrong. The `gha` layer cache is untested for the same reason.
+- **The CI job has passed once on a runner, and only once.** Its first run ([In CI](#in-ci)) passed both stacks with no retry, after being rehearsed on a Mac. One run says little about the flakes a runner adds: a network that pulls from Docker Hub, GitHub, `registry.k8s.io` and RubyGems on every run, a Docker and kubectl that GitHub picks and changes, and a Helm that moves with `latest`. The layer cache did not hit (above), so the images are rebuilt in full by every job, about four minutes; the failure path has not run on a runner; and nothing makes the job a required check yet (Next item 17).
 - **The negative controls were done by hand**, and `verify.sh` has no spec of its own beyond `shellcheck`, a parse under macOS's bash 3.2, and checks that it asks only for paths both stacks route.
 
 ## When it does not start
