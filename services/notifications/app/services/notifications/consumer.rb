@@ -12,6 +12,14 @@ module Notifications
     MAX_BACKOFF = 900
     PRUNE_EVERY = 1.hour # this loop is the service's only long-lived process, so it is also where retention runs (idempotent, so replicas may overlap)
 
+    # The consumer thread ended with an error nobody rescued (Puma's plugin then stops the process, so that Kubernetes
+    # restarts it). Rails.error has no subscriber unless Sentry is configured, so without this line the pod would restart
+    # with nothing in its log to say why.
+    def self.report_crash(error)
+      Rails.logger.error({ event: "notification.consumer_crashed", error: error.class.name, message: error.message.truncate(300), backtrace: error.backtrace&.first(8) })
+      Rails.error.report(error, handled: false, context: { consumer: "sqs" })
+    end
+
     def initialize(queue_url: Rails.configuration.x.queue_url, client: nil, router: Router.new, wait_time: 20)
       raise ArgumentError, "NOTIFICATIONS_QUEUE_URL is not set" if queue_url.blank?
 

@@ -105,6 +105,10 @@ test:
 production:
   primary: &primary_production
     <<: *default
+    # db:prepare seeds a database it has just filled, and db/seeds.rb (demo accounts) aborts in production: without this,
+    # the first start against an empty database exits 1 (docker compose's migrate service did; the Helm migration Job and
+    # Kamal's entrypoint run the same command). A hand-run `bin/rails db:seed` in production still aborts, which is the point of that guard.
+    seeds: false
     database: task_api_production
     host: <%= ENV["DB_HOST"] %>
     username: task_api

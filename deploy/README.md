@@ -14,7 +14,7 @@ operations is in [docs/aws/setup-guide.md](../docs/aws/setup-guide.md).
 | `k8s/platform/` | Cluster add-on values (Cilium, Karpenter, KEDA, kube-prometheus-stack, ...) and the `cluster-config` chart (secret store, node pools, RBAC for automation) |
 | `observability/` | Prometheus rules, the Grafana dashboard, the OpenTelemetry collector (a kustomization) |
 | `lambda/aiops/` | The root-cause-analysis and remediation Lambdas (Ruby), with specs |
-| `docker/`, `local/` | Support for `docker-compose.yml` and for the `kind` cluster (`local/up.sh`) |
+| `docker/`, `local/` | Support for `docker-compose.yml` and for the `kind` cluster (`local/up.sh`), and `local/verify.sh`, the check that either one works ([guide](../docs/local-platform.md)) |
 | `scripts/` | `render_gitops.rb` (terraform outputs → env values), `bootstrap-databases.sql` |
 
 Checks that run in CI (and that you can run locally):

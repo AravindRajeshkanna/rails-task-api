@@ -7,7 +7,7 @@ replicaCount: 1
 autoscaling: { enabled: false }
 keda: { enabled: false }
 rollout: { enabled: false }
-secrets: { enabled: false }  # local secrets come from deploy/local/secrets.sh instead of External Secrets
+secrets: { enabled: false }  # up.sh creates the local secrets instead of External Secrets
 metrics: { enabled: false }  # no Prometheus Operator CRDs locally
 networkPolicy: { enabled: false }
 pdb: { enabled: false }

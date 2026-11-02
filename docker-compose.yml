@@ -5,7 +5,8 @@
 #   cp .env.example .env     # then set RAILS_MASTER_KEY=$(cat config/master.key)
 #   docker compose up --build
 #   open http://localhost:8080/api-docs        # the API       http://localhost:8025   # caught emails
-#   docker compose --profile observability up  # + Prometheus :9090, Grafana :3001, Jaeger :16686
+#   docker compose --profile observability up  # + Prometheus :9090, Grafana :3001, Jaeger :16686 (traces need OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 in .env)
+#   deploy/local/verify.sh                     # signs up, assigns a task, resets a password: checks it all works. docs/local-platform.md
 #
 # For day-to-day Rails work you do not need this: `bin/rails s` runs the monolith alone (AUTH_MODE=local, offline AI).
 
@@ -25,8 +26,10 @@ x-rails-env: &rails-env
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
   OTEL_TRACES_SAMPLER: always_on
 
+# api, migrate and worker run one image. Only api builds it: with a build section on each of the three, Compose exports
+# the same tag three times at once and, on the containerd image store (Docker Desktop's default), the first
+# `docker compose up --build` fails with `image "docker.io/task-api/api:local": already exists`.
 x-task-api: &task-api
-  build: { context: ., dockerfile: Dockerfile }
   image: task-api/api:local
   environment: &task-api-env
     <<: *rails-env
@@ -63,7 +66,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./deploy/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
-    ports: ["5433:5432"]
+    ports: ["127.0.0.1:5433:5432"]   # loopback only: the superuser password here is `postgres`
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -73,7 +76,7 @@ services:
   aws:
     image: motoserver/moto:5.1.4
     command: ["-H", "0.0.0.0", "-p", "5000"]
-    ports: ["5000:5000"]
+    ports: ["127.0.0.1:5555:5000"]   # not 5000: macOS keeps it for the AirPlay Receiver. Loopback only: moto has no authentication
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:5000/moto-api/"]
       interval: 5s
@@ -91,10 +94,11 @@ services:
 
   mailpit:
     image: axllent/mailpit:v1.21
-    ports: ["8025:8025"]
+    ports: ["127.0.0.1:8025:8025"]
 
   migrate:
     <<: *task-api
+    pull_policy: never   # built by api
     depends_on: { postgres: { condition: service_healthy } }
     command: ["./bin/rails", "db:prepare"]
     environment:
@@ -103,11 +107,13 @@ services:
 
   api:
     <<: *task-api
+    build: { context: ., dockerfile: Dockerfile }
     command: ["./bin/rails", "server", "-b", "0.0.0.0", "-p", "3000"]
     expose: ["3000"]
 
   worker:
     <<: *task-api
+    pull_policy: never   # built by api
     command: ["./bin/jobs"]
 
   auth:
@@ -180,18 +186,18 @@ services:
     image: otel/opentelemetry-collector-contrib:0.120.0
     command: ["--config=/etc/otel/config.yaml"]
     volumes: ["./deploy/docker/otel-collector-local.yaml:/etc/otel/config.yaml:ro"]
-    ports: ["4318:4318"]
+    ports: ["127.0.0.1:4318:4318"]
 
   jaeger:
     profiles: [observability]
     image: jaegertracing/all-in-one:1.65.0
-    ports: ["16686:16686"]
+    ports: ["127.0.0.1:16686:16686"]
 
   prometheus:
     profiles: [observability]
     image: prom/prometheus:v3.1.0
     volumes: ["./deploy/docker/prometheus-local.yml:/etc/prometheus/prometheus.yml:ro"]
-    ports: ["9090:9090"]
+    ports: ["127.0.0.1:9090:9090"]
 
   grafana:
     profiles: [observability]
@@ -203,7 +209,7 @@ services:
       - ./deploy/docker/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
       - ./deploy/docker/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
       - ./deploy/observability/grafana:/var/lib/grafana/dashboards:ro
-    ports: ["3001:3000"]
+    ports: ["127.0.0.1:3001:3000"]   # loopback only: anonymous access is Admin
 
 volumes:
   pgdata:

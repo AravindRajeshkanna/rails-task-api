@@ -23,9 +23,5 @@ Rails.application.configure do
   # Email: any SMTP server, typically Amazon SES (email-smtp.<region>.amazonaws.com) with credentials from Secrets Manager.
   config.action_mailer.delivery_method = :smtp
   config.action_mailer.raise_delivery_errors = true
-  config.action_mailer.smtp_settings = {
-    address: ENV.fetch("SMTP_ADDRESS"), port: Integer(ENV.fetch("SMTP_PORT", 587)),
-    user_name: ENV["SMTP_USERNAME"], password: ENV["SMTP_PASSWORD"], authentication: :plain,
-    enable_starttls_auto: true, open_timeout: 5, read_timeout: 10
-  }
+  config.action_mailer.smtp_settings = ServiceKit::SmtpSettings.from_env # signs in only when SMTP_USERNAME is set (Mailpit has no login)
 end

@@ -73,7 +73,7 @@ This departs from the generic list in the roadmap this followed (`Encrypt`, `Dec
 | Set | Source | For |
 | --- | --- | --- |
 | `KMS_KEY_ID=alias/task-api-prod-data` and `KMS_WRAPPED_DETERMINISTIC_KEY` | **AWS KMS** | EKS: the Helm values and the GitOps templates set both |
-| `ENCRYPTION_KEY_SOURCE=credentials` | Rails' own keys from `config/credentials.yml.enc` | What is not on AWS: Kamal, docker compose (both set it) |
+| `ENCRYPTION_KEY_SOURCE=credentials` | Rails' own keys from `config/credentials.yml.enc` | What is not on AWS: Kamal, docker compose and the `kind` script (all set it; without it on `kind` `/readyz` fails and the API pod never becomes ready) |
 | nothing, in development | an in-memory stand-in with a **public** key | Development, with no AWS account |
 | anything in tests | the same stand-in, whatever the shell exports | Tests never reach AWS |
 | nothing, in production | **no source: it refuses**, `/readyz` fails | A deployment that forgot must not guess, and must never encrypt with a public key (`ENCRYPTION_KEY_SOURCE=local` is refused in production) |

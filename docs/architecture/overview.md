@@ -62,8 +62,8 @@ redelivery does nothing), and emails the assignee using only the event's content
 | Mode | Command | What you get |
 |---|---|---|
 | Monolith only | `bin/rails s` | Everything in one process; auth is local; AI uses the offline fake (no AWS needed) |
-| Full stack on Docker | `docker compose up --build` | All services, Postgres, an AWS mock, a mail catcher, a gateway standing in for the ALB |
-| Kubernetes on your laptop | `deploy/local/up.sh` | The production chart and images on `kind` |
+| Full stack on Docker | `docker compose up --build` | All services, Postgres, an AWS mock, a mail catcher, a gateway standing in for the ALB ([guide](../local-platform.md)) |
+| Kubernetes on your laptop | `deploy/local/up.sh` | The production chart and images on `kind`; `deploy/local/verify.sh` proves either of the last two |
 | AWS | [aws/setup-guide.md](../aws/setup-guide.md) | EKS, Aurora, SNS/SQS, WAF, GitOps |
 
 ## The switches (all environment variables, all reversible)

@@ -85,6 +85,35 @@ RSpec.describe Notifications::Consumer do
     expect { described_class.new(queue_url: nil, client: sqs) }.to raise_error(ArgumentError, /NOTIFICATIONS_QUEUE_URL/)
   end
 
+  describe ".report_crash" do
+    let(:error) { ArgumentError.new("SMTP-AUTH requested but missing user name").tap { |e| e.set_backtrace(Array.new(20) { |i| "app/x.rb:#{i}" }) } }
+
+    it "writes what ended the consumer to the log, where the next person looks, with the top of the backtrace" do
+      allow(Rails.logger).to receive(:error)
+
+      described_class.report_crash(error)
+
+      expect(Rails.logger).to have_received(:error).with(
+        event: "notification.consumer_crashed", error: "ArgumentError", message: "SMTP-AUTH requested but missing user name",
+        backtrace: Array.new(8) { |i| "app/x.rb:#{i}" }
+      )
+    end
+
+    it "still tells Rails.error (Sentry, when it is configured) that nobody handled it" do
+      allow(Rails.error).to receive(:report)
+
+      described_class.report_crash(error)
+
+      expect(Rails.error).to have_received(:report).with(error, handled: false, context: { consumer: "sqs" })
+    end
+
+    it "is what the Puma plugin calls before it stops the process" do
+      plugin = Rails.root.join("lib/puma/plugin/notifications_consumer.rb").read
+
+      expect(plugin.index("Notifications::Consumer.report_crash(error)")).to be < plugin.index('Process.kill("TERM"')
+    end
+  end
+
   it "counts what it did" do
     sqs.stub_responses(:receive_message, messages: [ message(assigned_event) ])
 
