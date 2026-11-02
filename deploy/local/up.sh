@@ -8,6 +8,10 @@ cd "$(dirname "$0")/../.."
 
 CLUSTER=task-api
 CHART=deploy/helm/taskapi-service
+# The kind build of ingress-nginx, at a fixed version. Not the "examples/ingress" file on kind.sigs.k8s.io: that one is now the generic manifest,
+# which lets the controller run on any node, while kind-cluster.yaml forwards localhost:8080 to the control-plane node only. This one pins the
+# controller to the node labelled ingress-ready, and says so on the Ingress status (localhost).
+INGRESS_MANIFEST=https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.12.1/deploy/static/provider/kind/deploy.yaml
 
 if [ "${1:-}" = "down" ]; then
   kind delete cluster --name "$CLUSTER"
@@ -29,7 +33,7 @@ done
 for image in api ai auth notifications; do kind load docker-image "task-api/$image:local" --name "$CLUSTER"; done
 
 echo "== Installing the ingress controller"
-kubectl apply -f https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml
+kubectl apply -f "$INGRESS_MANIFEST"
 kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=180s
 
 echo "== Installing Postgres, the AWS mock and the mail catcher"
@@ -65,7 +69,8 @@ echo "== Installing the services"
 common=(--set "image.repository=task-api/api" -f deploy/local/values-local.yaml
   --set-string "env.DB_HOST=postgres" --set-string "env.AWS_REGION=us-east-1" --set-string "env.AWS_ENDPOINT_URL=http://aws:5000"
   --set-string "env.AWS_ACCESS_KEY_ID=test" --set-string "env.AWS_SECRET_ACCESS_KEY=test"
-  --set-string "env.FORCE_SSL=false" --set-string "env.ASSUME_SSL=false" --set-string "env.ALLOWED_HOSTS=")
+  --set-string "env.FORCE_SSL=false" --set-string "env.ASSUME_SSL=false" --set-string "env.ALLOWED_HOSTS="
+  --set-string "env.OTEL_EXPORTER_OTLP_ENDPOINT=") # no collector here: left set, every span export fails and logs an error
 install() { # release image [extra helm args]
   local release=$1 image=$2; shift 2
   helm upgrade --install "$release" "$CHART" -n task-api -f "deploy/helm/values/$release.yaml" "${common[@]}" --set "image.repository=task-api/$image" "$@"
@@ -78,7 +83,8 @@ install notifications notifications --set "envFrom[0].secretRef.name=notificatio
 for release in api worker; do
   install "$release" api --set "envFrom[0].secretRef.name=api" --set-string "env.AUTH_ISSUER=http://localhost:8080" \
     --set-string "env.AUTH_JWKS_URL=http://auth/.well-known/jwks.json" --set-string "env.EVENTS_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:123456789012:task-api-events" \
-    --set-string "env.ACTIVE_STORAGE_SERVICE=local" --set-string "env.AI_PROVIDER="
+    --set-string "env.ACTIVE_STORAGE_SERVICE=local" --set-string "env.AI_PROVIDER=" \
+    --set-string "env.ENCRYPTION_KEY_SOURCE=credentials" # Rails' own keys: there is no KMS here, and without a source /readyz fails and the pod never becomes ready (docs/aws/kms.md)
 done
 
 echo
