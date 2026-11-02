@@ -24,8 +24,11 @@ spec:
           image: {{ include "taskapi.image" . }}
           command: {{- toYaml .Values.migration.command | nindent 12 }}
           env:
+            {{- /* The web and worker releases set SKIP_DB_PREPARE true. This Job is the one that migrates, so it is set once, below: a name listed twice is refused by server-side apply (Helm 4). */}}
             {{- range $key, $value := .Values.env }}
+            {{- if ne $key "SKIP_DB_PREPARE" }}
             - { name: {{ $key }}, value: {{ $value | quote }} }
+            {{- end }}
             {{- end }}
             - { name: SKIP_DB_PREPARE, value: "false" }
           envFrom:
