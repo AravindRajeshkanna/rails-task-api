@@ -14,7 +14,7 @@ Puma::Plugin.create do
         Thread.current.name = "sqs-consumer"
         Rails.application.executor.wrap { consumer.run }
       rescue Exception => error # rubocop:disable Lint/RescueException
-        Rails.error.report(error, handled: false, context: { consumer: "sqs" })
+        Notifications::Consumer.report_crash(error)
         Process.kill("TERM", Process.pid) # let Kubernetes restart the pod
       end
     end
