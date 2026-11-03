@@ -294,3 +294,102 @@ jobs:
           push: false
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  # Start the platform and use it as a client would (deploy/local/verify.sh), on Docker Compose and on kind. The first run of either found nine faults
+  # that every job above had passed, because none of them starts anything (docs/local-platform.md). Nothing here is a secret, so a fork's pull request
+  # runs it too: the credentials are made on the runner and belong to nobody (deploy/local/throwaway_credentials.rb).
+  platform:
+    name: Platform (${{ matrix.stack }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [ compose, kind ]
+    env:
+      KIND_VERSION: v0.33.0
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      # The real credentials cannot be opened without the owner's key. The images carry the file this makes (RAILS_ENV=production reads it in place of
+      # config/credentials.yml.enc), and both stacks get its key from RAILS_MASTER_KEY.
+      - name: Make credentials that belong to nobody
+        run: |
+          key=$(bundle exec ruby deploy/local/throwaway_credentials.rb)
+          jwt=$(openssl genrsa 2048 2> /dev/null | base64 | tr -d '\n')
+          echo "::add-mask::$key"
+          echo "::add-mask::$jwt"
+          { echo "RAILS_MASTER_KEY=$key"; echo "AUTH_JWT_PRIVATE_KEY=$jwt"; } >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v4
+
+      # The same four images for both stacks, built once from this checkout (source: . ; the default is a fresh clone, which would not hold the credentials).
+      # The layers come from the cache the images job fills.
+      - name: Build the four images
+        uses: docker/bake-action@v7
+        with:
+          source: .
+          files: docker-compose.yml
+          targets: api,auth,ai,notifications
+          load: true
+          set: |
+            api.cache-from=type=gha,scope=api
+            auth.cache-from=type=gha,scope=auth
+            ai.cache-from=type=gha,scope=ai
+            notifications.cache-from=type=gha,scope=notifications
+
+      - name: Check the images hold the credentials, and show what this runner is
+        run: |
+          docker run --rm --entrypoint test task-api/api:local -f config/credentials/production.yml.enc
+          docker version --format 'Docker {{.Server.Version}} on {{.Server.Os}}/{{.Server.Arch}}'
+          docker compose version
+          docker info | grep -iE 'storage driver|driver-type|server version'
+          docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep '^task-api/' | sort
+          df -h / | tail -1
+          free -m | sed -n 2p
+
+      - name: Start Docker Compose
+        if: matrix.stack == 'compose'
+        run: docker compose up -d --no-build
+
+      - name: Set up Helm
+        if: matrix.stack == 'kind'
+        uses: azure/setup-helm@v5
+
+      - name: Install kind
+        if: matrix.stack == 'kind'
+        run: |
+          curl -fsSL -o kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          sudo install -m 0755 kind /usr/local/bin/kind
+          kind version
+          helm version --short
+          kubectl version --client
+
+      - name: Start the kind cluster
+        if: matrix.stack == 'kind'
+        env:
+          SKIP_BUILD: "1"
+        run: deploy/local/up.sh
+
+      - name: Prove it works with deploy/local/verify.sh
+        env:
+          WAIT_SECONDS: ${{ matrix.stack == 'kind' && '420' || '240' }}
+        run: |
+          if [ "${{ matrix.stack }}" = kind ]; then
+            # kind has the mail catcher inside the cluster; the script reads the caught mail from here.
+            kubectl -n task-api port-forward svc/mailpit 8025:8025 > tmp/port-forward.log 2>&1 &
+            for _ in $(seq 30); do curl -fs -o /dev/null http://localhost:8025/api/v1/info && break; sleep 1; done
+          fi
+          deploy/local/verify.sh
+
+      - name: What the platform said, when it failed
+        if: failure()
+        run: deploy/local/diagnose.sh ${{ matrix.stack }}

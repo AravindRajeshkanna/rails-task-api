@@ -2,7 +2,8 @@
 # Brings the whole platform up on a local kind cluster, using the production chart and images.
 #   deploy/local/up.sh          create the cluster, build and load images, install everything
 #   deploy/local/up.sh down     delete the cluster
-# Needs: docker, kind, kubectl, helm. Uses config/master.key for the Rails credentials.
+# Needs: docker, kind, kubectl, helm, openssl. The Rails credentials key is RAILS_MASTER_KEY, or else config/master.key.
+# SKIP_BUILD=1 loads the four task-api/*:local images that are already in Docker instead of building them (CI builds them once, for both stacks).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -21,15 +22,20 @@ fi
 for tool in docker kind kubectl helm openssl; do
   command -v "$tool" > /dev/null || { echo "missing: $tool"; exit 1; }
 done
-[ -f config/master.key ] || { echo "config/master.key is missing (the Rails credentials key)"; exit 1; }
+master_key=${RAILS_MASTER_KEY:-$(cat config/master.key 2> /dev/null || true)}
+[ -n "$master_key" ] || { echo "no Rails credentials key: set RAILS_MASTER_KEY, or have config/master.key (deploy/local/throwaway_credentials.rb makes a key for a checkout without one)" >&2; exit 1; }
 
 kind get clusters | grep -qx "$CLUSTER" || kind create cluster --config deploy/local/kind-cluster.yaml
 
-echo "== Building images"
-docker build -t task-api/api:local .
-for service in ai auth notifications; do
-  docker build -f services/Dockerfile --build-arg "SERVICE=$service" -t "task-api/$service:local" .
-done
+if [ "${SKIP_BUILD:-}" = 1 ]; then
+  echo "== Using the images already built (SKIP_BUILD=1)"
+else
+  echo "== Building images"
+  docker build -t task-api/api:local .
+  for service in ai auth notifications; do
+    docker build -f services/Dockerfile --build-arg "SERVICE=$service" -t "task-api/$service:local" .
+  done
+fi
 for image in api ai auth notifications; do kind load docker-image "task-api/$image:local" --name "$CLUSTER"; done
 
 echo "== Installing the ingress controller"
@@ -52,7 +58,7 @@ kubectl -n task-api run aws-init --rm -i --restart=Never --image=amazon/aws-cli:
 echo "== Secrets"
 jwt_key=$(openssl genrsa 2048 2> /dev/null)
 kubectl -n task-api create secret generic api \
-  --from-literal=RAILS_MASTER_KEY="$(cat config/master.key)" --from-literal=TASK_API_DATABASE_PASSWORD=task_api \
+  --from-literal=RAILS_MASTER_KEY="$master_key" --from-literal=TASK_API_DATABASE_PASSWORD=task_api \
   --from-literal=AI_SERVICE_TOKEN=local-dev-service-token --from-literal=METRICS_TOKEN=local \
   --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n task-api create secret generic auth \
