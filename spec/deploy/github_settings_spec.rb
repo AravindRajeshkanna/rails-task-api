@@ -9,13 +9,15 @@ RSpec.describe GithubSettings do
       attr_reader :requests
 
       def initialize(owner: { "login" => "me", "id" => 7, "type" => "User" }, collaborators: [ "me" ], environments: {}, fork_policy: "first_time_contributors",
-                     oidc: { "use_default" => true, "use_immutable_subject" => true, "sub_claim_prefix" => "repo:me@7/app@9" }, protected_main: true)
+                     oidc: { "use_default" => true, "use_immutable_subject" => true, "sub_claim_prefix" => "repo:me@7/app@9" }, protected_main: true,
+                     status_checks: { "strict" => false, "contexts" => [], "checks" => [] })
         @owner = owner
         @collaborators = collaborators
         @environments = environments # name => { reviewers: [ids], bypass: bool, policies: [{ id:, name: }] }
         @fork_policy = fork_policy
         @oidc = oidc
         @protected_main = protected_main
+        @status_checks = status_checks # as GitHub renders main's rule today: on, strict off, no check named; nil is a main with no such rule
         @workflow = { "default_workflow_permissions" => "read", "can_approve_pull_request_reviews" => false }
         @next_id = 100
         @requests = []
@@ -23,7 +25,7 @@ RSpec.describe GithubSettings do
 
       def environment(name) = @environments[name]
 
-      attr_reader :fork_policy, :oidc
+      attr_reader :fork_policy, :oidc, :status_checks
 
       def get(path)
         case path
@@ -37,7 +39,7 @@ RSpec.describe GithubSettings do
         when "/actions/oidc/customization/sub" then @oidc
         when "/collaborators?affiliation=all" then @collaborators.map { |login| { "login" => login } }
         when "/keys", "/hooks", "/invitations" then []
-        when "/branches/main/protection" then @protected_main ? { "allow_force_pushes" => { "enabled" => false }, "allow_deletions" => { "enabled" => false } } : nil
+        when "/branches/main/protection" then protection
         else raise "the fake GitHub does not know GET #{path}"
         end
       end
@@ -53,6 +55,7 @@ RSpec.describe GithubSettings do
         in [ "PUT", "/actions/oidc/customization/sub" ]
           @oidc = { "use_default" => body.fetch("use_default"), "include_claim_keys" => body["include_claim_keys"], "use_immutable_subject" => body.fetch("use_immutable_subject", false), "sub_claim_prefix" => @oidc["sub_claim_prefix"] }
         in [ "PUT", "/actions/permissions/workflow" ] then @workflow = body
+        in [ "PATCH", "/branches/main/protection/required_status_checks" ] then patch_status_checks(body)
         else raise "the fake GitHub does not know #{method} #{path}"
         end
         nil
@@ -61,6 +64,20 @@ RSpec.describe GithubSettings do
       def changes = @requests.map(&:first).reject { |method| method == "GET" }
 
       private
+
+      def protection
+        return nil unless @protected_main
+        { "allow_force_pushes" => { "enabled" => false }, "allow_deletions" => { "enabled" => false }, "required_pull_request_reviews" => { "required_approving_review_count" => 1 } }
+          .merge(@status_checks ? { "required_status_checks" => @status_checks } : {})
+      end
+
+      # The endpoint exists only for a main that has the rule, and replaces the list it is given; a check sent without an app is claimed by the app that has been
+      # reporting it, which for a workflow job is GitHub Actions (15368).
+      def patch_status_checks(body)
+        raise "the fake GitHub has no status-check rule to change: GitHub answers 404" unless @status_checks
+        checks = body.fetch("checks").map { |check| { "context" => check.fetch("context"), "app_id" => check["app_id"] || 15_368 } }
+        @status_checks = { "strict" => body.fetch("strict"), "contexts" => checks.map { |check| check["context"] }, "checks" => checks }
+      end
 
       def put_environment(name, body)
         existing = @environments[name]
@@ -167,6 +184,97 @@ RSpec.describe GithubSettings do
       expect(result).to be(false)
       expect(output).to include("OPEN access: main refuses force pushes and deletion")
       expect(github.requests.map { |_, path, _| path }.grep(%r{branches})).to be_empty
+    end
+  end
+
+  # Roadmap 11 / item 17: the Platform jobs are to be required before a merge into main. The script does it through the one endpoint that changes nothing else.
+  describe "the checks main requires" do
+    let(:wanted) { GithubSettings::REQUIRED_CHECKS }
+
+    def branch_requests(github) = github.requests.select { |_, path, _| path.include?("/branches/") }
+
+    it "includes the two Platform checks, the ones that start the stack and use it as a client would, and may include more" do
+      expect(wanted).to include("Platform (compose)", "Platform (kind)")
+    end
+
+    it "reports, when checking, that main requires none of them, and changes nothing" do
+      github = fake_class.new
+      _, output = run_cli(github)
+
+      expect(output).to include("DIFF access: main requires these checks before a merge: wanted #{wanted.sort.inspect}, found []")
+      expect(github.changes).to be_empty
+    end
+
+    it "adds them with --apply, through the endpoint for the status checks alone, and finds nothing left" do
+      github = fake_class.new
+      result, output = run_cli(github, apply: true)
+
+      expect(result).to be(true), output
+      expect(branch_requests(github).map { |method, path, _| [ method, path ] }).to eq([ [ "PATCH", "/branches/main/protection/required_status_checks" ] ])
+      expect(github.status_checks.fetch("checks").map { |check| check["context"] }).to match_array(wanted)
+      expect(github.status_checks["strict"]).to be(false) # a branch need not be up to date: that was not asked for, and would make every merge wait for a rebase
+      expect(output).to include("ok   access: main requires these checks before a merge")
+    end
+
+    it "is idempotent: with the checks in place, a second run asks for nothing" do
+      github = fake_class.new
+      run_cli(github, apply: true)
+      github.requests.clear
+      run_cli(github, apply: true)
+
+      expect(branch_requests(github)).to be_empty
+      expect(github.changes).to be_empty
+    end
+
+    it "keeps what main already requires, the app each check must come from, and whether branches must be up to date" do
+      existing = { "strict" => true, "contexts" => [ "lint", "legacy" ], "checks" => [ { "context" => "lint", "app_id" => 4_242 } ] }
+      github = fake_class.new(status_checks: existing)
+      run_cli(github, apply: true)
+
+      expect(github.status_checks["strict"]).to be(true)
+      expect(github.status_checks["checks"]).to include({ "context" => "lint", "app_id" => 4_242 }, { "context" => "legacy", "app_id" => 15_368 })
+      expect(github.status_checks["checks"].map { |check| check["context"] }).to match_array(%w[lint legacy] + wanted)
+    end
+
+    it "sends the checks without an app, so that GitHub binds each to the app that has been reporting it, and never a null" do
+      github = fake_class.new
+      run_cli(github, apply: true)
+
+      sent = github.requests.find { |method, _, _| method == "PATCH" }.last
+      expect(sent.fetch("checks")).to eq(wanted.map { |context| { "context" => context } })
+    end
+
+    it "leaves it as an open finding where main has no status-check rule, because the rule cannot be created without writing all of main's protection" do
+      github = fake_class.new(status_checks: nil)
+      result, output = run_cli(github, apply: true)
+
+      expect(result).to be(false)
+      expect(output).to include("OPEN access: main requires these checks before a merge")
+      expect(branch_requests(github)).to be_empty
+    end
+
+    it "is satisfied by a main that already requires them, whichever field GitHub lists them in" do
+      by_checks = fake_class.new(status_checks: { "strict" => false, "contexts" => [], "checks" => wanted.map { |context| { "context" => context, "app_id" => 15_368 } } })
+      by_contexts = fake_class.new(status_checks: { "strict" => false, "contexts" => wanted, "checks" => [] })
+
+      [ by_checks, by_contexts ].each do |github|
+        _, output = run_cli(github)
+        expect(output).to include("ok   access: main requires these checks before a merge")
+      end
+    end
+
+    it "names jobs that exist in ci.yml, because a check no job reports would hold every merge for ever" do
+      workflow = YAML.safe_load_file(Rails.root.join(".github/workflows/ci.yml"), aliases: true)
+      names = workflow.fetch("jobs").flat_map do |id, job|
+        template = job["name"] || id
+        keys = template.scan(/\$\{\{ matrix\.(\w+) \}\}/).flatten
+        next [ template ] if keys.empty?
+
+        values = keys.map { |key| Array(job.dig("strategy", "matrix", key)) }
+        values.first.product(*values.drop(1)).map { |combo| keys.zip(combo).reduce(template) { |name, (key, value)| name.gsub("${{ matrix.#{key} }}", value.to_s) } }
+      end
+
+      expect(names).to include(*wanted)
     end
   end
 

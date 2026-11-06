@@ -9,8 +9,10 @@
 # reviewer. Settings live in GitHub, not in the repository, so nothing else keeps them: a new Environment, for one, is created by GitHub with no protection
 # the first time a workflow names it, and the AWS roles trust Environments by name.
 #
-# It changes only what is listed under FIXABLE below. The access findings (who else has access, whether main is protected) are reported and left to a person:
-# removing a collaborator or tightening main can lock the owner out, and that is a decision, not a default.
+# It changes only the checks that carry a fix. The access findings (who else has access, whether main is protected) are reported and left to a person:
+# removing a collaborator or tightening main can lock the owner out, and that is a decision, not a default. The one exception is the status checks main
+# requires (REQUIRED_CHECKS): --apply adds the missing ones through the endpoint that changes nothing else about main's protection, keeps any it already
+# requires, and cannot lock anyone out while administrators are not held to the rules (they are not, and this script does not change that).
 require "json"
 require "open3"
 require "optparse"
@@ -21,6 +23,10 @@ module GithubSettings
   # smoke is created and destroyed by one run of the Smoke test AWS workflow, whose destroy job would otherwise wait for an approval in the middle of it.
   ENVIRONMENTS = { "dev" => false, "smoke" => false, "staging" => true, "staging-dr" => true, "prod" => true, "prod-dr" => true }.freeze
   FORK_APPROVAL = "all_external_contributors".freeze # the repository is public: a fork's pull request runs CI only once the owner has looked at it, every time
+  # The checks a pull request must pass before it is merged into main: the names GitHub shows for the jobs (a matrix job is "Platform (compose)"). A name that no
+  # job produces would wait for ever, so spec/deploy/github_settings_spec.rb reads them against .github/workflows/ci.yml. The Platform jobs are the two that
+  # start the stack and use it as a client would (roadmap 11); they passed in 36 of 36 runs before they were listed here.
+  REQUIRED_CHECKS = [ "Platform (compose)", "Platform (kind)" ].freeze
 
   Check = Struct.new(:area, :what, :wanted, :actual, :fix, keyword_init: true) do
     def ok? = wanted == actual
@@ -126,12 +132,37 @@ module GithubSettings
         Check.new(area: "access", what: "deploy keys", wanted: [], actual: (@github.get("/keys") || []).map { |key| key["title"] }),
         Check.new(area: "access", what: "webhooks", wanted: [], actual: (@github.get("/hooks") || []).map { |hook| hook["config"]["url"] }),
         Check.new(area: "access", what: "pending invitations", wanted: [], actual: (@github.get("/invitations") || []).map { |invitation| invitation.dig("invitee", "login") }),
-        Check.new(area: "access", what: "#{BRANCH} refuses force pushes and deletion", wanted: true, actual: protected?(protection))
+        Check.new(area: "access", what: "#{BRANCH} refuses force pushes and deletion", wanted: true, actual: protected?(protection)),
+        Check.new(area: "access", what: "#{BRANCH} requires these checks before a merge", wanted: REQUIRED_CHECKS.sort, actual: (required_contexts(protection) & REQUIRED_CHECKS).sort,
+                  fix: required_checks_fix(protection))
       ]
     end
 
     def protected?(protection)
       protection ? !protection.dig("allow_force_pushes", "enabled") && !protection.dig("allow_deletions", "enabled") : false
+    end
+
+    def required_contexts(protection)
+      current = (protection && protection["required_status_checks"]) || {}
+      (current.fetch("checks", []).map { |check| check["context"] } + current.fetch("contexts", [])).uniq
+    end
+
+    # Only where main is protected and already has a status-check rule, because the endpoint that changes that rule alone does not exist otherwise: creating it would
+    # mean writing all of main's protection, which this script does not do. Without the rule the finding stays open.
+    def required_checks_fix(protection)
+      current = protection && protection["required_status_checks"]
+      return nil unless current
+      -> { apply_required_checks(current) }
+    end
+
+    # Keeps every check main already requires (and the app each must come from), adds the missing ones from any app that has reported them, and leaves "strict" as it is.
+    def apply_required_checks(current)
+      kept = current.fetch("checks", []).map { |check| { "context" => check["context"] }.merge(check["app_id"] ? { "app_id" => check["app_id"] } : {}) }
+      kept += (current.fetch("contexts", []) - kept.map { |check| check["context"] }).map { |context| { "context" => context } } # the older field, if GitHub lists a check only there
+      known = kept.map { |check| check["context"] }
+      added = (REQUIRED_CHECKS - known).map { |context| { "context" => context } }
+      puts "  PATCH #{BRANCH} required status checks: adding #{added.map { |check| check['context'] }.inspect}, keeping #{known.inspect}"
+      @github.request("PATCH", "/branches/#{BRANCH}/protection/required_status_checks", "strict" => current["strict"] == true, "checks" => kept + added)
     end
   end
 
