@@ -40,7 +40,60 @@ jobs:
           for service in ai auth notifications; do
             bundle exec bundle-audit check --update --gemfile-lock services/$service/Gemfile.lock --config config/bundler-audit.yml
           done
-      
+
+  # Every commit of the repository, not just the diff: a secret that a later commit deleted is still in the history, and the repository is public (ADR 78).
+  # gitleaks is a release binary, so it is pinned by version and by the SHA-256 of the archive written here (from the release's checksums file): a changed
+  # download is refused, not run. Findings are printed redacted, because the log of a public repository is public too. Nothing here uses a secret.
+  secret_scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb # gitleaks_8.30.1_linux_x64.tar.gz
+
+    steps:
+      - name: Checkout code, with all its history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/$archive" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$archive"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$archive" | sha256sum --check
+          mkdir "$RUNNER_TEMP/gitleaks"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/gitleaks" gitleaks
+          echo "$RUNNER_TEMP/gitleaks" >> "$GITHUB_PATH"
+
+      # A scan that finds nothing proves nothing until the scanner is known to find something: a mistake in the config (a rule that matches no path, an allowlist
+      # that swallows everything) would pass every run. So first a throwaway repository with two planted secrets, made here (the key is put together from two
+      # pieces, so that this file does not contain what the scan below looks for): the scanner, with this config, has to find both.
+      - name: Check the scanner finds what it should
+        run: |
+          set -euo pipefail
+          control="$RUNNER_TEMP/control"
+          git init --quiet "$control"
+          mkdir "$control/config"
+          printf 'aws_access_key_id = "AKIA%s"\n' QWERTYUIOPASDFGH > "$control/settings.txt"
+          echo placeholder > "$control/config/master.key"
+          git -C "$control" add --force .
+          git -C "$control" -c user.name=control -c user.email=control@example.invalid commit --quiet --message "Planted secrets"
+          if gitleaks git --config .gitleaks.toml --redact --no-banner --exit-code 1 --report-format json --report-path "$RUNNER_TEMP/control.json" "$control"; then
+            echo "::error::gitleaks found nothing in a repository with a planted AWS key and a master.key: the scan below would find nothing either"
+            exit 1
+          fi
+          jq -e 'map(.RuleID) | (index("aws-access-token") != null) and (index("rails-key-file") != null)' "$RUNNER_TEMP/control.json" > /dev/null \
+            || { echo "::error::gitleaks did not report both planted secrets:"; jq -r '.[].RuleID' "$RUNNER_TEMP/control.json"; exit 1; }
+
+      - name: Scan every commit for secrets
+        run: gitleaks git --config .gitleaks.toml --redact --no-banner --verbose --exit-code 1 .
+
   lint:
     runs-on: ubuntu-latest
     env:

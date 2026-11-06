@@ -1,0 +1,24 @@
+# What the "Secret scan" job in CI looks for (.github/workflows/ci.yml, docs/security.md, ADR 78). gitleaks reads this file from the root of the repository.
+title = "task-api secret scanning"
+
+[extend]
+# gitleaks' own rules: the formats of other people's tokens (AWS, GitHub, Slack, Stripe, ...), private keys, and high-entropy values assigned to a name like
+# "secret" or "token".
+useDefault = true
+
+# Files that are secrets whatever is in them. .gitignore already keeps these out; a rule here is for the day one is forced in (`git add -f`) or the
+# ignore is edited, which nothing else would notice. Matched on the path, so the content is never needed to see it.
+[[rules]]
+id = "rails-key-file"
+description = "A Rails master key or credentials key: with it the encrypted credentials are readable"
+path = '''(?i)(?:^|/)(?:[^/]*master\.key|config/credentials/[^/]+\.key)$'''
+
+[[rules]]
+id = "terraform-state"
+description = "Terraform state, which holds every secret Terraform generated in the clear (docs/runbooks/secrets-rotation.md)"
+path = '''(?i)\.tfstate(?:\.\d+)?(?:\.backup)?$'''
+
+[[rules]]
+id = "dotenv-file"
+description = "A .env file with real values; the committed reference is .env.example"
+path = '''(?i)(?:^|/)\.env(?:\.(?:local|development|test|staging|production))?$'''
