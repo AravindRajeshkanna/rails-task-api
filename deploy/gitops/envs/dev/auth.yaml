@@ -10,6 +10,7 @@ env:
   AUTH_ISSUER: https://api.dev.taskapi.example.com
   FRONTEND_URL: https://app.dev.taskapi.example.com
   EVENTS_SNS_TOPIC_ARN: arn:aws:sns:us-east-1:123456789012:task-api-dev-events
+  AUTH_ERASURE_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/123456789012/task-api-dev-auth-erasure
   ALLOWED_HOSTS: api.dev.taskapi.example.com,auth,auth.task-api,auth.task-api.svc,auth.task-api.svc.cluster.local
 ingress:
   host: api.dev.taskapi.example.com

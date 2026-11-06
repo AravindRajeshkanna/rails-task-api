@@ -10,6 +10,7 @@ env:
   AUTH_ISSUER: https://${DOMAIN}
   FRONTEND_URL: https://${FRONTEND_DOMAIN}
   EVENTS_SNS_TOPIC_ARN: ${SNS_TOPIC_ARN}
+  AUTH_ERASURE_QUEUE_URL: ${AUTH_ERASURE_QUEUE_URL}
   ALLOWED_HOSTS: ${DOMAIN},auth,auth.task-api,auth.task-api.svc,auth.task-api.svc.cluster.local
 ingress:
   host: ${DOMAIN}

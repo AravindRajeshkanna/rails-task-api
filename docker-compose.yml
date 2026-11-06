@@ -129,6 +129,8 @@ services:
       AUTH_AUDIENCE: task-api
       FRONTEND_URL: http://localhost:5173
       EVENTS_SNS_TOPIC_ARN: arn:aws:sns:us-east-1:123456789012:task-api-events
+      AUTH_ERASURE_CONSUMER: "true"
+      AUTH_ERASURE_QUEUE_URL: http://aws:5000/123456789012/auth-erasure
       OTEL_SERVICE_NAME: auth-service
       # AUTH_JWT_PRIVATE_KEY is unset: production refuses to boot without it, so set one for the stack:
       AUTH_JWT_PRIVATE_KEY: "${AUTH_JWT_PRIVATE_KEY:?generate one with: openssl genrsa 2048 | base64 | tr -d '\\n'}"

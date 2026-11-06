@@ -183,11 +183,11 @@ certificate_issued() {
 
 messaging_exists() {
   local url
-  for url in "$(output_of notifications_queue_url)" "$(output_of notifications_dlq_url)"; do
+  for url in "$(output_of notifications_queue_url)" "$(output_of notifications_dlq_url)" "$(output_of auth_erasure_queue_url)" "$(output_of auth_erasure_dlq_url)"; do
     aws sqs get-queue-attributes --queue-url "$url" --attribute-names QueueArn --query Attributes.QueueArn --output text >/dev/null || return 1
   done
   aws sns get-topic-attributes --topic-arn "$(output_of events_topic_arn)" --query Attributes.TopicArn --output text >/dev/null || return 1
-  echo "both queues and the events topic exist"
+  echo "all four queues and the events topic exist"
 }
 
 secrets_exist() {

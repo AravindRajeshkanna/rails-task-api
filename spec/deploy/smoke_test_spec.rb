@@ -76,6 +76,8 @@ RSpec.describe "deploy/scripts/smoke_test.sh" do
         "certificate_arn" => "arn:aws:acm:us-east-1:#{account}:certificate/abc", "api_domain" => "api.smoke.example.com",
         "notifications_queue_url" => "https://sqs.us-east-1.amazonaws.com/#{account}/task-api-smoke-notifications",
         "notifications_dlq_url" => "https://sqs.us-east-1.amazonaws.com/#{account}/task-api-smoke-notifications-dlq",
+        "auth_erasure_queue_url" => "https://sqs.us-east-1.amazonaws.com/#{account}/task-api-smoke-auth-erasure",
+        "auth_erasure_dlq_url" => "https://sqs.us-east-1.amazonaws.com/#{account}/task-api-smoke-auth-erasure-dlq",
         "events_topic_arn" => "arn:aws:sns:us-east-1:#{account}:task-api-smoke-events",
         "waf_acl_arn" => "arn:aws:wafv2:us-east-1:#{account}:regional/webacl/task-api-smoke/11111111-2222-3333-4444-555555555555" }.transform_values { |value| { "value" => value } }
     end

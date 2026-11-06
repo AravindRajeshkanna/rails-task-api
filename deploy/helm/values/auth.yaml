@@ -9,6 +9,7 @@ env:
   LOG_FORMAT: json
   DB_USER: auth
   AUTH_AUDIENCE: task-api
+  AUTH_ERASURE_CONSUMER: "true"   # reads the queue of `user.erased` events inside Puma (AUTH_ERASURE_QUEUE_URL is per environment), as the Notification service does
   OTEL_SERVICE_NAME: auth-service
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability:4318
 

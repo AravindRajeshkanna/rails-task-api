@@ -66,8 +66,15 @@ locals {
     api    = concat(local.storage_statements, local.publish_events, local.data_key_write, local.storage_key_use)
     worker = concat(local.storage_statements, local.publish_events, local.data_key_read, local.storage_key_use)
 
-    # The Auth service publishes password-reset events.
-    auth = local.publish_events
+    # The Auth service publishes password-reset events, and reads its queue of `user.erased` (the Task API has erased a person: ADR 79).
+    auth = concat(local.publish_events, [
+      {
+        sid       = "ConsumeErasureQueue"
+        effect    = "Allow"
+        actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes", "sqs:GetQueueUrl"]
+        resources = [aws_sqs_queue.auth_erasure.arn]
+      }
+    ])
 
     # The AI service calls Bedrock: generation through Converse (InvokeModel permission) and Titan embeddings.
     ai = [

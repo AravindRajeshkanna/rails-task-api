@@ -42,6 +42,7 @@ placeholders = {
   DB_ENDPOINT: "task-api-#{env}.cluster-xxxx.#{region}.rds.amazonaws.com", DB_READER_ENDPOINT: "task-api-#{env}.cluster-ro-xxxx.#{region}.rds.amazonaws.com",
   SNS_TOPIC_ARN: "arn:aws:sns:#{region}:123456789012:task-api-#{env}-events",
   NOTIFICATIONS_QUEUE_URL: "https://sqs.#{region}.amazonaws.com/123456789012/task-api-#{env}-notifications",
+  AUTH_ERASURE_QUEUE_URL: "https://sqs.#{region}.amazonaws.com/123456789012/task-api-#{env}-auth-erasure",
   ACM_CERTIFICATE_ARN: "arn:aws:acm:#{region}:123456789012:certificate/00000000-0000-0000-0000-000000000000",
   WAF_ACL_ARN: "arn:aws:wafv2:#{region}:123456789012:regional/webacl/task-api-#{env}/00000000-0000-0000-0000-000000000000",
   STORAGE_BUCKET: "task-api-#{env}-storage", KMS_DATA_KEY_ALIAS: "alias/task-api-#{env.delete_suffix('-dr')}-data", BEDROCK_MODEL_ID: "REPLACE_WITH_BEDROCK_INFERENCE_PROFILE_ID",
@@ -54,7 +55,7 @@ if (path = ARGV[1])
   outputs = JSON.parse(File.read(path)).transform_values { |entry| entry["value"] }
   mapping = {
     REGION: "region", ECR_REGISTRY: "ecr_registry", DOMAIN: "api_domain", FRONTEND_DOMAIN: "frontend_domain", VPC_CIDR: "vpc_cidr",
-    DB_ENDPOINT: "database_endpoint", DB_READER_ENDPOINT: "database_reader_endpoint", SNS_TOPIC_ARN: "events_topic_arn", NOTIFICATIONS_QUEUE_URL: "notifications_queue_url",
+    DB_ENDPOINT: "database_endpoint", DB_READER_ENDPOINT: "database_reader_endpoint", SNS_TOPIC_ARN: "events_topic_arn", NOTIFICATIONS_QUEUE_URL: "notifications_queue_url", AUTH_ERASURE_QUEUE_URL: "auth_erasure_queue_url",
     ACM_CERTIFICATE_ARN: "certificate_arn", WAF_ACL_ARN: "waf_acl_arn", STORAGE_BUCKET: "storage_bucket", KMS_DATA_KEY_ALIAS: "kms_data_key_alias",
     BEDROCK_MODEL_ID: "bedrock_model_id", BEDROCK_EMBEDDING_MODEL_ID: "bedrock_embedding_model_id",
     CLUSTER_NAME: "cluster_name", VPC_ID: "vpc_id", KARPENTER_NODE_ROLE: "karpenter_node_role_name", KARPENTER_QUEUE: "karpenter_interruption_queue"
