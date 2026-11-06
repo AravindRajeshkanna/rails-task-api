@@ -56,7 +56,7 @@ You need a **public Route 53 hosted zone you own whose name servers are the ones
    ruby deploy/scripts/github_settings.rb --apply
    ```
 
-   `smoke` accepts `main` only, administrators cannot bypass, and it asks for no approval (the destroy job would otherwise wait for one in the middle of the run).
+   `smoke` accepts `main` only, administrators cannot bypass, and it asks for no approval (the destroy job would otherwise wait for one in the middle of the run). The same run also adds the two `Platform` checks to the status checks `main` requires, if it does not require them yet (ADR 76); it changes nothing else about `main`.
 3. **Two variables on the `smoke` Environment** (Settings > Environments > smoke), and the repository variable `TF_STATE_BUCKET` you already have:
 
    | Variable | Value |

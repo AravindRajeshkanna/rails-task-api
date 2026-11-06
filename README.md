@@ -328,8 +328,8 @@ The Kamal path above still works for a single host, with `ACTIVE_STORAGE_SERVICE
 - The platform code is validated statically and by CI (the four images build, Terraform validates, every Helm release renders and passes
   Kubernetes/CRD schema checks), and the services were exercised together locally with an AWS mock. The Compose stack and the `kind` script
   were run once, on one Mac, and passed `deploy/local/verify.sh` after nine fixes ([docs/local-platform.md](docs/local-platform.md)). CI runs the
-  same script against both (the `Platform` jobs, [ADR 75](docs/decisions.md)); those jobs were rehearsed step by step on that Mac and then passed twice on a GitHub
-  runner (two runs of one pull request; the failure path is untested there). The Terraform has **not been run against AWS**. Expect a round of small fixes on first contact.
+  same script against both (the `Platform` jobs, [ADR 75](docs/decisions.md)); those jobs were rehearsed step by step on that Mac and then passed in all 36 CI runs on a GitHub
+  runner so far (four days; the failure path is untested there, and `main` does not require them until `github_settings.rb --apply` is run). The Terraform has **not been run against AWS**. Expect a round of small fixes on first contact.
 - Tasks and Projects stay in the monolith on purpose ([decision 21](docs/decisions.md)). Webhooks stay there too.
 - Events for the other services go through a transactional outbox ([ADR 41](docs/decisions.md)): delivery is at-least-once and never lossy, but not ordered, and can be late during an SNS outage (alarm: oldest unpublished event over 5 minutes; [runbook](docs/runbooks/event-outbox.md)). Webhooks and Action Cable are separate and are not retried from the outbox.
 - Access tokens from the Auth service live up to 15 minutes after logout.
