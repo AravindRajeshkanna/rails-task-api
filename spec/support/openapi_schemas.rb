@@ -233,10 +233,13 @@ module OpenapiSchemas
       properties: {
         id: { type: :integer }, project_id: { type: :integer }, url: { type: :string },
         events: { type: :array, items: { type: :string }, description: "Empty means every event" },
-        active: { type: :boolean }, secret: { type: :string, description: "Signing secret; only present in the create response" },
+        active: { type: :boolean }, secret: { type: :string, description: "Signing secret; only present in the create response (and not in a replay of it)" },
+        rotating: { type: :boolean, description: "A new signing secret is being rotated in: deliveries carry a second signature until it is promoted or cancelled" },
+        rotation_started_at: { type: :string, format: "date-time", nullable: true },
+        next_secret: { type: :string, description: "The new signing secret; only present in the rotate_secret response" },
         created_at: { type: :string, format: "date-time" }, updated_at: { type: :string, format: "date-time" }
       },
-      required: %i[id url events active]
+      required: %i[id url events active rotating]
     },
     WebhookDelivery: {
       type: :object,

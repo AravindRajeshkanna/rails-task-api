@@ -10,6 +10,7 @@ What is encrypted by the application, who holds the keys, what each key is allow
 | --- | --- | --- |
 | `users.email_address` | **Yes**, deterministic | What people sign in with, so it has to be findable by equality. The longest-lived copy of an address |
 | `webhooks.secret` | **Yes**, a data key of its own per value | Signs payloads. Was encrypted with the Rails credentials key; now KMS protects the key |
+| `webhooks.next_secret` | **Yes**, the same way | The secret being rotated in ([ADR 78](../decisions.md)): present only between starting and finishing a rotation, and never under the credentials key. Whether one is rotating is a plain column, so listing webhooks decrypts nothing |
 | `users.name` | No | Shown in every list; a ciphertext cannot be sorted or searched |
 | Task titles, descriptions, comments | No | Visible to every project member, searched with full text and embedded for the AI features. Encrypting them would remove both |
 | `organization_invitations.email_address` | No | The same address sits in the audit trail as plaintext (below), so encrypting this column would protect nothing |
@@ -91,7 +92,8 @@ In a model: `encrypts_with_kms :secret` or `encrypts_with_kms :email_address, de
 | Reading or looking up an address, signing in | Nothing: the key is in memory |
 | Reading a webhook secret whose key is cached | Nothing |
 | Delivering a webhook whose key is not cached | The job waits and retries (8 attempts, polynomial back-off), without calling the receiver |
-| Creating a webhook | `503 encryption_unavailable` with `Retry-After: 5`; nothing is created |
+| Creating a webhook, starting or promoting a secret rotation | `503 encryption_unavailable` with `Retry-After: 5`; nothing is created or changed |
+| Delivering a webhook while a secret is being rotated in | One more key to unwrap (the new secret's); the same wait and retry if it cannot be |
 | A pod that is starting | Stays unready until it can unwrap the master; running pods are unaffected |
 | `AccessDenied`, key disabled, key deleted | The same as unavailable to the client, with the reason in the logs and in `taskapi_kms_requests_total{outcome=...}` |
 
@@ -115,7 +117,7 @@ An outage is never reported as corrupt data: `KmsEncryption::Unavailable` is a d
 
 The arithmetic, with the one number I could not verify:
 
-- **Requests** (the part that depends on this application): one `GenerateDataKey` per webhook secret written; one `Decrypt` per webhook per pod per five minutes at most; one `Decrypt` per pod start; **none** for addresses. A pod that serves only sign-ins and lookups makes one request in its life. Compare the library this replaced the idea of: reading 101 rows made 101 requests.
+- **Requests** (the part that depends on this application): one `GenerateDataKey` per webhook secret written (creating a webhook, starting a rotation, and promoting one, which writes the new secret under the name of the old); one `Decrypt` per webhook per pod per five minutes at most; one `Decrypt` per pod start; **none** for addresses. A pod that serves only sign-ins and lookups makes one request in its life. Compare the library this replaced the idea of: reading 101 rows made 101 requests.
 - **Keys**: three per environment, each billed monthly, plus a replica of the data key (and of each generation) in the standby's region.
 - **Prices** change and were not looked up for this document: use the [KMS pricing page](https://aws.amazon.com/kms/pricing/). Multiply the request counts above by the per-request price; the per-key price by the key count.
 - The CloudTrail trail records KMS events only, which keeps its cost to those events. A second trail that records management events for the whole account is billed as a second copy.

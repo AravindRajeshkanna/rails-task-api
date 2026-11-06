@@ -66,6 +66,7 @@ It needs `gh` logged in as an admin of the repository. It sets:
 | Administrators bypass the Environment's rules | off | Otherwise the rules above are advice to the one person they exist for |
 | Who must approve a fork's pull request before its workflows run | every outside contributor, every time | The repository is public |
 | The default token, and approving reviews | read-only, and may not approve | |
+| GitHub's secret scanning and push protection | on | A token in the format of a provider that takes part is raised as an alert, or the push refused. Already on when this was written; the script records it so that turning it off is noticed. The `Secret scan` job in CI is the other half ([ADR 78](../decisions.md)) |
 
 It also reports, and does not change, **who has access** (only you, no deploy keys, webhooks or pending invitations) and whether `main` refuses force pushes and deletion: removing someone or tightening `main` can lock you out, and that is your decision. The one thing it does set on `main` is the **status checks a merge requires**: `--apply` adds the two `Platform` jobs to the list (keeping any already there, and nothing else about `main`'s protection), which cannot lock you out while administrators are not held to the rules ([ADR 76](../decisions.md#76-the-platform-jobs-are-watched-then-required-helm-is-pinned-and-the-settings-script-owns-mains-required-checks)).
 

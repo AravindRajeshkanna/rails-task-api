@@ -48,7 +48,7 @@ In the standby region the secrets are read-only replicas. To write after losing 
 | The KMS keys | AWS KMS | API, worker, S3, External Secrets (one key each) | the wrapped keys they protect | [kms-key-rotation](kms-key-rotation.md) |
 | SES SMTP username and password | `task-api/<env>/notifications` `smtp_*` | Notification service | send mail as the platform | [7](#7-ses-smtp-credentials) |
 | Slack webhook URL | `task-api/<env>/notifications` `slack_webhook_url` | Notification service | post to the channel | [8](#8-the-slack-webhook-url) |
-| Customers' webhook signing secrets | `webhooks.secret`, encrypted | the delivery job | forge events to that customer | [9](#9-a-customers-webhook-signing-secret) |
+| Customers' webhook signing secrets | `webhooks.secret` and, while one is being rotated in, `webhooks.next_secret`, encrypted | the delivery job | forge events to that customer | [9](#9-a-customers-webhook-signing-secret) |
 | CI's cloud access | none stored: OIDC to a role | GitHub Actions | nothing to rotate | [10](#10-ci-to-aws) |
 | Aurora master password | managed by RDS in Secrets Manager (`manage_master_user_password`) | operators | full database access | RDS rotates it; nothing to do |
 
@@ -118,7 +118,22 @@ Revoke the old URL in Slack, create a new one, `set_key notifications slack_webh
 
 ## 9. A customer's webhook signing secret
 
-A webhook's secret is shown once, when it is created. There is **no rotation with an overlap**: the only way to change it is to delete the webhook and create another, and the receiver must switch at the same moment (events in between are signed with a secret the receiver does not know). A leaked secret means deleting the webhook now. A rotation endpoint that signs with both secrets for a window is the missing feature ([threat-model.md](../threat-model.md), T18).
+A webhook's secret is shown once, when it is created, and is the project admin's to replace ([ADR 78](../decisions.md)). Nothing here is the operator's, unless an admin asks for help or the secret leaked from this side (the database, with the KMS key, or a log); the procedure is for the admin, and the operator's part is the last paragraph.
+
+**Replacing it without downtime.** While a new secret is waiting, every delivery is signed twice: `X-TaskApi-Signature` with the current secret, as ever, and `X-TaskApi-Signature-Next` with the new one.
+
+1. `POST /api/v1/webhooks/:id/rotate_secret` (a project admin). The answer carries `next_secret`, once; keep it. Nothing the receiver sees has changed except the second header. `rotating` is `true` on the webhook from now on. Asking again replaces the new secret, which is how to get one that was lost (the idempotency key does not cover this endpoint, so a retry after a lost answer is safe: only the last answer's secret counts).
+2. Give the receiver the new secret and have it accept it: verify `X-TaskApi-Signature-Next` against the new secret, or accept a match on either header. Check the delivery log (`GET /webhooks/:id/deliveries`) for 2xx answers after the change.
+3. `POST /api/v1/webhooks/:id/promote_secret`. From the next delivery attempt, `X-TaskApi-Signature` is made with the new secret and the second header is gone. **Then the receiver stops accepting the old secret**: promoting ends the sender's overlap, and only the receiver can make the old secret useless to someone who has it.
+4. `POST /api/v1/webhooks/:id/cancel_rotation` instead of 3 forgets the new secret and leaves the old one as it was.
+
+A retry that was waiting when you promoted is signed again at its next attempt, with the new secret: an event queued before and delivered after is verified with the new one. A receiver that has not switched by then refuses it, and the job retries it for about an hour (6 attempts) before it stays failed in the log.
+
+**If the secret leaked, quickly:** `rotate_secret`, give the receiver the new secret, `promote_secret` at once. The events in between are refused by a receiver that is not ready; that is the price of speed, and it is the same as before this existed (delete and recreate) with the webhook's id and delivery log kept. If the receiver cannot be reached in time, deleting the webhook stops deliveries altogether.
+
+**Left half done.** Nothing ends a rotation by itself. A webhook with `rotating: true` for weeks is signing with an old secret that someone meant to retire. `Webhook.where.not(rotation_started_at: nil).where(rotation_started_at: ...7.days.ago)` lists them (rails runner). Rotations are logged (`webhook.secret_rotation_started`, `_promoted`, `_cancelled`, with the webhook, the project and the person; never a secret) and are not in the audit trail.
+
+**Operator, if the leak was this side's.** The new secret is encrypted like the old one (`bin/rails kms:status` lists `Webhook.next_secret` next to `Webhook.secret`; `kms:encrypt` and `kms:verify` cover both). Rotating every webhook at once is a script over `Webhook.find_each(&:begin_secret_rotation!)` that cannot tell the customers: the new secrets are shown only in an admin's answer. Do not do that; tell the customers, and have them rotate.
 
 ## 10. CI to AWS
 
@@ -142,4 +157,4 @@ Not enforced by anything yet. A sensible one: the JWT key and the AI token every
 
 ## Not covered
 
-The KMS keys (rotation, replacement, the wrapped master: [kms-key-rotation.md](kms-key-rotation.md)), TLS certificates (ACM renews its own), the Terraform state bucket (its contents include the generated secrets: keep it private and encrypted), and secret scanning in CI (not built; [security.md](../security.md)).
+The KMS keys (rotation, replacement, the wrapped master: [kms-key-rotation.md](kms-key-rotation.md)), TLS certificates (ACM renews its own), the Terraform state bucket (its contents include the generated secrets: keep it private and encrypted), and secret scanning (a `Secret scan` job in CI and GitHub's own: what it finds and what it cannot is in [security.md](../security.md); if it ever finds a real secret, the secret is rotated first, by the section above for its kind, and the history is rewritten only after that, if at all).

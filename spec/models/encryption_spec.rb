@@ -34,6 +34,17 @@ RSpec.describe "Encrypted attributes" do
       expect(Webhook.find(webhook.id).secret).to eq(webhook.secret)
     end
 
+    it "stores the secret being rotated in as ciphertext too, under a data key of its own, and gives it back" do
+      webhook = create(:webhook)
+      new_secret = webhook.begin_secret_rotation!
+
+      raw = stored("webhooks", "next_secret", webhook.id)
+      expect(raw).not_to include(new_secret)
+      expect(header(raw, "i")).to start_with("kms:")
+      expect(header(raw, "k")).not_to eq(header(stored("webhooks", "secret", webhook.id), "k"))
+      expect(Webhook.find(webhook.id).next_secret).to eq(new_secret)
+    end
+
     it "keeps plaintext out of the queries it sends, not just out of the rows" do
       create(:user, email_address: "grace@example.com")
       sent = []
@@ -87,7 +98,7 @@ RSpec.describe "Encrypted attributes" do
     let(:targets) { EncryptionInventory.targets }
 
     it "is the ones we know about, so a new one is a decision somebody made" do
-      expect(targets.map(&:label)).to eq(%w[User.email_address Webhook.secret])
+      expect(targets.map(&:label)).to eq(%w[User.email_address Webhook.next_secret Webhook.secret])
     end
 
     it "takes its key from KMS and not from the Rails credentials, which is the point of the exercise" do

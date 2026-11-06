@@ -10,7 +10,7 @@ RSpec.describe GithubSettings do
 
       def initialize(owner: { "login" => "me", "id" => 7, "type" => "User" }, collaborators: [ "me" ], environments: {}, fork_policy: "first_time_contributors",
                      oidc: { "use_default" => true, "use_immutable_subject" => true, "sub_claim_prefix" => "repo:me@7/app@9" }, protected_main: true,
-                     status_checks: { "strict" => false, "contexts" => [], "checks" => [] })
+                     status_checks: { "strict" => false, "contexts" => [], "checks" => [] }, secret_scanning: { "secret_scanning" => "enabled", "secret_scanning_push_protection" => "enabled" })
         @owner = owner
         @collaborators = collaborators
         @environments = environments # name => { reviewers: [ids], bypass: bool, policies: [{ id:, name: }] }
@@ -18,6 +18,7 @@ RSpec.describe GithubSettings do
         @oidc = oidc
         @protected_main = protected_main
         @status_checks = status_checks # as GitHub renders main's rule today: on, strict off, no check named; nil is a main with no such rule
+        @secret_scanning = secret_scanning # feature => "enabled" / "disabled"; nil is a token that is not an admin's, which GitHub tells nothing about it
         @workflow = { "default_workflow_permissions" => "read", "can_approve_pull_request_reviews" => false }
         @next_id = 100
         @requests = []
@@ -25,11 +26,11 @@ RSpec.describe GithubSettings do
 
       def environment(name) = @environments[name]
 
-      attr_reader :fork_policy, :oidc, :status_checks
+      attr_reader :fork_policy, :oidc, :status_checks, :secret_scanning
 
       def get(path)
         case path
-        when "" then { "owner" => @owner }
+        when "" then { "owner" => @owner }.merge(@secret_scanning ? { "security_and_analysis" => @secret_scanning.transform_values { |status| { "status" => status } } } : {})
         when "/environments" then { "environments" => @environments.map { |name, entry| render(name, entry) } }
         when %r{\A/environments/([\w-]+)/deployment-branch-policies\z}
           entry = @environments[Regexp.last_match(1)]
@@ -56,6 +57,7 @@ RSpec.describe GithubSettings do
           @oidc = { "use_default" => body.fetch("use_default"), "include_claim_keys" => body["include_claim_keys"], "use_immutable_subject" => body.fetch("use_immutable_subject", false), "sub_claim_prefix" => @oidc["sub_claim_prefix"] }
         in [ "PUT", "/actions/permissions/workflow" ] then @workflow = body
         in [ "PATCH", "/branches/main/protection/required_status_checks" ] then patch_status_checks(body)
+        in [ "PATCH", "" ] then body.fetch("security_and_analysis").each { |feature, setting| @secret_scanning[feature] = setting.fetch("status") }
         else raise "the fake GitHub does not know #{method} #{path}"
         end
         nil
@@ -289,5 +291,47 @@ RSpec.describe GithubSettings do
     github = fake_class.new(owner: { "login" => "acme", "id" => 1, "type" => "Organization" })
 
     expect { run_cli(github) }.to raise_error(SystemExit).and output(/owned by Organization acme/).to_stderr
+  end
+
+  # Roadmap 14 / ADR 78: GitHub's own secret scanning is on and was written down nowhere. The CI job is the other half.
+  describe "GitHub's secret scanning" do
+    def scanning_requests(github) = github.requests.select { |method, path, _| method == "PATCH" && path == "" }
+
+    it "is wanted on, for the alerts and for push protection, and reported as it is when it is" do
+      github = fake_class.new
+      result, output = run_cli(github)
+
+      expect(GithubSettings::SECRET_SCANNING.keys).to eq(%w[secret_scanning secret_scanning_push_protection])
+      expect(output).to include('ok   security: secret scanning alerts: "enabled"').and include('ok   security: push protection for secrets: "enabled"')
+      expect(github.changes).to be_empty
+      expect(result).to be(false) # the other differences (environments, checks) are still there; this says nothing about scanning
+    end
+
+    it "reports a feature that is off, without changing it" do
+      github = fake_class.new(secret_scanning: { "secret_scanning" => "enabled", "secret_scanning_push_protection" => "disabled" })
+      _, output = run_cli(github)
+
+      expect(output).to include('DIFF security: push protection for secrets: wanted "enabled", found "disabled"')
+      expect(output).to include('ok   security: secret scanning alerts: "enabled"')
+      expect(scanning_requests(github)).to be_empty
+    end
+
+    it "turns on, with --apply, only the one that is off, and finds it on afterwards" do
+      github = fake_class.new(secret_scanning: { "secret_scanning" => "disabled", "secret_scanning_push_protection" => "enabled" })
+      _, output = run_cli(github, apply: true)
+
+      expect(scanning_requests(github)).to eq([ [ "PATCH", "", { "security_and_analysis" => { "secret_scanning" => { "status" => "enabled" } } } ] ])
+      expect(github.secret_scanning).to eq("secret_scanning" => "enabled", "secret_scanning_push_protection" => "enabled")
+      expect(output).to include('ok   security: secret scanning alerts: "enabled"')
+    end
+
+    it "leaves it as an open finding when GitHub does not say, which is what a token that cannot administer the repository is told" do
+      github = fake_class.new(secret_scanning: nil)
+      _, output = run_cli(github, apply: true)
+
+      expect(output).to include('OPEN security: secret scanning alerts: wanted "enabled", found "not reported"')
+      expect(output).to include('OPEN security: push protection for secrets: wanted "enabled", found "not reported"')
+      expect(scanning_requests(github)).to be_empty
+    end
   end
 end

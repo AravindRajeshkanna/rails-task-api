@@ -41,7 +41,8 @@ RSpec.describe "Webhooks API", type: :request do
       description <<~MD
         Deliveries are `POST`ed as JSON with headers `X-TaskApi-Event`, `X-TaskApi-Delivery`, `X-TaskApi-Timestamp` and
         `X-TaskApi-Signature: sha256=<hex>`, where the signature is `HMAC-SHA256(secret, "<timestamp>.<raw body>")`.
-        Failed deliveries are retried up to 6 times with back-off. The `secret` is returned only in this response.
+        Failed deliveries are retried up to 6 times with back-off. The `secret` is returned only in this response (a retry with the same
+        `Idempotency-Key` answers with the webhook but without the secret: use `rotate_secret` to get one).
       MD
       security [ { bearer_auth: [] } ]
       consumes "application/json"
@@ -91,6 +92,75 @@ RSpec.describe "Webhooks API", type: :request do
       tags "Webhooks"
       security [ { bearer_auth: [] } ]
       response("204", "Deleted") { run_test! }
+    end
+  end
+
+  path "/api/v1/webhooks/{id}/rotate_secret" do
+    parameter name: :id, in: :path, type: :integer
+    let(:id) { webhook.id }
+
+    post "Start rotating the signing secret" do
+      tags "Webhooks"
+      description <<~MD
+        Makes a new signing secret and returns it, once, as `next_secret`. The current secret is unchanged. Until you promote or cancel, every delivery
+        carries two signatures: `X-TaskApi-Signature` is still made with the current secret, so a receiver that does nothing keeps working, and
+        `X-TaskApi-Signature-Next` is made with the new one, so a receiver that has it can already check it. Update the receiver to accept the new
+        secret, then call `promote_secret`. Asking again replaces the new secret (that is how to get one you lost). Not covered by `Idempotency-Key`:
+        the secret is not stored anywhere but the webhook.
+      MD
+      security [ { bearer_auth: [] } ]
+      produces "application/json"
+
+      response "200", "The new secret, shown once" do
+        schema envelope.call(ref.call("Webhook"))
+        run_test! { expect(data).to include("rotating" => true, "next_secret" => match(/\A\h{64}\z/)) }
+      end
+    end
+  end
+
+  path "/api/v1/webhooks/{id}/promote_secret" do
+    parameter name: :id, in: :path, type: :integer
+    let(:id) { webhook.id }
+
+    post "Finish rotating the signing secret" do
+      tags "Webhooks"
+      description "The new secret becomes the secret and the old one stops signing: deliveries carry one signature again. Do it once the receiver accepts the new secret."
+      security [ { bearer_auth: [] } ]
+      produces "application/json"
+
+      response "200", "Promoted" do
+        schema envelope.call(ref.call("Webhook"))
+        before { webhook.begin_secret_rotation! }
+        run_test! { expect(data).to include("rotating" => false) }
+      end
+
+      response "409", "No secret is being rotated in" do
+        schema ref.call("Error")
+        run_test!
+      end
+    end
+  end
+
+  path "/api/v1/webhooks/{id}/cancel_rotation" do
+    parameter name: :id, in: :path, type: :integer
+    let(:id) { webhook.id }
+
+    post "Cancel rotating the signing secret" do
+      tags "Webhooks"
+      description "Forgets the new secret. The current secret is as it was, and deliveries carry one signature again."
+      security [ { bearer_auth: [] } ]
+      produces "application/json"
+
+      response "200", "Cancelled" do
+        schema envelope.call(ref.call("Webhook"))
+        before { webhook.begin_secret_rotation! }
+        run_test! { expect(data).to include("rotating" => false) }
+      end
+
+      response "409", "No secret is being rotated in" do
+        schema ref.call("Error")
+        run_test!
+      end
     end
   end
 

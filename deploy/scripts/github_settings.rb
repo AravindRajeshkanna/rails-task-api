@@ -27,6 +27,10 @@ module GithubSettings
   # job produces would wait for ever, so spec/deploy/github_settings_spec.rb reads them against .github/workflows/ci.yml. The Platform jobs are the two that
   # start the stack and use it as a client would (roadmap 11); they passed in 36 of 36 runs before they were listed here.
   REQUIRED_CHECKS = [ "Platform (compose)", "Platform (kind)" ].freeze
+  # GitHub's own secret scanning, on for this repository and recorded nowhere in it: it is a setting, so nothing would notice it turned off. Scanning raises an
+  # alert for a token in the format of a provider that takes part; push protection refuses the push. The "Secret scan" job in CI is the other half (it knows this
+  # project's own files, and fails a pull request instead of alerting afterwards; ADR 78).
+  SECRET_SCANNING = { "secret_scanning" => "secret scanning alerts", "secret_scanning_push_protection" => "push protection for secrets" }.freeze
 
   Check = Struct.new(:area, :what, :wanted, :actual, :fix, keyword_init: true) do
     def ok? = wanted == actual
@@ -63,7 +67,7 @@ module GithubSettings
       abort "#{repo}: owned by #{@owner['type']} #{@owner['login']}; this script assumes a repository owned by a person (ADR 72)" unless @owner["type"] == "User"
     end
 
-    def checks = environments + actions + oidc + access
+    def checks = environments + actions + oidc + security + access
 
     private
 
@@ -122,6 +126,17 @@ module GithubSettings
       puts "  subject prefix GitHub puts in tokens: #{template['sub_claim_prefix'].inspect} (the bootstrap stack's GitHubSubjectPrefix)" if template["sub_claim_prefix"]
       [ Check.new(area: "oidc", what: "the token's subject uses GitHub's default template", wanted: true, actual: template["use_default"] == true,
                   fix: -> { @github.request("PUT", "/actions/oidc/customization/sub", "use_default" => true, "use_immutable_subject" => template["use_immutable_subject"] == true) }) ]
+    end
+
+    # Only an admin's token is told these (security_and_analysis is left out of the answer for anyone else), so a feature that is not reported has no fix: writing
+    # it would be refused, and the finding stays open for a person to read.
+    def security
+      reported = @repo["security_and_analysis"] || {}
+      SECRET_SCANNING.map do |feature, label|
+        status = reported.dig(feature, "status")
+        Check.new(area: "security", what: label, wanted: "enabled", actual: status || "not reported",
+                  fix: status ? -> { @github.request("PATCH", "", "security_and_analysis" => { feature => { "status" => "enabled" } }) } : nil)
+      end
     end
 
     def access
