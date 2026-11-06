@@ -34,7 +34,7 @@ The reasoning behind the non-obvious choices is in [decisions.md](decisions.md) 
 
 | Phase | Planned | Status | Implemented as |
 | --- | --- | --- | --- |
-| 0 Foundations | Ruby via mise/rbenv/asdf, Rails, Postgres, tooling | ✅ | Ruby 4.0.9 pinned in `mise.toml`/`.ruby-version`; Rails 8.1.4; PostgreSQL 17 |
+| 0 Foundations | Ruby via mise/rbenv/asdf, Rails, Postgres, tooling | ✅ | Ruby 4.0.9 pinned in `mise.toml`/`.ruby-version`; Rails 8.1.4.1; PostgreSQL 17 |
 | 1 Bootstrap & core Rails | `rails new --api`, models, associations, validations, scopes, CRUD, `/api/v1` | ✅ | Users, Projects, Memberships, Tasks, Comments, Tags; `namespace :api { namespace :v1 }`; `config/routes.rb` ([ADR 1-2](decisions.md)) |
 | 2 Authentication & authorization | Rails 8 auth or Devise/JWT, Bearer tokens, registration/login/logout/reset, Pundit, 401/403 | ✅ | Database-backed bearer tokens, digest-only ([ADR 3](decisions.md)); Pundit with 404-not-403 across tenants ([ADR 4](decisions.md)); `app/policies` |
 | 3 Professional API design | Alba, Pagy, filtering/sorting/search, shallow routes, error envelope, CORS, rack-attack, rswag | ✅ | Alba resources ([ADR 5](decisions.md)); Pagy ([ADR 6](decisions.md)); `TaskQuery`; one error envelope ([ADR 7](decisions.md)); `rack-cors`, `rack-attack`; rswag specs that generate `swagger/v1/swagger.yaml` |
