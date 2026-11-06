@@ -111,6 +111,29 @@ RSpec.describe "The platform job in CI" do
     end
   end
 
+  # `latest` made a new Helm release change the chart checks and the kind platform at once, with no commit to blame. kubectl is the runner's own and is not
+  # pinned (it moved from v1.37.1 to v1.37.2 inside the 36 runs that were read); kind and kubeconform are pinned already.
+  describe "the Helm it uses" do
+    let(:installs) do
+      workflow.fetch("jobs").flat_map { |name, entry| entry.fetch("steps", []).select { |s| s["uses"].to_s.start_with?("azure/setup-helm") }.map { |s| [ name, s ] } }
+    end
+
+    it "is installed by the two jobs that use Helm, the chart checks and the kind platform, and by nothing else" do
+      expect(installs.map(&:first)).to contain_exactly("infrastructure", "platform")
+    end
+
+    it "is one exact release, set in one place, and not `latest`" do
+      expect(workflow.fetch("env").fetch("HELM_VERSION")).to match(/\Av\d+\.\d+\.\d+\z/)
+      expect(installs.map { |_, s| s.dig("with", "version") }).to all(eq("${{ env.HELM_VERSION }}"))
+    end
+
+    it "is not installed by any other workflow, where it could be a different release" do
+      others = Dir[Rails.root.join(".github/workflows/*.yml")].reject { |path| path.end_with?("/ci.yml") }
+
+      expect(others.map { |path| File.read(path) }.grep(/setup-helm|get-helm|helm\/helm/)).to be_empty
+    end
+  end
+
   describe "proving it" do
     let(:prove) { step("Prove it works") }
 
