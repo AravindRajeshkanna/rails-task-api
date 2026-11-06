@@ -13,6 +13,8 @@ Rails.application.routes.draw do
         post :refresh, on: :collection
       end
       resources :passwords, only: %i[create update], param: :token
+      # In-cluster only: the ingress does not list this path (deploy/helm/values/auth.yaml).
+      resources :credential_checks, only: :create
     end
   end
 

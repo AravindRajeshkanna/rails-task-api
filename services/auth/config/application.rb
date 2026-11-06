@@ -21,5 +21,8 @@ module AuthService
     config.x.auth.refresh_ttl = Integer(ENV.fetch("AUTH_REFRESH_TOKEN_TTL", 30 * 24 * 3600)).seconds
     config.x.frontend_url = ENV.fetch("FRONTEND_URL", "http://localhost:5173")
     config.x.events.sns_topic_arn = ENV["EVENTS_SNS_TOPIC_ARN"]
+    # The queue the Task API's `user.erased` events reach this service on (ADR 79); the consumer runs when AUTH_ERASURE_CONSUMER=true (config/puma.rb).
+    config.x.erasure_queue_url = ENV["AUTH_ERASURE_QUEUE_URL"]
+    config.service_kit.collectors = [ -> { AuthService::Metrics.collect! } ]
   end
 end
