@@ -40,6 +40,28 @@ RSpec.describe "Password reset", type: :request do
     expect(response).to have_http_status(:accepted)
   end
 
+  it "says so in the log when the event cannot be published, which is the only trace of a reset email that never came (nothing is retried)" do
+    allow(Rails.logger).to receive(:warn)
+    sns.stub_responses(:publish, "InternalErrorException")
+
+    post_json("/api/v1/passwords", { email_address: "pat@example.com" })
+
+    expect(Rails.logger).to have_received(:warn).with(hash_including(event: "auth.event_publish_failed", type: "user.password_reset_requested",
+                                                                    error: "Aws::SNS::Errors::InternalErrorException")).once
+    expect(response).to have_http_status(:accepted)
+  end
+
+  it "logs an unreachable topic the same way, and never the address or the link the event carries" do
+    allow(Rails.logger).to receive(:warn)
+    sns.stub_responses(:publish, Seahorse::Client::NetworkingError.new(SocketError.new("getaddrinfo: Name or service not known")))
+
+    post_json("/api/v1/passwords", { email_address: "pat@example.com" })
+
+    expect(Rails.logger).to have_received(:warn).with(hash_including(event: "auth.event_publish_failed", error: "Seahorse::Client::NetworkingError")) do |entry|
+      expect(entry.to_s).not_to include("pat@example.com", "reset-password")
+    end
+  end
+
   it "only logs the event when no topic is configured (local development)" do
     Rails.configuration.x.events.sns_topic_arn = nil
 
