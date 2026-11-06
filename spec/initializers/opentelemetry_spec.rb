@@ -6,7 +6,10 @@ require "rbconfig"
 # development with an exporter endpoint set, and sent a request. Until the setup moved to ServiceKit::Tracing the app reported its instrumentation as installed
 # and traced no request at all (gems/service_kit/spec/tracing_spec.rb has the full story and the cases around it).
 RSpec.describe "config/initializers/opentelemetry.rb" do
+  # Development checks for pending migrations on every request, which needs a development database: one machine has it and a CI runner does not (the request was a
+  # 500 there). /livez never touches the database, so the child is given none (see `boot`) and does not make that check.
   script = <<~RUBY
+    ActiveRecord::Migration::CheckPending.prepend(Module.new { def call(env) = @app.call(env) })
     exporter = OpenTelemetry::SDK::Trace::Export::InMemorySpanExporter.new
     OpenTelemetry.tracer_provider.add_span_processor(OpenTelemetry::SDK::Trace::Export::SimpleSpanProcessor.new(exporter))
     status, _headers, body = Rails.application.call(Rack::MockRequest.env_for("/livez", "HTTP_HOST" => "localhost"))
@@ -21,8 +24,9 @@ RSpec.describe "config/initializers/opentelemetry.rb" do
   RUBY
 
   def boot(env = {}, script:)
-    environment = { "RAILS_ENV" => "development", "OTEL_EXPORTER_OTLP_ENDPOINT" => "http://127.0.0.1:9", "OTEL_TRACES_SAMPLER" => "always_on",
-                    "OTEL_BSP_SCHEDULE_DELAY" => "60000" }.merge(env)
+    nowhere = "postgres://127.0.0.1:9/no_such_database" # the same on every machine: a database that is not there
+    environment = { "RAILS_ENV" => "development", "DATABASE_URL" => nowhere, "DB_REPLICA_URL" => nowhere, "OTEL_EXPORTER_OTLP_ENDPOINT" => "http://127.0.0.1:9",
+                    "OTEL_TRACES_SAMPLER" => "always_on", "OTEL_BSP_SCHEDULE_DELAY" => "60000" }.merge(env)
     out, err, status = Open3.capture3(environment, RbConfig.ruby, Rails.root.join("bin/rails").to_s, "runner", script, chdir: Rails.root.to_s)
     raise "the application did not boot (#{status.exitstatus}):\n#{err.lines.last(15).join}" unless status.success?
 
