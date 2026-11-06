@@ -37,7 +37,7 @@ It refuses to run where `config/master.key` exists, and where it has run already
 
 ## What `verify.sh` proves
 
-It registers two people, and exits 0 only if all of these hold (25 checks; `API_URL`, `MAIL_URL`, `WAIT_SECONDS` change the addresses and patience):
+It registers two people, and exits 0 only if all of these hold (32 checks: 25 until [roadmap 15](roadmap.md#roadmap-15-erasing-a-person-across-services) added the erasure group; `API_URL`, `MAIL_URL`, `WAIT_SECONDS` change the addresses and patience):
 
 | Group | Checks |
 | --- | --- |
@@ -46,6 +46,7 @@ It registers two people, and exits 0 only if all of these hold (25 checks; `API_
 | API | the Auth service's token is accepted (the API fetched its keys over the network), a tampered one is refused; a project, a membership and a task assigned to the second person are written, and read back by them |
 | Events | the assignment reaches the assignee's inbox **and their mailbox** (API → outbox → worker → SNS → SQS → Notification service → SMTP); a password-reset email reaches the first person, its link sets a new password, the new password signs in and the old one no longer does |
 | AI service | a priority suggestion comes back (the API has no model of its own here, so it was the AI service that answered) |
+| Erasure | the second person cannot erase their account with a wrong password; with the right one they can (the API asked the Auth service whether it is right); the token the Auth service signed for them is refused at once; **the Auth service then deletes their identity** (outbox → SNS → SQS → Auth service: they can no longer sign in, polled); the first person is untouched; the task the second person was on is still there, with nobody on it |
 
 A check that cannot fail proves nothing, so each component was stopped in turn (Compose: `docker compose stop`; kind: `kubectl scale --replicas=0`). The result was the same on both, and it shows what each check exercises:
 

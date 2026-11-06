@@ -8,6 +8,7 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Changed
+- **`DELETE /me` works where the Auth service owns the accounts (`AUTH_MODE=jwt`).** It used to answer `409 managed_by_auth_service`. The password is now checked by the Auth service (`503 auth_unavailable` with `Retry-After` if it cannot be reached; `429 rate_limited` for too many attempts at that address), the Auth service deletes the identity (address, password digest, refresh tokens), the Notification service deletes the person's delivery log, and the access token used is refused from the moment of the erasure. Nothing changes for an installation that keeps its own accounts, except that the other services are told. The ledger of what is left behind is [docs/data-protection.md](docs/data-protection.md#across-services).
 - **A replay of a webhook's creation no longer includes the signing secret.** A retry of `POST /projects/{id}/webhooks` with the same `Idempotency-Key` answers with the webhook it made, as before, but without `secret`
   (the secret is shown once, in the first answer, and is no longer kept in the table that remembers the answer). A client that lost the first answer asks for a new secret with `rotate_secret`.
 - `Webhook` has two new attributes, `rotating` (boolean) and `rotation_started_at`, in every answer that shows a webhook.
@@ -25,7 +26,7 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - `GET /readyz` has a second check, `"encryption"`, beside `"database"`. A pod whose encryption keys are not usable answers 503 there, like one whose database is not.
 - **Erase my account.** `DELETE /me` with the current password: the name, address, password, sign-ins, memberships, inbox, preferences and avatar go; the account stays as `Deleted user` so tasks,
   comments and history keep pointing at something, and the address can register again. `422 owns_projects` while you own a project that is not archived, `422 last_organization_owner`
-  while you are an organization's only owner, `422 incorrect_password`, `409 managed_by_auth_service` when the Auth service owns accounts. 5 attempts an hour; refused in the public demo.
+  while you are an organization's only owner, `422 incorrect_password`. 5 attempts an hour; refused in the public demo.
   Erased people appear as `Deleted user` wherever a user is shown.
 - **Retention.** Webhook deliveries are kept 30 days (`GET /webhooks/{id}/deliveries` shows at most that); concluded organization invitations are removed 90 days after they were accepted,
   revoked or expired (the invitations list shows at most that).

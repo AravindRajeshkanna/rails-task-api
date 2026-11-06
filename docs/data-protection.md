@@ -10,7 +10,7 @@ The rules the design follows: keep the least that the product needs; give every 
 
 | Data | Where | Why | Kept for | When the person is erased |
 | --- | --- | --- | --- | --- |
-| Name, email address, password hash (bcrypt) | `users` in the monolith (in JWT mode also the Auth service's `users`). **The address is encrypted by the application** (deterministic, under a key KMS protects; [kms.md](aws/kms.md)); the name and hash are not | Identify, sign in, address notifications | Until erased | Name becomes `Deleted user`, address `erased-<id>@erased.invalid`, hash removed. **The Auth service's copy is not reached** (see "Not built") |
+| Name, email address, password hash (bcrypt) | `users` in the monolith (in JWT mode also the Auth service's `users`). **The address is encrypted by the application** (deterministic, under a key KMS protects; [kms.md](aws/kms.md)); the name and hash are not | Identify, sign in, address notifications | Until erased | Name becomes `Deleted user`, address `erased-<id>@erased.invalid`, hash removed. **The Auth service's identity (address, hash, refresh tokens) is deleted by the `user.erased` event** ([below](#across-services)) |
 | Avatar image | Active Storage (S3) | Profile | Until replaced or erased | Purged |
 | Sign-ins: token digest, IP address, user agent | `sessions` | Authenticate; show "where am I signed in" | 30 days at most, 14 days unused; ended by sign-out, rotation, revocation; pruned daily | Deleted |
 | Project, organization and team memberships, with roles | `memberships`, `organization_memberships`, `team_memberships` | Access control | While a member | Deleted |
@@ -26,14 +26,14 @@ The rules the design follows: keep the least that the product needs; give every 
 | Events in flight: the outbox, then the queue | `outbox_events`; SNS; the Notification service's SQS queue and its dead-letter queue | Publish events reliably | Outbox: published rows 7 days. Queue: 14 days at most (dead-letter queue) | **Not reached.** `task.assigned` and `task.due_soon` carry the recipient's name and email address (`data.recipient`), so an address sits in these for up to those periods after the event |
 | AI usage ledger | `ai_usages` | Budgets and cost | Indefinitely; **no prompt or answer text** | Rows stay, pointing at the tombstone |
 | Embeddings of tasks | `tasks.embedding` | Search | With the task | Follows the task |
-| Delivery log of the Notification service: event id, type, channel, **recipient address** | `deliveries` in its own database | Prove something was sent; dedupe | 90 days | **Not reached**; bounded by retention |
+| Delivery log of the Notification service: event id, type, channel, **recipient address** | `deliveries` in its own database | Prove something was sent; dedupe | 90 days | Rows written since `recipient_id` was recorded are deleted by `user.erased` ([below](#across-services)); **older rows are not reached** and age out under the retention |
 | Processed event ids | `processed_events` in its database | Idempotent consumption | 14 days | No personal data |
 | Application logs | CloudWatch, 30 days | Operations | 30 days | See "Logs" |
 | Backups | Aurora point-in-time recovery (14 days in prod), dumps in S3 (90 days) | Recovery | As stated | **Not reached**; see "After a restore" |
 
 ## Erasure: `DELETE /api/v1/me`
 
-The person sends their password (a stolen token alone cannot do it; 5 tries an hour). `AccountErasure` then, in one transaction: ends every sign-in; removes them from projects, organizations and teams; deletes their inbox, preferences, mutes and idempotency keys; unassigns their tasks (and bumps `updated_at` so cached copies go stale); deletes invitations addressed to them and the address from the audit trail; purges the avatar; and turns the user row into a tombstone. It then emits `user.erased` with the id and nothing else.
+The person sends their password (a stolen token alone cannot do it; 5 tries an hour). `AccountErasure` then, in one transaction: ends every sign-in; removes them from projects, organizations and teams; deletes their inbox, preferences, mutes and idempotency keys; unassigns their tasks (and bumps `updated_at` so cached copies go stale); deletes invitations addressed to them and the address from the audit trail; purges the avatar; turns the user row into a tombstone; and writes `user.erased` to the outbox (the two ids the other services know them by, and not the address). Once the transaction has committed it also emits the local log event.
 
 **The row stays** because tasks, comments, projects and the audit trail point at it with foreign keys, and because rewriting history to hide a person would break the trail more than it protects them. What is left is a name that says `Deleted user`, an address that cannot receive mail, no password and no sign-in. The old address is free to register again.
 
@@ -41,11 +41,22 @@ The person sends their password (a stolen token alone cannot do it; 5 tries an h
 - `owns_projects`: they own a project that is not archived. A project needs an owner and ownership cannot be handed over (it is fixed for life), so they archive it first.
 - `last_organization_owner`: they are the only owner of an organization. Make someone else an owner, or delete the organization.
 
-Also: `409 managed_by_auth_service` when the Auth service owns accounts (JWT mode), and `403 demo_mode` in the public demo. Erasing an already erased user does nothing.
+Also: `403 demo_mode` in the public demo. Erasing an already erased user does nothing. Where the Auth service owns the accounts (JWT mode) the Task API has no password to check, so it asks the Auth service (`503 auth_unavailable` if that cannot be reached: nothing is erased on a guess; `429` for too many attempts at that address), and the tokens the Auth service issued before it deleted the identity are refused at once (`401`): the tombstone keeps the identity's subject for that reason, and a subject that belongs to a tombstone is never made into a person again.
+
+### Across services
+
+A person's data is also in two other services, and a transaction cannot span them, so they are told through the outbox in the same transaction as the tombstone and each acts on its own queue ([ADR 79](../decisions.md#79-erasing-a-person-across-services-the-outbox-tells-the-auth-and-notification-services-the-tombstone-keeps-the-subject-and-jwt-mode-asks-the-auth-service-for-the-password), [boundaries.md](architecture/boundaries.md#a-saga-that-exists-erasing-a-person-across-services)). The event is `user.erased`: `user_id` (the Task API's id) and `auth_subject` (the Auth service's uid, when there is one), **not the address**.
+
+| Service | What it deletes | By | Left behind |
+| --- | --- | --- | --- |
+| Auth | The account (name, address, password digest) and every refresh token with its address and user agent | The subject, and the Task API's id as `legacy_id` (an account imported at the cutover that never signed in has no linked subject) | Nothing. The address can register again |
+| Notification | The delivery-log rows of that recipient | `recipient_id`: the Task API's id for a task email, the Auth service's uid for a password reset | Rows from **before `recipient_id` existed** (they have only the address): they age out under the 90-day retention |
+
+Both are idempotent, retried from their queues (5 attempts, then a dead-letter queue and an alarm) and kept 14 days in the Auth service's queue, with an alarm after a day without a taker. **Nothing tells the Task API they are done.** `bin/rails erasure:publish` sends the event again for people already erased ([runbook](runbooks/account-erasure.md)). What is not reached: events already in flight that carry the address (a `task.assigned` in the outbox for 7 days after it is published, in a queue up to 4 or 14 days, in a dead-letter queue up to 14), and anything the person sent to an address outside these services (an email already delivered, a Slack post).
 
 ### After a restore
 
-A restore to a time before an erasure brings the person back. Re-apply the erasures made since the backup: the ids are in the `user.erased` log events (kept 30 days in CloudWatch), then
+A restore to a time before an erasure brings the person back. Re-apply the erasures made since the backup (this sends the event to the other services again, which is harmless): the ids are in the `user.erased` log events (kept 30 days in CloudWatch), then
 
 ```ruby
 ids.each { |id| AccountErasure.call(User.find(id)) }   # bin/rails runner
@@ -88,7 +99,7 @@ The webhook delivery log, the invitations and the Notification service's tables 
 ## Not built
 
 - **Export of a person's data** (portability, subject access). There is no endpoint; the personal data above is small and an operator can assemble it from the tables listed.
-- **Erasure in the Auth service** and **by recipient in the Notification service.** In JWT mode the Auth service holds the credentials and has no delete path; the Notification service stores the address, not a user id, so it cannot match an erasure by id. `user.erased` is today a local event (a log line with the id); it is not published to the queue, and it carries only the id on purpose: putting the address on a queue to delete it from a table is the wrong trade. The delivery log is bounded by the 90-day retention instead, and [boundaries.md](architecture/boundaries.md#a-saga-that-exists-erasing-a-person-across-services) describes how it would be closed.
+- **Knowing that the other services are done.** The Auth and Notification services delete on `user.erased` ([above](#across-services)), but nothing is sent back, so the Task API holds no record per person and step. A failure shows as a dead-letter queue and an alarm, a service that is not taking events as an alarm on the age of the oldest message, and a lost event is sent again with `erasure:publish`; but "this person is gone everywhere" is read from empty queues, not from a table. [ADR 79](../decisions.md#79-erasing-a-person-across-services-the-outbox-tells-the-auth-and-notification-services-the-tombstone-keeps-the-subject-and-jwt-mode-asks-the-auth-service-for-the-password) says why that was left, and what it would take.
 - **Ownership transfer.** It would make erasing an owner a one-step action.
 - **Retention for the audit trail.** It is the largest personal-data holding that has none, and a deliberate one: an append-only trail is worth little if it expires quickly. It is a growth question as well (see [architecture/data-lifecycle.md](architecture/data-lifecycle.md)); the decision is a policy one and belongs to whoever owns compliance.
 - **Redaction of free text.** Nothing scans task or comment text for personal data.
