@@ -72,24 +72,29 @@ jobs:
           echo "$RUNNER_TEMP/gitleaks" >> "$GITHUB_PATH"
 
       # A scan that finds nothing proves nothing until the scanner is known to find something: a mistake in the config (a rule that matches no path, an allowlist
-      # that swallows everything) would pass every run. So first a throwaway repository with two planted secrets, made here (the key is put together from two
-      # pieces, so that this file does not contain what the scan below looks for): the scanner, with this config, has to find both.
+      # that swallows everything) would pass every run. So first a throwaway repository, made here (the key and the UUID are put together from pieces, so that this
+      # file does not contain what the scan below looks for), with five files: an AWS key and a master key, which have to be found; a fixture UUID given to
+      # auth_subject in a spec, which the allowlist lets through; the same line outside a spec, and an AWS key inside one, which have to be found all the same. The last
+      # two are what show that the exception is as narrow as it says, and that the line it lets through would otherwise be a finding.
       - name: Check the scanner finds what it should
         run: |
           set -euo pipefail
           control="$RUNNER_TEMP/control"
           git init --quiet "$control"
-          mkdir "$control/config"
+          mkdir "$control/config" "$control/spec" "$control/lib"
           printf 'aws_access_key_id = "AKIA%s"\n' QWERTYUIOPASDFGH > "$control/settings.txt"
           echo placeholder > "$control/config/master.key"
+          printf 'create(:user, auth_subject: "%s-%s")\n' 4d9a4e8e-5f35-4a27 9d44-5c4ee3f1a111 > "$control/spec/allowed_spec.rb"
+          printf 'create(:user, auth_subject: "%s-%s")\n' 4d9a4e8e-5f35-4a27 9d44-5c4ee3f1a111 > "$control/lib/fixture.rb"
+          printf 'aws_access_key_id = "AKIA%s"\n' QWERTYUIOPASDFGH > "$control/spec/not_allowed_spec.rb"
           git -C "$control" add --force .
           git -C "$control" -c user.name=control -c user.email=control@example.invalid commit --quiet --message "Planted secrets"
           if gitleaks git --config .gitleaks.toml --redact --no-banner --exit-code 1 --report-format json --report-path "$RUNNER_TEMP/control.json" "$control"; then
             echo "::error::gitleaks found nothing in a repository with a planted AWS key and a master.key: the scan below would find nothing either"
             exit 1
           fi
-          jq -e 'map(.RuleID) | (index("aws-access-token") != null) and (index("rails-key-file") != null)' "$RUNNER_TEMP/control.json" > /dev/null \
-            || { echo "::error::gitleaks did not report both planted secrets:"; jq -r '.[].RuleID' "$RUNNER_TEMP/control.json"; exit 1; }
+          jq -e 'def found(file; rule): map(select(.File == file and .RuleID == rule)) | length == 1; found("settings.txt"; "aws-access-token") and found("config/master.key"; "rails-key-file") and found("lib/fixture.rb"; "generic-api-key") and found("spec/not_allowed_spec.rb"; "aws-access-token") and (map(select(.File == "spec/allowed_spec.rb")) | length == 0)' "$RUNNER_TEMP/control.json" > /dev/null \
+            || { echo "::error::gitleaks did not report what it should (and only that):"; jq -r '.[] | "\(.File) \(.RuleID)"' "$RUNNER_TEMP/control.json"; exit 1; }
 
       - name: Scan every commit for secrets
         run: gitleaks git --config .gitleaks.toml --redact --no-banner --verbose --exit-code 1 .

@@ -6,6 +6,18 @@ title = "task-api secret scanning"
 # "secret" or "token".
 useDefault = true
 
+# The one thing the defaults get wrong here. A spec names a made-up UUID as the Auth service's subject (`auth_subject: "4d9a4e8e-..."`), and the generic-api-key
+# rule reads the name (it contains "auth") and the entropy of the value, not what the value is: five findings on the first run that had such a spec in it. The
+# exception is as small as it can be made: only that rule, only in a spec directory, only where the value is a UUID given to `auth_subject`, and only when all
+# three hold (`AND`). The same line anywhere else, and any other kind of secret in a spec, is still a finding; the CI job proves both (ci.yml, "Check the scanner").
+[[allowlists]]
+description = "A made-up UUID as auth_subject in a spec"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''(?:^|/)spec/''']
+regexTarget = "line"
+regexes = ['''auth_subject["']?\s*(?::|=>)\s*["'][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}["']''']
+
 # Files that are secrets whatever is in them. .gitignore already keeps these out; a rule here is for the day one is forced in (`git add -f`) or the
 # ignore is edited, which nothing else would notice. Matched on the path, so the content is never needed to see it.
 [[rules]]
