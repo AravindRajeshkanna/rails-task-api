@@ -1,0 +1,58 @@
+# promtool unit tests for the recording rules in task-api-rules.yaml that the dashboard reads. Run by CI, or by hand:
+#
+#   ruby -ryaml -e 'File.write("tmp/rules.yml", { "groups" => YAML.load_file("deploy/observability/prometheus/task-api-rules.yaml")["spec"]["groups"] }.to_yaml)'
+#   cp deploy/observability/prometheus/recording-tests.yaml tmp/recording-tests.yml && promtool test rules tmp/recording-tests.yml
+#
+# "a+bxn" is a counter that starts at a and rises by b a minute, n times.
+rule_files:
+  - rules.yml
+evaluation_interval: 30s
+
+tests:
+  - name: the error ratio is 0, not missing, while requests succeed (a healthy system must not read "No data")
+    interval: 1m
+    input_series:
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="200"}'
+        values: '0+600x30'
+    promql_expr_test:
+      - expr: taskapi:http_error_ratio:rate5m
+        eval_time: 20m
+        exp_samples:
+          - labels: 'taskapi:http_error_ratio:rate5m'
+            value: 0
+
+  - name: the error ratio is the share of requests that are 5xx
+    interval: 1m
+    input_series:
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="200"}'
+        values: '0+588x30'
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="503"}'
+        values: '0+12x30'
+    promql_expr_test:
+      - expr: taskapi:http_error_ratio:rate5m
+        eval_time: 20m
+        exp_samples:
+          - labels: 'taskapi:http_error_ratio:rate5m'
+            value: 0.02
+
+  - name: an idle service (the counters are there and not moving) has an error ratio of 0
+    interval: 1m
+    input_series:
+      - series: 'taskapi_http_requests_total{controller="Api::V1::TasksController",action="index",status="200"}'
+        values: '5x30'
+    promql_expr_test:
+      - expr: taskapi:http_error_ratio:rate5m
+        eval_time: 20m
+        exp_samples:
+          - labels: 'taskapi:http_error_ratio:rate5m'
+            value: 0
+
+  - name: with no request counters at all (nothing scraped) there is no ratio, and not a made-up zero
+    interval: 1m
+    input_series:
+      - series: 'up{job="task-api"}'
+        values: '1x30'
+    promql_expr_test:
+      - expr: taskapi:http_error_ratio:rate5m
+        eval_time: 20m
+        exp_samples: []

@@ -19,8 +19,10 @@ spec:
         - record: taskapi:http_requests:rate5m
           expr: sum(rate(taskapi_http_requests_total[5m]))
         - record: taskapi:http_error_ratio:rate5m
+          # "or vector(0)": with no 5xx there is no series to sum, and a healthy system would read "No data" on the dashboard instead of 0. With no requests at all the
+          # denominator is empty too, so there is still no ratio then.
           expr: |
-            sum(rate(taskapi_http_requests_total{status=~"5.."}[5m]))
+            (sum(rate(taskapi_http_requests_total{status=~"5.."}[5m])) or vector(0))
             / clamp_min(sum(rate(taskapi_http_requests_total[5m])), 1)
         - record: taskapi:http_latency_seconds:p95
           expr: histogram_quantile(0.95, sum by (le) (rate(taskapi_http_request_duration_seconds_bucket[5m])))

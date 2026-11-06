@@ -244,6 +244,9 @@ jobs:
           # The KMS alerts (task-api-rules.yaml), tested the same way against rules.yml extracted above.
           cp deploy/observability/prometheus/kms-tests.yaml tmp/kms-tests.yml
           docker run --rm --entrypoint promtool -v "$PWD/tmp:/work" prom/prometheus:v3.1.0 test rules /work/kms-tests.yml
+          # The recording rules the dashboard reads (an error ratio that is 0 while nothing fails, and not missing), the same way.
+          cp deploy/observability/prometheus/recording-tests.yaml tmp/recording-tests.yml
+          docker run --rm --entrypoint promtool -v "$PWD/tmp:/work" prom/prometheus:v3.1.0 test rules /work/recording-tests.yml
 
       - name: Shell scripts
         run: shellcheck deploy/docker/*.sh deploy/local/*.sh deploy/scripts/*.sh

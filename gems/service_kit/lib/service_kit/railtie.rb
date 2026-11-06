@@ -59,31 +59,7 @@ module ServiceKit
     end
 
     initializer "service_kit.tracing", before: :load_config_initializers do
-      if ENV["OTEL_EXPORTER_OTLP_ENDPOINT"].to_s != "" && ENV["OTEL_SDK_DISABLED"] != "true" && !Rails.env.test?
-        require "opentelemetry/sdk"
-        require "opentelemetry/exporter/otlp"
-        require "opentelemetry/propagator/xray"
-        require "opentelemetry/instrumentation/rails"
-        require "opentelemetry/instrumentation/rack"
-        require "opentelemetry/instrumentation/pg"
-        require "opentelemetry/instrumentation/net/http"
-        require "opentelemetry/instrumentation/aws_sdk"
-
-        ENV["OTEL_PROPAGATORS"] ||= "tracecontext,baggage,xray"
-        ENV["OTEL_TRACES_SAMPLER"] ||= "parentbased_traceidratio"
-        ENV["OTEL_TRACES_SAMPLER_ARG"] ||= "0.1"
-
-        OpenTelemetry::SDK.configure do |c|
-          c.service_name = ENV.fetch("OTEL_SERVICE_NAME", "task-api-service")
-          c.service_version = ENV.fetch("APP_VERSION", "dev")
-          c.id_generator = OpenTelemetry::Propagator::XRay::IDGenerator
-          c.use "OpenTelemetry::Instrumentation::Rack", untraced_endpoints: [ "/up", "/metrics" ]
-          c.use "OpenTelemetry::Instrumentation::Rails"
-          c.use "OpenTelemetry::Instrumentation::PG", db_statement: :obfuscate
-          c.use "OpenTelemetry::Instrumentation::Net::HTTP"
-          c.use "OpenTelemetry::Instrumentation::AwsSdk"
-        end
-      end
+      Tracing.configure(default_service_name: "task-api-service") if Tracing.enabled?
     end
   end
 end

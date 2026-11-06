@@ -1,7 +1,8 @@
 module AuthService
   # Publishes CloudEvents to the shared SNS topic (consumed by the Notification service). Without
   # EVENTS_SNS_TOPIC_ARN (local development) the event is only logged. A failure to publish never fails the
-  # request: for a password reset the user can simply ask again.
+  # request: for a password reset the user can simply ask again. It is not retried when the topic comes back (the SDK retries only within the call), and it is
+  # logged: nothing subscribes to Rails.error here, so without that line a reset email that never came left no trace (measured on docker compose, roadmap 13).
   module Events
     class << self
       attr_writer :client
@@ -25,6 +26,8 @@ module AuthService
         envelope
       rescue Aws::Errors::ServiceError, Seahorse::Client::NetworkingError => error
         Rails.error.report(error, handled: true, context: { event: type })
+        # The type and the error only: the event holds an address and a reset link.
+        Rails.logger.warn({ event: "auth.event_publish_failed", type: type, error: error.class.name, message: error.message })
         nil
       end
     end

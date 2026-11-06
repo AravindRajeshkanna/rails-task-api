@@ -7,6 +7,7 @@ RSpec.describe "The local platform's files" do
   let(:compose) { YAML.safe_load_file(Rails.root.join("docker-compose.yml"), aliases: true) }
   let(:services) { compose.fetch("services") }
   let(:up_script) { Rails.root.join("deploy/local/up.sh").read }
+  let(:traefik_values) { YAML.safe_load_file(Rails.root.join("deploy/local/traefik-values.yaml")) }
 
   describe "docker-compose.yml" do
     it "builds each image once: services that share an image let one of them build it" do
@@ -37,26 +38,56 @@ RSpec.describe "The local platform's files" do
       expect(open_to_the_network).to be_empty
     end
 
+    it "restarts the Notification service when it exits: its consumer ends the process on a crash and expects an orchestrator to start it again" do
+      expect(services.dig("notifications", "environment", "NOTIFICATIONS_CONSUMER")).to eq("true")
+      expect(services.dig("notifications", "restart")).to eq("on-failure")
+    end
+
     it "gives the services that encrypt with Rails' own keys the setting that says so (there is no KMS here)" do
       expect(services.fetch("api").dig("environment", "ENCRYPTION_KEY_SOURCE")).to eq("credentials")
     end
   end
 
   describe "deploy/local/up.sh" do
-    it "installs the kind build of ingress-nginx at a fixed version, which runs on the node that kind forwards port 8080 to" do
-      manifest = up_script[/^INGRESS_MANIFEST=(\S+)/, 1]
-
-      expect(manifest).to match(%r{\Ahttps://raw\.githubusercontent\.com/kubernetes/ingress-nginx/controller-v\d+\.\d+\.\d+/deploy/static/provider/kind/deploy\.yaml\z})
-      expect(up_script).to include('kubectl apply -f "$INGRESS_MANIFEST"')
-      expect(up_script).not_to include("kind.sigs.k8s.io/examples/ingress")
+    it "installs Traefik from its chart at a fixed version, skipping the CRDs that nothing here uses, and no longer ingress-nginx (retired in March 2026)" do
+      expect(up_script[/^TRAEFIK_CHART=(\S+)/, 1]).to eq("oci://ghcr.io/traefik/helm/traefik")
+      expect(up_script[/^TRAEFIK_VERSION=(\S+)/, 1]).to match(/\A\d+\.\d+\.\d+\z/)
+      expect(up_script).to include('helm upgrade --install traefik "$TRAEFIK_CHART" --version "$TRAEFIK_VERSION"')
+      expect(up_script).to include("--skip-crds", "-f deploy/local/traefik-values.yaml", "--wait")
+      expect(up_script.lines.reject { |line| line.strip.start_with?("#") }.join).not_to match(/ingress-nginx|kind\.sigs\.k8s\.io\/examples\/ingress/) # the comment says why it left
+      expect(traefik_values.dig("providers", "kubernetesCRD", "enabled")).to be(false) # enabled, Traefik would watch for CRDs that were not installed
     end
 
-    it "labels the control-plane node the way that manifest selects, and forwards the host port to it" do
+    it "runs the controller on the node that kind forwards port 8080 to, on that node's port 80" do
       config = YAML.safe_load_file(Rails.root.join("deploy/local/kind-cluster.yaml"))
       control_plane = config["nodes"].find { |node| node["role"] == "control-plane" }
 
       expect(control_plane.to_json).to include("ingress-ready=true")
       expect(control_plane["extraPortMappings"]).to include(a_hash_including("containerPort" => 80, "hostPort" => 8080))
+      expect(traefik_values["nodeSelector"]).to eq("ingress-ready" => "true")
+      expect(traefik_values["tolerations"]).to include(a_hash_including("key" => "node-role.kubernetes.io/control-plane", "effect" => "NoSchedule"))
+      expect(traefik_values.dig("ports", "web", "hostPort")).to eq(80)
+    end
+
+    it "updates the controller by stopping the old pod first: beside it the new one would wait for ever on the port, and `helm upgrade` with it" do
+      strategy = traefik_values.fetch("updateStrategy")
+
+      expect(strategy).to include("type" => "RollingUpdate")
+      expect(strategy["rollingUpdate"]).to include("maxSurge" => 0, "maxUnavailable" => 1)
+    end
+
+    it "serves the class the releases ask for, and the one `ingress.className` names in the local values" do
+      local = YAML.safe_load_file(Rails.root.join("deploy/local/values-local.yaml"))
+
+      expect(traefik_values.dig("ingressClass", "name")).to eq("traefik")
+      expect(local.dig("ingress", "className")).to eq("traefik")
+      expect(up_script).not_to include("ingress.className") # one place says it
+    end
+
+    it "prints the controller's log without colour, for diagnose.sh to put in a CI log, from the namespace it is installed in" do
+      expect(traefik_values.dig("log", "noColor")).to be(true)
+      expect(Rails.root.join("deploy/local/diagnose.sh").read).to include("kubectl -n traefik logs deploy/traefik")
+      expect(up_script).to include("-n traefik")
     end
 
     it "gives the monolith's two releases a key source, or /readyz fails and the pod never becomes ready" do

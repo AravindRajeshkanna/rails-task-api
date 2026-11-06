@@ -84,17 +84,15 @@ Rails.application.configure do
   # Skip DNS rebinding protection for the health checks (probes reach a pod by its IP) and the metrics scrape.
   config.host_authorization = { exclude: ->(request) { request.path.in?(%w[/up /livez /readyz /metrics]) } }
 
-  # Send mail through SMTP when configured; otherwise delivery errors are ignored.
+  # Send mail through SMTP when configured; otherwise delivery errors are ignored. Signs in only when there is a user name (the credentials, else SMTP_USERNAME):
+  # a relay with no login, such as the mail catcher in docker compose and kind, has nothing to answer one with, and Net::SMTP will not start the session.
   if ENV["SMTP_ADDRESS"].present?
+    require "service_kit/smtp_settings"
+
     config.action_mailer.delivery_method = :smtp
     config.action_mailer.raise_delivery_errors = true
-    config.action_mailer.smtp_settings = {
-      address: ENV["SMTP_ADDRESS"],
-      port: ENV.fetch("SMTP_PORT", 587).to_i,
-      user_name: Rails.application.credentials.dig(:smtp, :user_name) || ENV["SMTP_USERNAME"],
-      password: Rails.application.credentials.dig(:smtp, :password) || ENV["SMTP_PASSWORD"],
-      authentication: :plain,
-      enable_starttls_auto: true
-    }
+    config.action_mailer.smtp_settings = ServiceKit::SmtpSettings.from_env(
+      ENV, { user_name: Rails.application.credentials.dig(:smtp, :user_name), password: Rails.application.credentials.dig(:smtp, :password) }
+    )
   end
 end

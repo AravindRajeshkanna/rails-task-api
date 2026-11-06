@@ -33,7 +33,7 @@ case ${1:-} in
       kubectl -n task-api logs "$pod" --all-containers --tail="$TAIL_LINES" 2>&1
     done
     section "the ingress controller"
-    kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --tail="$TAIL_LINES" 2>&1
+    kubectl -n traefik logs deploy/traefik --tail="$TAIL_LINES" 2>&1
     ;;
   *)
     echo "usage: $0 compose|kind" >&2

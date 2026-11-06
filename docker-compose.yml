@@ -173,6 +173,9 @@ services:
       aws-init: { condition: service_completed_successfully }
     command: ["sh", "-c", "./bin/rails db:prepare && ./bin/rails server -b 0.0.0.0 -p 3000"]
     expose: ["3000"]
+    # The consumer runs inside Puma and ends the process when it crashes, on purpose, expecting an orchestrator to start it again (Kubernetes does). Without this the
+    # stack went on without any email, with the crash only in the log. A crash that repeats is restarted with a growing delay, as CrashLoopBackOff does.
+    restart: on-failure
 
   gateway:
     image: nginx:1.27-alpine
@@ -196,7 +199,9 @@ services:
   prometheus:
     profiles: [observability]
     image: prom/prometheus:v3.1.0
-    volumes: ["./deploy/docker/prometheus-local.yml:/etc/prometheus/prometheus.yml:ro"]
+    volumes:
+      - ./deploy/docker/prometheus-local.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/docker/prometheus-rules-local.yml:/etc/prometheus/rules.yml:ro
     ports: ["127.0.0.1:9090:9090"]
 
   grafana:
