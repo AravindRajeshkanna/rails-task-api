@@ -59,9 +59,9 @@ Each row: what is tried, what stops it, and what remains. Controls link to [secu
 | T15 | 4 | S | Call the AI service without being the API | A bearer token compared in constant time; the NetworkPolicy lets only the API and worker reach it; the service refuses to start in production without a token | It is **one static shared secret**, rotated by hand (runbook), not bound to a caller or an expiry. Anyone who reads it from a pod's environment can call the service from inside the allowed network path |
 | T16 | 5 | S, T | Forge a token by substituting keys | RS256 only, `exp` and `sub` required, issuer and audience checked; keys fetched over HTTPS, cached 10 minutes with stale-if-error and a rate-limited refresh | If the Auth service's private key leaks, anyone can mint tokens until it is rotated and the old public key removed (runbook) |
 | T17 | 6 | I, E | Make the server call internal addresses through a webhook (SSRF) | The URL is resolved and refused if private, loopback, link-local or metadata, and re-checked at delivery; the pod's own egress policy also excludes the metadata address | A DNS answer that changes between the check and the connection; the delivery re-check narrows it, it does not eliminate it |
-| T18 | 6 | S, I | Fake a webhook or replay it | `X-TaskApi-Signature` is an HMAC over timestamp and body, and receivers reject old timestamps; the secret is shown once and stored encrypted | Receivers must verify; there is **no rotation with an overlap** for a leaked webhook secret (recreate the webhook) |
+| T18 | 6 | S, I | Fake a webhook or replay it | `X-TaskApi-Signature` is an HMAC over timestamp and body, and receivers reject old timestamps; the secret is shown once and stored encrypted, and can be replaced without downtime: for a window every delivery carries two signatures, one per secret ([ADR 78](decisions.md)) | Receivers must verify, and must stop accepting the old secret once they have the new one: the overlap ends when the project's admin promotes, and nothing checks the receiver. A rotation left half done signs with the old secret for ever. Rotations are logged as events, not written to the audit trail (webhooks are not audited at all) |
 | T19 | 7 | T, S | Inject or replay events on the queue | SQS access is by IAM (Pod Identity); consumers are idempotent by event id; malformed messages go to a dead-letter queue | An attacker with the API's IAM role can publish. Events are not individually signed |
-| T20 | 8 | T, E | Ship malicious code | Dependency audit and Brakeman on every pull request; Dependabot; immutable image tags; deploys by Git (Argo CD) after a reviewed merge; CI assumes the cloud role through OIDC, with no stored cloud keys | **No secret scanning** in CI; no image signing or admission policy; a compromised dependency runs with the app's privileges |
+| T20 | 8 | T, E | Ship malicious code | Dependency audit and Brakeman on every pull request; Dependabot; immutable image tags; deploys by Git (Argo CD) after a reviewed merge; CI assumes the cloud role through OIDC, with no stored cloud keys; every commit is scanned for secrets in CI (gitleaks, pinned and checked) and GitHub's own secret scanning and push protection are on ([ADR 78](decisions.md)) | The scan is not a required check, and finds only what has a known format or file name; no image signing or admission policy; a compromised dependency runs with the app's privileges |
 | T21 | all | I | Secrets or personal data leak through logs and errors | Filtered parameters (`email`, `password`, tokens, secrets); events carry ids; errors are a code, a message and a request id; `consider_all_requests_local` off | Free text a user types into a title is logged only where an event names it; ingress access logs were not reviewed for client addresses |
 | T22 | all | D | A dependency outage takes the API down | Circuit breakers, stale-if-error keys, timeouts, bulkheaded worker pools, read-only mode ([resilience.md](architecture/resilience.md)) | |
 | T23 | demo | E | Abuse the public demo | Writes that touch other people (invitations, webhooks, sign-in lists, erasure) are refused; data is reset nightly | Anyone can fill it with junk until the reset |
@@ -91,12 +91,12 @@ The weakest hop is API to AI service: a long-lived secret that proves "someone w
 
 Residual risks in the order worth fixing, with what each fix costs:
 
-1. **Secret scanning in CI** (T20): an afternoon, and the repository's own security page already asks for it before outside contributions.
-2. **Webhook secret rotation with an overlap** (T18): a migration, signing with both secrets for a window, and a rotation endpoint. The real cost is receivers having to accept two signatures during the window.
-3. **Audit trail outside the application's reach** (T12): ship events to a store that the application's database role cannot alter (object storage with retention lock).
-4. **Bound caller identity for the AI service** (T15), as above.
-5. **Device binding or new-sign-in notification** (T2).
-6. **Require TLS to the database** (T14): a parameter and a CA bundle; verify what the cluster already enforces first.
+1. **Audit trail outside the application's reach** (T12): ship events to a store that the application's database role cannot alter (object storage with retention lock).
+2. **Bound caller identity for the AI service** (T15), as above.
+3. **Device binding or new-sign-in notification** (T2).
+4. **Require TLS to the database** (T14): a parameter and a CA bundle; verify what the cluster already enforces first.
+
+Done since this list was first written: secret scanning in CI (T20) and webhook secret rotation with an overlap (T18), both in [ADR 78](decisions.md). What they leave: the scan is not required of a pull request, and a webhook's rotation is not in the audit trail.
 
 ## Testing the model
 

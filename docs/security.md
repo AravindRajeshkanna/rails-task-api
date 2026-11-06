@@ -36,7 +36,7 @@ trust it, and the response headers say so.
 | --- | --- |
 | API1 Broken object-level authorization | Mitigated: policy scopes plus the isolation sweep that fails on any route not in its table |
 | API2 Broken authentication | Mitigated: digest-only tokens, throttled sign-in, reset revokes sessions, JWT verification requires `exp`/`sub` and RS256 only |
-| API3 Broken object property-level authorization | Mitigated: explicit Alba resources (nothing from `as_json`); `UserSummaryResource` omits email; webhook secrets shown once |
+| API3 Broken object property-level authorization | Mitigated: explicit Alba resources (nothing from `as_json`); `UserSummaryResource` omits email; webhook secrets shown once, and replaceable without downtime ([ADR 78](decisions.md)) |
 | API4 Unrestricted resource consumption | Mitigated: throttles, page size capped at 100, analytics range capped at 120 buckets, upload type and size limits, AI budgets |
 | API5 Broken function-level authorization | Mitigated: admin-only actions in policies, tested per role |
 | API6 Unrestricted access to sensitive business flows | Partly: sign-up, reset, AI, invitations and invitation redemption are rate limited; no CAPTCHA |
@@ -59,4 +59,4 @@ trust it, and the response headers say so.
 - What is held about people, for how long, and what erasing an account does and does not reach: [data-protection.md](data-protection.md) ([ADR 67](decisions.md)). The audit trail has no retention and keeps task text.
 - Monolith sessions are not bound to a device: a copied token works from anywhere until it is rotated, revoked or goes idle (14 days), and a sign-in from a new place is not announced to the user ([ADR 66](decisions.md)).
 - Application-level encryption: users' email addresses and webhook secrets are encrypted with keys that AWS KMS protects, under a key policy that refuses any request without the application's encryption context ([kms.md](aws/kms.md), [ADR 69](decisions.md), [ADR 70](decisions.md)). Names, task text and invitation addresses are not, and the audit trail, outbox and Notification service still hold addresses in plaintext ([data-protection.md](data-protection.md)). Not run on AWS.
-- No automated secret scanning in CI (e.g. gitleaks); add it before the repository takes outside contributions.
+- Secret scanning: a `Secret scan` job in CI runs gitleaks over every commit of the repository on each pull request and push to `main` (pinned by version and by hash; findings are printed redacted, because the log is public), after proving on a throwaway repository that it finds a planted cloud key and a planted `master.key`. GitHub's own secret scanning and push protection are on, and `deploy/scripts/github_settings.rb` reports them if they are turned off. It finds secrets that have a known format or a file name that gives them away; a password in a sentence it does not. It is not a required check ([ADR 78](decisions.md)).

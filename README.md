@@ -195,6 +195,18 @@ Verify the signature with the secret returned **once** at creation and reject ol
 Failures retry up to 6 times with growing delays; every attempt is visible at `GET /webhooks/:id/deliveries`.
 Targets that resolve to private, loopback or link-local addresses are refused.
 
+**Replacing the secret** (a leak, or routine) takes no downtime, because for a while every delivery is signed with both:
+
+1. `POST /webhooks/:id/rotate_secret` returns a new secret as `next_secret`, once. `X-TaskApi-Signature` is still made with the current secret, so a receiver
+   that does nothing keeps working, and `X-TaskApi-Signature-Next` is made with the new one.
+2. Give the receiver the new secret. It can check `X-TaskApi-Signature-Next` against it (or accept a match on either header) before anything depends on it.
+3. `POST /webhooks/:id/promote_secret` makes the new secret *the* secret: `X-TaskApi-Signature` is made with it from then on, the second header goes, and the old
+   secret signs nothing. (`POST /webhooks/:id/cancel_rotation` forgets the new one instead.) The receiver should stop accepting the old secret when it has
+   switched; the overlap ends when you promote, and nothing checks the receiver.
+
+Asking for a new secret again replaces the one in waiting, which is also how to get one you lost. Details and the leak procedure:
+[docs/runbooks/secrets-rotation.md](docs/runbooks/secrets-rotation.md#9-a-customers-webhook-signing-secret).
+
 ## Architecture
 
 The pieces and how they fit are in [docs/architecture/overview.md](docs/architecture/overview.md). The monolith's layout:

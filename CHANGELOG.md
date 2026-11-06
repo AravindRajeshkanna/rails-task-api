@@ -8,6 +8,9 @@ and in [docs/roadmap.md](docs/roadmap.md).
 ## Unreleased
 
 ### Changed
+- **A replay of a webhook's creation no longer includes the signing secret.** A retry of `POST /projects/{id}/webhooks` with the same `Idempotency-Key` answers with the webhook it made, as before, but without `secret`
+  (the secret is shown once, in the first answer, and is no longer kept in the table that remembers the answer). A client that lost the first answer asks for a new secret with `rotate_secret`.
+- `Webhook` has two new attributes, `rotating` (boolean) and `rotation_started_at`, in every answer that shows a webhook.
 - Users' email addresses and webhook secrets are stored encrypted. Nothing a client sends or receives changes: addresses are matched exactly as before, sign-in included.
 - **New limits and a new refusal.** `429 rate_limited` can now also mean: the endpoint's own budget (search, analytics, the activity feed, audit logs and GraphQL: 120 per 5 minutes per token) or the organization's budget
   (3,000 writes per 5 minutes across all its clients; `Retry-After` is the end of the window). Under load the expensive reads (the same endpoints, and `/ai/*`) answer `503 overloaded` with a `Retry-After` of one or two
@@ -15,7 +18,10 @@ and in [docs/roadmap.md](docs/roadmap.md).
 - `503 ai_unavailable` now carries a `Retry-After` that reflects the circuit breaker: 5 seconds for a single failure, and the rest of the pause (30 seconds, doubling to 5 minutes) once the AI dependency has been failing. After five consecutive failures AI calls fail at once instead of waiting out their timeout.
 
 ### Added
-- **`503 encryption_unavailable`** with `Retry-After: 5`, for a request that needs a key from AWS KMS and cannot get it. Today only creating a webhook (its signing secret needs a new key); nothing else on the API touches KMS while serving. Safe to retry.
+- **Replacing a webhook's signing secret without downtime.** `POST /webhooks/{id}/rotate_secret` returns a new secret once, as `next_secret`; until it is promoted every delivery carries two signatures,
+  `X-TaskApi-Signature` (the current secret, as before) and `X-TaskApi-Signature-Next` (the new one). `POST /webhooks/{id}/promote_secret` makes the new secret the secret and drops the second header;
+  `POST /webhooks/{id}/cancel_rotation` forgets it. Project admins only; `409 no_rotation_in_progress` for promoting or cancelling when nothing is waiting; 20 rotations an hour per person.
+- **`503 encryption_unavailable`** with `Retry-After: 5`, for a request that needs a key from AWS KMS and cannot get it. Today only creating a webhook and starting or promoting a rotation of its signing secret (each needs a new key); nothing else on the API touches KMS while serving. Safe to retry.
 - `GET /readyz` has a second check, `"encryption"`, beside `"database"`. A pod whose encryption keys are not usable answers 503 there, like one whose database is not.
 - **Erase my account.** `DELETE /me` with the current password: the name, address, password, sign-ins, memberships, inbox, preferences and avatar go; the account stays as `Deleted user` so tasks,
   comments and history keep pointing at something, and the address can register again. `422 owns_projects` while you own a project that is not archived, `422 last_organization_owner`

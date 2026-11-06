@@ -21,8 +21,8 @@ The rules the design follows: keep the least that the product needs; give every 
 | Invitation addresses (of anyone, registered or not) | `organization_invitations` | Invite by address | Until **90 days after** it concluded (accepted, revoked or expired) | Invitations addressed to the person are deleted; their address is also removed from the audit trail |
 | Audit trail | `audit_events` | Accountability: who changed what | **Indefinitely**, append-only | `actor_id` keeps pointing at the tombstone. The trail holds the changed values of audited records (tasks, projects, organizations, teams, roles): task titles and descriptions among them |
 | Webhook delivery log | `webhook_deliveries` | Debug an endpoint that did not get an event | 30 days | Not specific to a person; bounded by retention |
-| Webhook signing secrets | `webhooks.secret`, encrypted by the application with a data key of its own that KMS wraps ([kms.md](aws/kms.md)) | Sign payloads | While the webhook exists | Not personal data |
-| Idempotency keys and stored responses | `idempotency_keys` | Make retries safe | 24 hours | Deleted |
+| Webhook signing secrets | `webhooks.secret`, and `webhooks.next_secret` while one is being rotated in, encrypted by the application with a data key of its own that KMS wraps ([kms.md](aws/kms.md)) | Sign payloads | While the webhook exists | Not personal data |
+| Idempotency keys and stored responses | `idempotency_keys` | Make retries safe | 24 hours. The stored response is the answer **without** any secret it showed (a webhook's signing secret: [ADR 78](decisions.md)); rows written before that change may still hold one, until the daily purge | Deleted |
 | Events in flight: the outbox, then the queue | `outbox_events`; SNS; the Notification service's SQS queue and its dead-letter queue | Publish events reliably | Outbox: published rows 7 days. Queue: 14 days at most (dead-letter queue) | **Not reached.** `task.assigned` and `task.due_soon` carry the recipient's name and email address (`data.recipient`), so an address sits in these for up to those periods after the event |
 | AI usage ledger | `ai_usages` | Budgets and cost | Indefinitely; **no prompt or answer text** | Rows stay, pointing at the tombstone |
 | Embeddings of tasks | `tasks.embedding` | Search | With the task | Follows the task |
@@ -55,7 +55,7 @@ This is manual and bounded by log retention. If restores are routine, keep the l
 
 ## Encryption
 
-What the application encrypts, beyond what the platform does: `users.email_address` and `webhooks.secret`, with keys that AWS KMS protects, so that a copy of the database (a dump, a snapshot, a replica, a stolen backup, a SQL injection that reads a table) holds ciphertext for them, and reading it back needs permission on a KMS key that is logged. The full list, the reasons for each omission, the plaintext copies that remain and how it fails are in [kms.md](aws/kms.md); the decisions are [ADR 69 and 70](decisions.md).
+What the application encrypts, beyond what the platform does: `users.email_address`, `webhooks.secret` and `webhooks.next_secret`, with keys that AWS KMS protects, so that a copy of the database (a dump, a snapshot, a replica, a stolen backup, a SQL injection that reads a table) holds ciphertext for them, and reading it back needs permission on a KMS key that is logged. The full list, the reasons for each omission, the plaintext copies that remain and how it fails are in [kms.md](aws/kms.md); the decisions are [ADR 69 and 70](decisions.md).
 
 What it does not do: hide an address from anyone who can run the application's role, or read the audit trail, the outbox (7 days), the Notification service's `deliveries` (90 days) or the logs; protect a value from a person with permission on the key and the database. It adds a second thing an attacker needs and a record of its use; it does not remove the need for the first.
 
