@@ -8,6 +8,8 @@
 #   Events          a task assigned to Bob becomes an inbox entry and an email: API -> outbox -> worker -> SNS -> SQS ->
 #                   Notification service -> SMTP. A password reset does the same from the Auth service
 #   AI service      the API's suggestion is answered by the AI service (the API has no provider of its own here)
+#   Erasure         Bob erases his account: the API asks the Auth service whether his password is right, tells it through the outbox -> SNS -> SQS
+#                   to delete his identity, and the work he was on stays
 #   The edge        the documentation is served; /metrics is not readable from outside
 #
 #   deploy/local/verify.sh                       the compose stack (gateway :8080, mail catcher :8025)
@@ -17,7 +19,8 @@
 #   API_URL=http://localhost:8080  MAIL_URL=http://localhost:8025  WAIT_SECONDS=120  POLL_SECONDS=2
 #
 # Every run makes two new accounts (the address carries the time), so it can be repeated against the same stack, but
-# sign-up is rate limited to 10 an hour per client: after about five runs in an hour the registrations answer 429.
+# sign-up is rate limited to 10 an hour per client: after about five runs in an hour the registrations answer 429. Bob is erased at the end, which is
+# why his address is not reused.
 # Exit 0 when every check passed, 1 when any failed, 2 when it could not start (a missing tool, nothing answering).
 set -uo pipefail
 
@@ -110,6 +113,19 @@ inbox_has() { # TOKEN KIND
   call GET /api/v1/notifications "" "$1"
   [ "$STATUS" = 200 ] || { echo "GET /notifications -> $STATUS"; return 1; }
   [ -n "$(printf '%s' "$BODY" | jq -r --arg kind "$2" '.data[]? | select(.kind == $kind) | .id' 2> /dev/null | head -1)" ] || { echo "no $2 in the inbox yet"; return 1; }
+}
+
+# Called through eventually, which shellcheck cannot see.
+# shellcheck disable=SC2329
+cannot_sign_in() { # ADDRESS PASSWORD: the Auth service no longer knows the person. 429 is its limit on attempts per address: wait it out and ask again
+  call POST /api/v1/session "{\"email_address\":\"$1\",\"password\":\"$2\"}"
+  case $STATUS in
+    401) return 0 ;;
+    201) echo "he can still sign in (HTTP 201)" ;;
+    429) echo "HTTP 429, the Auth service's limit on sign-in attempts for this address" ;;
+    *) echo "POST /session -> $STATUS" ;;
+  esac
+  return 1
 }
 
 # mail_for ADDRESS SUBJECT prints the id of the newest caught message to ADDRESS whose subject contains SUBJECT.
@@ -220,6 +236,25 @@ echo
 echo "AI service (the API has no model of its own in this stack)"
 call POST /api/v1/ai/suggest_priority "{\"project_id\":$PROJECT_ID,\"title\":\"Fix the login page, customers are locked out\"}" "$ALICE_TOKEN"
 expect "a priority suggestion comes back" 200 .data
+
+echo
+echo "Erasure (API -> Auth service for the password, then outbox -> SNS -> SQS -> Auth service to delete the identity)"
+call DELETE /api/v1/me '{"password":"not-the-password"}' "$BOB_TOKEN"
+expect "Bob cannot erase his account with the wrong password" 422 .error.code
+call DELETE /api/v1/me "{\"password\":\"$PASSWORD\"}" "$BOB_TOKEN"
+expect "Bob erases his account with his password" 204
+call GET /api/v1/me "" "$BOB_TOKEN"
+expect "the token the Auth service signed for him is refused at once, though it has not expired" 401
+eventually "the Auth service deletes his identity: he can no longer sign in" cannot_sign_in "$BOB" "$PASSWORD"
+call GET /api/v1/me "" "$ALICE_TOKEN"
+expect "Alice is untouched" 200 .data.email_address
+call GET "/api/v1/tasks/$TASK_ID" "" "$ALICE_TOKEN"
+expect "the task Bob was on is still there, with nobody on it" 200 .data.title
+if [ "$(printf '%s' "$BODY" | jq -r '.data.assignee_id // "none"' 2> /dev/null)" = none ]; then
+  pass "it is unassigned, not left pointing at a person who is gone"
+else
+  fail "it is unassigned, not left pointing at a person who is gone" "$(snippet)"
+fi
 
 echo
 if [ "$FAILED" -eq 0 ]; then

@@ -48,14 +48,79 @@ RSpec.describe "Account erasure" do
     expect(response).to have_http_status(:ok)
   end
 
-  it "is the Auth service's to do when it owns the accounts" do
-    with_jwt_auth do
-      erase(as: jwt_headers.merge("Content-Type" => "application/json"))
+  # Where the Auth service owns the accounts (ADR 79): this application has no password to check, so it asks the Auth service, and the identity there is
+  # deleted afterwards through the outbox (spec/services/account_erasure_spec.rb).
+  describe "where the Auth service owns the accounts" do
+    let(:jwt) { jwt_headers(sub: "auth-7", email: "ada@example.com", name: "Ada Lovelace").merge("Content-Type" => "application/json") }
+    let(:check) { "https://auth.test/api/v1/credential_checks" }
 
-      expect(response).to have_http_status(:conflict)
-      expect(error["code"]).to eq("managed_by_auth_service")
+    around { |example| with_jwt_auth { example.run } }
+
+    before { api(:get, "/api/v1/me", headers: jwt) } # the first request makes the local user
+
+    it "asks the Auth service whether the password is right, erases on its yes, and refuses the token that asked from then on" do
+      asked = stub_request(:post, check).with(body: { email_address: "ada@example.com", password: "my-real-password" }.to_json).to_return(status: 204)
+
+      erase(password: "my-real-password", as: jwt)
+
+      expect(asked).to have_been_requested.once
+      expect(response).to have_http_status(:no_content)
+      expect(User.find_by!(auth_subject: "auth-7")).to be_erased
+      api(:get, "/api/v1/me", headers: jwt) # the token has 15 minutes left; the person it names is gone
+      expect(response).to have_http_status(:unauthorized)
+      expect(User.where(erased_at: nil).where(auth_subject: "auth-7")).to be_empty
     end
-    expect(User.where.not(erased_at: nil)).to be_empty
+
+    it "does not erase on the Auth service's no, and says what a local password check says" do
+      stub_request(:post, check).to_return(status: 401)
+
+      erase(password: "not-my-password", as: jwt)
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(error["code"]).to eq("incorrect_password")
+      expect(User.find_by!(auth_subject: "auth-7")).not_to be_erased
+    end
+
+    it "does not ask when there is no password, which is what a stolen token alone has" do
+      delete "/api/v1/me", headers: jwt
+      erase(password: "", as: jwt)
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(error["code"]).to eq("incorrect_password")
+      expect(a_request(:post, check)).not_to have_been_made
+    end
+
+    it "answers 503 and erases nothing when the Auth service cannot be reached or fails" do
+      [ -> { stub_request(:post, check).to_timeout }, -> { stub_request(:post, check).to_raise(Errno::ECONNREFUSED) }, -> { stub_request(:post, check).to_return(status: 500) } ].each do |down|
+        down.call
+
+        erase(password: "my-real-password", as: jwt)
+
+        expect(response).to have_http_status(:service_unavailable)
+        expect(error["code"]).to eq("auth_unavailable")
+        expect(User.find_by!(auth_subject: "auth-7")).not_to be_erased
+      end
+    end
+
+    it "answers 429 when the Auth service says there have been too many attempts for this address" do
+      stub_request(:post, check).to_return(status: 429)
+
+      erase(password: "guess", as: jwt)
+
+      expect(response).to have_http_status(:too_many_requests)
+      expect(error["code"]).to eq("rate_limited")
+      expect(User.find_by!(auth_subject: "auth-7")).not_to be_erased
+    end
+
+    it "still says what stands in the way" do
+      create(:project, owner: User.find_by!(auth_subject: "auth-7"), name: "Moon shot")
+      stub_request(:post, check).to_return(status: 204)
+
+      erase(password: "my-real-password", as: jwt)
+
+      expect(error["code"]).to eq("owns_projects")
+      expect(User.find_by!(auth_subject: "auth-7")).not_to be_erased
+    end
   end
 
   it "is refused in the public demo, where everyone shares the account" do

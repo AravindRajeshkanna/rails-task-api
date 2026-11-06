@@ -94,15 +94,23 @@ RSpec.describe "The secret scan in CI" do
       expect(control).to include('"aws-access-token"', '"rails-key-file"')
     end
 
+    it "also plants the fixture the allowlist lets through, the same line outside a spec, and a cloud key inside one: the exception is narrow, and the line is a finding without it" do
+      expect(control).to include('"$control/spec/allowed_spec.rb"', '"$control/lib/fixture.rb"', '"$control/spec/not_allowed_spec.rb"')
+      expect(control).to include('found("lib/fixture.rb"; "generic-api-key")', 'found("spec/not_allowed_spec.rb"; "aws-access-token")', '(map(select(.File == "spec/allowed_spec.rb")) | length == 0)')
+    end
+
     it "fails the job if the scanner finds nothing, or only one of them" do
       expect(control).to include("set -euo pipefail")
       expect(control).to match(/if gitleaks git .*; then\s+echo "::error::.*"\s+exit 1\s+fi/m)
-      expect(control).to include(%(jq -e 'map(.RuleID) | (index("aws-access-token") != null) and (index("rails-key-file") != null)' "$RUNNER_TEMP/control.json"))
+      expect(control).to include(%(jq -e 'def found(file; rule): map(select(.File == file and .RuleID == rule)) | length == 1; found("settings.txt"; "aws-access-token") and found("config/master.key"; "rails-key-file")))
       expect(control).to match(/\|\| \{ echo "::error::.*exit 1; \}/m)
     end
 
-    it "does not contain the key it plants, in one piece, so the scan of this repository does not find the control" do
-      expect(Rails.root.join(".github/workflows/ci.yml").read).not_to match(/AKIA[A-Z2-7]{16}/)
+    it "does not contain the key or the UUID it plants, in one piece, so the scan of this repository does not find the control" do
+      workflow = Rails.root.join(".github/workflows/ci.yml").read
+
+      expect(workflow).not_to match(/AKIA[A-Z2-7]{16}/)
+      expect(workflow).not_to match(/\h{8}-\h{4}-\h{4}-\h{4}-\h{12}/)
     end
   end
 
@@ -133,6 +141,42 @@ RSpec.describe "The secret scan in CI" do
                      "app/models/environment.rb", "docs/terraform.tfstate.md" ]
 
       looks_like.each { |path| expect(rules.values.none? { |rule| rule[:path].match?(path) }).to be(true), path }
+    end
+
+    describe "the one allowlist" do
+      let(:allowlist) { config[/^\[\[allowlists\]\]\n(.*?)(?=^\[\[|\z)/m, 1] }
+      let(:pattern) { Regexp.new(allowlist[/^regexes = \['''(.*)'''\]/, 1]) }
+      let(:uuid) { "4d9a4e8e-5f35-4a27-9d44-5c4ee3f1a111" }
+
+      it "is a single exception, for one rule, in a spec directory, for the value of one name, and all three must hold" do
+        expect(config.scan("[[allowlists]]").size).to eq(1)
+        expect(allowlist).to include('condition = "AND"', 'targetRules = ["generic-api-key"]', 'regexTarget = "line"')
+        expect(allowlist[/^paths = \['''(.*)'''\]/, 1]).to eq('(?:^|/)spec/')
+      end
+
+      it "lets through a made-up UUID given to auth_subject, in the ways a spec writes it" do
+        [ %(create(:user, auth_subject: "#{uuid}")), %(expect(user).to have_attributes(auth_subject: '#{uuid}')), %("auth_subject" => "#{uuid}"), %(auth_subject: "#{uuid.upcase}") ].each do |line|
+          expect(line).to match(pattern), line
+        end
+      end
+
+      it "does not let through any other value or name: a token, an api key, a secret, or a subject that is not a UUID" do
+        [ %(auth_subject: "not-a-uuid"), %(auth_subject: ""), %(api_key: "#{uuid}"), %(client_secret: "#{uuid}"), %(token = "#{uuid}"), %(auth_token: "#{uuid}"),
+          %(auth_subject: "#{uuid}-and-more-after-it-so-it-is-not-one") ].each do |line|
+          expect(line).not_to match(pattern), line
+        end
+      end
+    end
+
+    describe ".gitleaksignore" do
+      let(:entries) { Rails.root.join(".gitleaksignore").read.lines.map(&:strip).reject { |line| line.empty? || line.start_with?("#") } }
+
+      it "holds fingerprints of single findings (commit, file, rule, line) and nothing wider, each after a comment that says why" do
+        lines = Rails.root.join(".gitleaksignore").read.lines.map(&:strip)
+
+        expect(entries).to all(match(/\A\h{40}:[\w.\/-]+:[a-z0-9-]+:\d+\z/))
+        entries.each { |entry| expect(lines[lines.index(entry) - 1]).to start_with("#"), entry }
+      end
     end
 
     it "matches nothing the repository tracks today", if: Rails.root.join(".git").exist? do

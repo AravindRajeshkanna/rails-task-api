@@ -8,6 +8,7 @@ gem "tzinfo-data", platforms: %i[ windows jruby ]
 
 gem "jwt"
 gem "aws-sdk-sns"
+gem "aws-sdk-sqs"
 gem "service_kit", path: "../../gems/service_kit"
 
 group :development, :test do

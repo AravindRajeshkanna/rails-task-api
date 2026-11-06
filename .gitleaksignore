@@ -1,0 +1,6 @@
+# Findings that are known not to be secrets, one fingerprint per line (commit:file:rule:line), each with the reason above it. gitleaks reads this file from the
+# root of the repository. The config's allowlists say what is never a secret; this says "that one finding, there".
+
+# A string shaped like an AWS access key, written as a negative example in the spec for the allowlist (it is not one: a made-up value). The commit that added
+# it is on the branch of pull request #40 and is not kept by a squash-merge, so on main this matches nothing and the line can be deleted.
+947b3cbdd2e78e7f30631ace9abf8b2b56e0dc93:spec/deploy/secret_scan_spec.rb:aws-access-token:164

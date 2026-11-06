@@ -391,6 +391,38 @@ resource "aws_cloudwatch_metric_alarm" "notifications_dlq" {
   alarm_actions       = local.alarm_actions
 }
 
+# An erasure that has not been done is a promise not kept (ADR 79). Two ways it shows: a message the Auth service could not process in 5 attempts, and one
+# that nobody has taken in a day (the consumer is down, or cannot reach its queue). The queue keeps messages 14 days, so there is time to act on either.
+resource "aws_cloudwatch_metric_alarm" "auth_erasure_dlq" {
+  alarm_name          = "${local.name}-auth-erasure-dlq"
+  alarm_description   = "An erasure the Auth service could not do after 5 attempts: a person asked to be forgotten and their identity is still there. Runbook: docs/runbooks/account-erasure.md"
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  dimensions          = { QueueName = aws_sqs_queue.auth_erasure_dlq.name }
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_actions
+}
+
+resource "aws_cloudwatch_metric_alarm" "auth_erasure_age" {
+  alarm_name          = "${local.name}-auth-erasure-age"
+  alarm_description   = "An erasure has waited more than a day for the Auth service to take it: the consumer is not running. Messages are dropped after 14 days. Runbook: docs/runbooks/account-erasure.md"
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateAgeOfOldestMessage"
+  dimensions          = { QueueName = aws_sqs_queue.auth_erasure.name }
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 3
+  threshold           = 86400
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_actions
+}
+
 resource "aws_cloudwatch_metric_alarm" "database_capacity" {
   alarm_name          = "${local.name}-database-near-max-capacity"
   alarm_description   = "Aurora is using over 90% of its maximum ACUs for 15 minutes: raise db_max_acu or find the load."
@@ -463,7 +495,8 @@ resource "aws_cloudwatch_dashboard" "overview" {
             title = "Alarms"
             alarms = [
               aws_cloudwatch_metric_alarm.queue_depth_anomaly.arn, aws_cloudwatch_metric_alarm.queue_backlog.arn,
-              aws_cloudwatch_metric_alarm.queue_latency.arn, aws_cloudwatch_metric_alarm.notifications_dlq.arn
+              aws_cloudwatch_metric_alarm.queue_latency.arn, aws_cloudwatch_metric_alarm.notifications_dlq.arn,
+              aws_cloudwatch_metric_alarm.auth_erasure_dlq.arn, aws_cloudwatch_metric_alarm.auth_erasure_age.arn
             ]
           }
         }

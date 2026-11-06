@@ -33,4 +33,4 @@ Look in the alert channel for its note.
 | Embedding backfill flooding the queue | Pause by scaling nothing: it is bounded by the AI budget; or pause the queue |
 | No workers at all, jobs waiting | `kubectl rollout restart deploy/worker -n task-api`; check the liveness probe and `solid-queue` process title |
 
-Separately, `…-notifications-dlq` > 0 means the **Notification service** gave up on an event: read it (see the setup guide's Day-2 table), fix the cause, redrive.
+Separately, `…-notifications-dlq` > 0 means the **Notification service** gave up on an event: read it (see the setup guide's Day-2 table), fix the cause, redrive. `…-auth-erasure-dlq` > 0, or `…-auth-erasure-age`, is the Auth service not deleting an identity that a person asked to have erased: [account-erasure](account-erasure.md).

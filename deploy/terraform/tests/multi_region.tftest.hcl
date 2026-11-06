@@ -912,3 +912,38 @@ run "the_system_group_cannot_be_empty_or_half_a_node" {
 
   expect_failures = [var.system_node_count]
 }
+
+# --- An erasure across services (ADR 79) ---
+
+run "an_erasure_reaches_the_notification_and_auth_services_and_cannot_be_lost_quietly" {
+  command = apply
+
+  assert {
+    condition     = contains(jsondecode(aws_sns_topic_subscription.notifications.filter_policy).type, "user.erased") && jsondecode(aws_sns_topic_subscription.auth_erasure.filter_policy).type == ["user.erased"]
+    error_message = "user.erased reaches the Notification service (its delivery log) and the Auth service (its identities), and the Auth service's queue holds nothing else."
+  }
+  assert {
+    condition     = aws_sqs_queue.auth_erasure.message_retention_seconds == 1209600 && aws_sqs_queue.auth_erasure_dlq.message_retention_seconds == 1209600
+    error_message = "A message that outlives its queue's retention is dropped without a trace, so the erasure queue keeps them the longest SQS allows."
+  }
+  assert {
+    condition     = jsondecode(aws_sqs_queue.auth_erasure.redrive_policy).maxReceiveCount == 5 && jsondecode(aws_sqs_queue_redrive_allow_policy.auth_erasure_dlq.redrive_allow_policy).redrivePermission == "byQueue"
+    error_message = "A message the Auth service cannot process moves to the dead-letter queue after five attempts, which only that queue may feed."
+  }
+  assert {
+    condition     = aws_cloudwatch_metric_alarm.auth_erasure_age.threshold == 86400 && aws_cloudwatch_metric_alarm.auth_erasure_age.threshold < aws_sqs_queue.auth_erasure.message_retention_seconds && aws_cloudwatch_metric_alarm.auth_erasure_dlq.threshold == 0
+    error_message = "An erasure that waits a day, or lands in the dead-letter queue, raises an alarm long before the queue would drop it."
+  }
+  assert {
+    condition     = [for statement in local.workload_statements["auth"] : statement.sid] == ["PublishEvents", "ConsumeErasureQueue"]
+    error_message = "The Auth service may publish events and consume its own queue."
+  }
+  assert {
+    condition     = jsonencode([for statement in local.workload_statements["auth"] : sort(statement.actions) if statement.sid == "ConsumeErasureQueue"]) == jsonencode([["sqs:ChangeMessageVisibility", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:GetQueueUrl", "sqs:ReceiveMessage"]])
+    error_message = "...and do nothing else with SQS: no send, no purge."
+  }
+  assert {
+    condition     = [for statement in local.workload_statements["notifications"] : statement.sid] == ["ConsumeQueue"]
+    error_message = "The Notification service gained nothing: it reads the same queue, which now also carries user.erased."
+  }
+}

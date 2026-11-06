@@ -1,3 +1,5 @@
+require "jwt" # JwtHelpers.jwks runs before anything else has loaded ExternalAuth, which is what requires it: a file run alone failed on its first example
+
 # Issues access tokens the way the Auth service does, signed with a throwaway key, for AUTH_MODE=jwt specs.
 module JwtHelpers
   ISSUER = "https://auth.test".freeze
@@ -15,10 +17,11 @@ module JwtHelpers
   # Runs the block as a deployment with AUTH_MODE=jwt would behave.
   def with_jwt_auth(jwks: JwtHelpers.jwks)
     config = Rails.configuration.x.auth
-    original = { mode: config.mode, issuer: config.issuer, audience: config.audience }
+    original = { mode: config.mode, issuer: config.issuer, audience: config.audience, jwks_url: config.jwks_url }
     config.mode = "jwt"
     config.issuer = ISSUER
     config.audience = "task-api"
+    config.jwks_url = "#{ISSUER}/.well-known/jwks.json"
     ExternalAuth.verifier = ServiceKit::JwtVerifier.new(issuer: ISSUER, audience: "task-api", jwks: jwks)
     yield
   ensure

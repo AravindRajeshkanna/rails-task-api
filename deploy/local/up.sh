@@ -82,7 +82,8 @@ install() { # release image [extra helm args]
   helm upgrade --install "$release" "$CHART" -n task-api -f "deploy/helm/values/$release.yaml" "${common[@]}" --set "image.repository=task-api/$image" "$@"
 }
 install auth auth --set-string "env.AUTH_ISSUER=http://localhost:8080" --set "envFrom[0].secretRef.name=auth" \
-  --set-string "env.EVENTS_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:123456789012:task-api-events"
+  --set-string "env.EVENTS_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:123456789012:task-api-events" \
+  --set-string "env.AUTH_ERASURE_QUEUE_URL=http://aws:5000/123456789012/auth-erasure"
 install ai ai --set-string "env.AI_PROVIDER=fake" --set "envFrom[0].secretRef.name=ai"
 install notifications notifications --set "envFrom[0].secretRef.name=notifications" \
   --set-string "env.NOTIFICATIONS_QUEUE_URL=http://aws:5000/123456789012/notifications" --set-string "env.SMTP_ADDRESS=mailpit" --set-string "env.SMTP_PORT=1025"

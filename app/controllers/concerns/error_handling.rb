@@ -60,6 +60,10 @@ module ErrorHandling
     rescue_from ExternalAuth::AccountConflict do
       render_error :conflict, "account_conflict", "Another account already uses this email address. Contact support to link them."
     end
+    rescue_from ExternalAuth::RateLimited do
+      response.headers["Retry-After"] = "60"
+      render_error :too_many_requests, "rate_limited", "Too many attempts. Try again later."
+    end
     rescue_from ExternalAuth::Unavailable do
       response.headers["Retry-After"] = "5"
       render_error :service_unavailable, "auth_unavailable", "The authentication service is unreachable. Try again shortly."

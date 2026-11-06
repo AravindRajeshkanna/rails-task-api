@@ -42,7 +42,7 @@ The Auth service must issue tokens before the monolith stops accepting its own, 
 in there (they get a clean 401), so roll back before significant new sign-ups, or export those users back.
 
 **Known consequences.** Logout ends the refresh token immediately but an issued access token lives up to 15 minutes.
-Profile edits (`PATCH /me`) answer 409 `managed_by_auth_service`; avatars remain in the monolith.
+Profile edits (`PATCH /me`) answer 409 `managed_by_auth_service`; avatars remain in the monolith. Erasing an account (`DELETE /me`) is the monolith's: it asks the Auth service whether the password is right, and the Auth service deletes the identity when it hears `user.erased` ([data-protection.md](../data-protection.md#across-services)).
 
 ## Cutover: AI
 

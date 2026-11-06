@@ -89,6 +89,74 @@ RSpec.describe AccountErasure do
     expect(events.payloads("user.erased").sole).to eq(user_id: user.id)
   end
 
+  # The services that hold something of the person are told through the outbox, in the transaction that erased them (ADR 79).
+  describe "telling the other services" do
+    let(:user) { create(:user, name: "Ada Lovelace", email_address: "ada@example.com", auth_subject: "4d9a4e8e-5f35-4a27-9d44-5c4ee3f1a111", password_digest: nil) }
+    let(:published) { OutboxEvent.where(event_type: "user.erased") }
+
+    around do |example|
+      original = Rails.configuration.x.events.sns_topic_arn
+      Rails.configuration.x.events.sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:task-api-events"
+      example.run
+    ensure
+      Rails.configuration.x.events.sns_topic_arn = original
+    end
+
+    it "writes user.erased to the outbox with the two ids that find the person elsewhere, and not the address or the name" do
+      described_class.call(user)
+
+      event = published.sole.payload
+      expect(event).to include("specversion" => "1.0", "type" => "user.erased", "source" => "task-api", "subject" => user.to_global_id.to_s,
+                               "data" => { "user_id" => user.id, "auth_subject" => "4d9a4e8e-5f35-4a27-9d44-5c4ee3f1a111" })
+      expect(event).not_to have_key("projectid")
+      expect(published.sole.payload.to_json).not_to include("ada@example.com", "Ada", "Lovelace")
+    end
+
+    it "leaves out the subject for someone the Auth service never knew, and says so by what it carries" do
+      local = create(:user, email_address: "local@example.com")
+
+      described_class.call(local)
+
+      expect(published.sole.payload["data"]).to eq("user_id" => local.id)
+    end
+
+    it "is in the transaction of the erasure: an erasure that fails leaves no event, one that works leaves exactly one" do
+      allow_any_instance_of(User).to receive(:update_columns).and_raise("the tombstone failed")
+
+      expect { described_class.call(user) }.to raise_error("the tombstone failed")
+      expect(published).to be_empty
+      expect(user.reload).not_to be_erased
+
+      allow_any_instance_of(User).to receive(:update_columns).and_call_original
+      described_class.call(user)
+      expect(published.count).to eq(1)
+    end
+
+    it "does not say it twice, however often it is asked to erase" do
+      2.times { described_class.call(user) }
+
+      expect(published.count).to eq(1)
+    end
+
+    it "wakes the relay once the erasure has committed" do
+      expect { described_class.call(user) }.to have_enqueued_job(OutboxRelayJob)
+    end
+
+    it "writes nothing where no events go anywhere (no topic is configured)" do
+      Rails.configuration.x.events.sns_topic_arn = nil
+
+      described_class.call(user)
+
+      expect(published).to be_empty
+    end
+
+    it "keeps the identity's subject on the tombstone, so a token issued before the identity was deleted cannot make the person again" do
+      described_class.call(user)
+
+      expect(user.reload).to have_attributes(auth_subject: "4d9a4e8e-5f35-4a27-9d44-5c4ee3f1a111", password_digest: nil, email_address: "erased-#{user.id}@erased.invalid")
+    end
+  end
+
   describe "refusing, and changing nothing" do
     it "refuses while the person owns a project that is not archived" do
       create(:project, owner: user)

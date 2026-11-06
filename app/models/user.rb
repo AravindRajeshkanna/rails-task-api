@@ -49,6 +49,7 @@ class User < ApplicationRecord
   def self.provision_from_claims!(claims)
     subject = claims.fetch("sub")
     user = find_by(auth_subject: subject) || link_legacy_user(subject, claims["legacy_id"]) || new(auth_subject: subject)
+    raise ExternalAuth::Erased if user.erased? # a token the Auth service issued before it deleted the identity: not a reason to make the person again
     user.assign_attributes(name: claims["name"].presence || user.name || claims["email"], email_address: claims["email"])
     user.save! if user.changed?
     user
@@ -59,7 +60,7 @@ class User < ApplicationRecord
   def self.link_legacy_user(subject, legacy_id)
     return if legacy_id.blank?
 
-    where(id: legacy_id, auth_subject: nil).first&.tap { |user| user.update_columns(auth_subject: subject) } # rubocop:disable Rails/SkipsModelValidations -- a link, not an edit
+    where(id: legacy_id, auth_subject: nil, erased_at: nil).first&.tap { |user| user.update_columns(auth_subject: subject) } # rubocop:disable Rails/SkipsModelValidations -- a link, not an edit
   end
 
   def externally_authenticated? = auth_subject.present?

@@ -26,6 +26,14 @@ The `token` is the bearer token for every API call. `user.id` is the identity id
 
 Internal: `GET /.well-known/jwks.json`, cacheable for 5 minutes.
 
+Internal, in-cluster only (the ingress does not list the path; the network policy lets the Task API's pods in), for `DELETE /me` where this service owns the accounts ([ADR 79](../decisions.md)):
+
+| Method and path | Body | Success | Errors |
+|---|---|---|---|
+| `POST /api/v1/credential_checks` | `email_address`, `password` | 204, no body, nothing issued | 401 `invalid_credentials` (a wrong password and an unknown address alike), 429 (5 a minute per address) |
+
+It also consumes `user.erased` from its own queue and deletes the identity (below).
+
 **Access token (RS256, 15 minutes).** Header `kid` = RFC 7638 thumbprint. Claims:
 
 | Claim | Meaning |
@@ -92,6 +100,7 @@ See [the outbox runbook](../runbooks/event-outbox.md).
 | **`task.due_soon`** | daily 08:00, for open tasks due tomorrow | `task`, `project`, `recipient`, `actor` (nil), `url` |
 
 `recipient.email_enabled` is `false` when the person muted this kind or project, or takes a daily digest instead of an email per event (decided by the monolith from their settings when it builds the event). A consumer that sends email must not send it for `false`; absent means `true`, as before the field existed.
+| **`user.erased`** | `DELETE /me` committed: a person asked to be forgotten (written to the outbox in the erasure's transaction; its `id` is `user.erased:<user id>`, so it is deduplicated by anyone who sees it twice) | `user_id` (the Task API's id), `auth_subject` (the Auth service's uid, absent for someone it never knew). **No address, no name.** The Auth service deletes the identity by the subject and by `legacy_id = user_id`; the Notification service deletes its delivery log by either id. No `projectid` |
 | `user.password_reset_requested` *(source `auth-service`)* | a reset is requested for a real account | `recipient {id,name,email_address}`, `reset_url`, `expires_in_minutes` |
 
 Guarantees: at least once, possibly out of order, one event per committed change. Events for records deleted before
@@ -99,7 +108,8 @@ publishing are dropped. A change that commits while SNS is unreachable is retrie
 that it is a failed job (alarm `FailedJobs`). Adding a field is compatible; renaming or removing one is a new type.
 
 Queues (Terraform): `task-api-<env>-notifications` (visibility 60 s, 5 receives then `…-notifications-dlq`, retained 14
-days), subscribed with raw delivery and a filter on `type`.
+days), subscribed with raw delivery and a filter on `type`; and `task-api-<env>-auth-erasure` (the same, filtered on `user.erased` alone, **retained 14 days** because a message that outlives its
+retention is dropped without a trace, with an alarm on the age of the oldest message and on its dead-letter queue).
 
 ## Metrics (Prometheus, `GET /metrics`, private)
 

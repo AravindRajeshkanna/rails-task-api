@@ -18,8 +18,9 @@ module Notifications
           address
         end
 
+        # The id goes in with the address so that the log can be emptied of a person who asks to be forgotten (Handlers::UserErased).
         def record(channel, recipient)
-          Delivery.create!(event_id: envelope["id"], event_type: envelope["type"], channel: channel, recipient: recipient)
+          Delivery.create!(event_id: envelope["id"], event_type: envelope["type"], channel: channel, recipient: recipient, recipient_id: data.dig("recipient", "id")&.to_s)
           Metrics::DELIVERIES.increment(labels: { channel: channel })
         end
 

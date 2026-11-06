@@ -246,6 +246,7 @@ curl -s -X POST $HOST/api/v1/ai/create_from_text -H "Authorization: Bearer $TOKE
 | Pods healthy | `kubectl -n task-api get pods` (all `Running`, none restarting) |
 | Autoscalers | `kubectl -n task-api get scaledobject,hpa` |
 | Events flow | assign a task to another user; `aws sqs get-queue-attributes` on the notifications queue returns to 0; the email arrives; nothing in `…-notifications-dlq` |
+| Erasure flows (JWT mode) | erase a test account (`DELETE /me`); the `…-auth-erasure` queue returns to 0, signing in as that person fails, and `…-auth-erasure-dlq` stays empty ([runbook](../runbooks/account-erasure.md)) |
 | Metrics | `kubectl -n observability port-forward svc/kube-prometheus-stack-prometheus 9090` → query `taskapi_http_requests_total` |
 | Dashboards | `kubectl -n observability port-forward svc/kube-prometheus-stack-grafana 3000:80` → *Task API* |
 | Traces | AWS console → CloudWatch → X-Ray traces: search `service("task-api")` |
