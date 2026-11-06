@@ -1,6 +1,6 @@
 # The whole platform on your laptop: Docker Compose and kind
 
-Two ways to run every service (the API and its worker, Auth, AI, Notifications) with Postgres, a mock of AWS's SNS and SQS, and a mail catcher: `docker compose` (nginx plays the load balancer) and `kind` (the production Helm chart and images behind an nginx Ingress). **[`deploy/local/verify.sh`](../deploy/local/verify.sh) is the definition of "it works"**: it uses the stack as a client would, through the one address a client has, and is the same script for both.
+Two ways to run every service (the API and its worker, Auth, AI, Notifications) with Postgres, a mock of AWS's SNS and SQS, and a mail catcher: `docker compose` (nginx plays the load balancer) and `kind` (the production Helm chart and images behind a Traefik Ingress). **[`deploy/local/verify.sh`](../deploy/local/verify.sh) is the definition of "it works"**: it uses the stack as a client would, through the one address a client has, and is the same script for both.
 
 Both were first run on 2026-11-02 ([roadmap 10](roadmap.md#roadmap-10-running-docker-compose-and-kind-for-the-first-time), [ADR 74](decisions.md)). They did not work. This page says how to run them, what the script proves, what the first run found, and what it does not prove. CI now runs the script against both on every pull request: [In CI](#in-ci).
 
@@ -33,7 +33,7 @@ docker compose up -d --build           # or: deploy/local/up.sh, which reads RAI
 
 It refuses to run where `config/master.key` exists, and where it has run already (`rm config/credentials/production.yml.enc` to start over). **Do not deploy from a tree that holds that file**: it would ship credentials nobody can open. It is what CI does, on a runner that is thrown away.
 
-`docker compose --profile observability up -d` adds Prometheus (:9090), Grafana (:3001) and Jaeger (:16686). **Traces appear only if the services are told where to send them:** put `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318` in `.env`.
+`docker compose --profile observability up -d` adds Prometheus (:9090), Grafana (:3001) and Jaeger (:16686). **Traces appear only if the services are told where to send them:** put `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318` in `.env`. Every service then shows server spans (the API, Auth and the AI service; the Notification service has none: it serves no requests but `/up` and `/metrics`), the access log carries the `trace_id`, and a request that crosses services is one trace. Prometheus loads the same recording rules and alerts as the cluster (`deploy/docker/prometheus-rules-local.yml`, made by `deploy/scripts/render_local_rules.rb`; Compose has no Alertmanager, so alerts show at :9090/alerts and go nowhere).
 
 ## What `verify.sh` proves
 
@@ -115,7 +115,7 @@ Three things in that table are worth knowing:
 | Memory, at rest once up | 1.05 GiB (nine containers) | 2.4 GiB (three node containers) |
 | Images, cold build | 272 s for the four | (the same images) |
 | Up from nothing | about 95 s with a warm build cache; 21 s when started again with the database kept | 257 s (cluster, load into three nodes, install); 85-96 s run again over a running cluster |
-| Kubernetes | | v1.37.0 (kind 0.33's default node image); Helm 4.0.4; ingress-nginx v1.12.1 |
+| Kubernetes | | v1.37.0 (kind 0.33's default node image); Helm 4.0.4; ingress-nginx v1.12.1 (since [roadmap 13](roadmap.md#roadmap-13-the-local-platforms-leftovers), Traefik v3.7.16) |
 | After a restart | the rows written before it were there | the rows written before Postgres restarted were there |
 | One API pod replaced | | back and serving in 12 s; about 8 s of outage, because the local overlay runs one replica |
 
@@ -132,18 +132,25 @@ Nine faults, each fixed and each held by a test that fails without the fix. None
 | 3 | Compose | Found while looking at ports: Postgres (superuser password `postgres`), the AWS mock (no authentication), the mail catcher and Grafana (anonymous **Admin**) were published on every network interface | The backing services bind to 127.0.0.1 |
 | 4 | Compose (seen). The Helm migration Job and Kamal's entrypoint run the same `db:prepare` (reasoned, not run) | `migrate` exited 1 on every first start. `db:prepare` seeds a database it has just filled, and `db/seeds.rb` aborts in production. CI never saw it: the load test copies an already-seeded database. By the same reasoning, the first deploy to an empty Aurora cluster would fail the same way | `seeds: false` for the production primary in `config/database.yml`. A hand-run `bin/rails db:seed` in production still aborts |
 | 5 | Compose and kind | The Notification service died on its first email. In production it always asks the relay to authenticate (`authentication: :plain`), and Mailpit has no login: Net::SMTP raised `SMTP-AUTH requested but missing user name`. The error is not one the consumer retries, so it ended the consumer thread, and the Puma plugin then stops the process on purpose. **Nothing was logged**: nothing in the repository subscribes to `Rails.error`. The container just exited 143 | `ServiceKit::SmtpSettings` signs in only when `SMTP_USERNAME` is set, and `Consumer.report_crash` writes the error, with the top of its backtrace, to the log before the process stops |
-| 6 | kind | `localhost:8080` refused connections. `up.sh` applied the "examples/ingress" manifest from kind.sigs.k8s.io, which is now the generic one: the controller can run on any node, and it ran on a worker, while `kind-cluster.yaml` forwards 8080 to the control-plane node only | The kind build of ingress-nginx, at a fixed version, which pins the controller to that node |
+| 6 | kind | `localhost:8080` refused connections. `up.sh` applied the "examples/ingress" manifest from kind.sigs.k8s.io, which is now the generic one: the controller can run on any node, and it ran on a worker, while `kind-cluster.yaml` forwards 8080 to the control-plane node only | The kind build of ingress-nginx, at a fixed version, which pins the controller to that node (replaced by Traefik on the same node, [roadmap 13](roadmap.md#roadmap-13-the-local-platforms-leftovers)) |
 | 7 | kind (Helm 4) | `helm upgrade --install api` failed: `duplicate entries for key [name="SKIP_DB_PREPARE"]`. The release's values set it, and the migration Job's template added it again. Server-side apply (Helm 4's default) refuses a repeated name; client-side apply, which Argo CD uses unless told otherwise, is generally said to accept it with the later entry winning (not tested here) | The Job's template skips the key it sets itself |
 | 8 | kind | The API pod never became ready (CrashLoopBackOff). Roadmap 7 added a second `/readyz` check, `encryption`, which fails with no key source, and `up.sh` sets none. [kms.md](aws/kms.md) says docker compose and Kamal set `credentials`; `kind` was not in the list | `up.sh` sets it for the API and the worker |
 | 9 | kind | Every span export failed and logged an error: the chart's default collector address does not exist locally | `up.sh` clears the endpoint |
 
 ## Found and not fixed
 
-- **The AI service's spans never reach Jaeger**, although its tracer is configured exactly like Auth's (same exporter, same endpoint, no errors anywhere). Not diagnosed. Auth, Notifications and the API do appear.
-- **Three of the dashboard's 20 queries are empty on Compose.** Two use recording rules (`taskapi:http_error_ratio:rate5m`, `taskapi:queue_oldest_ready_age_seconds:max`) that only the Kubernetes PrometheusRule defines; Compose's Prometheus loads no rules. Not diagnosed for `taskapi_queue_ready_jobs`.
-- **With the AWS mock stopped, "ask for a password reset" still answers 202** and the email never comes. That is the deliberate "always 202" (so the endpoint cannot be used to find out who has an account), but it means a broken event bus is invisible to the caller. I did not test whether the event is retried when the mock returns.
-- **The monolith's production SMTP settings have the same shape as fault 5** (always authenticate). Neither stack exercises them, because both send mail through the Notification service, so I left them.
-- **Compose has no restart policy for the Notification service**, whose consumer exits on a crash expecting an orchestrator to restart it. The crash is now in the log; it still stays down.
+[Roadmap 13](roadmap.md#roadmap-13-the-local-platforms-leftovers) took the leftovers of the first run. What became of them:
+
+| Left open | What it was | Now |
+| --- | --- | --- |
+| The AI service's spans never reached Jaeger | **No service traced any request.** The setup never added the Rack middleware to the application, so only database and HTTP-client spans existed, and the AI service has neither | Fixed for all four applications with one shared setup; held by specs that boot an application. [ADR 77](decisions.md#77-the-local-platforms-leftovers-every-service-traces-its-requests-the-dashboards-rules-ship-to-compose-a-lost-reset-email-is-logged-one-smtp-rule-and-traefik-for-ingress-nginx) |
+| Three of the dashboard's 20 queries were empty on Compose | Two were recording rules Compose's Prometheus did not load; `taskapi_queue_ready_jobs` has a series only while a job is ready | The rules are shipped; the third is by design. A rule that read "No data" while nothing failed (Kubernetes too) is fixed |
+| Password reset answers 202 with the bus down; is the event retried? | It is not retried (by design: ask again). The failure was invisible: nothing subscribes to `Rails.error` | Logged as `auth.event_publish_failed`, never with the address or link. A hung bus makes the request take about 16 s |
+| The monolith's production SMTP block always authenticated | Same shape as fault 5 | The shared `SmtpSettings` signs in only when there is a user name. Not run on a stack: neither stack sends mail through the monolith |
+| Compose had no restart policy for the Notification service | A crash left the stack without email | `restart: on-failure`. A repeated crash is now hidden from the job; the log has `notification.consumer_crashed` |
+| ingress-nginx was retired in March 2026 | A pin never gets a fix | Traefik, pinned, behind the same `verify.sh`: 25 of 25 |
+
+Still open: WebSocket upgrades through the Ingress were not exercised (the API answers `/cable` with its own 404 to the test request, with or without Traefik); the Notification service's consumer and the events through SNS and SQS are not traced, so an assignment is not one trace.
 
 ## What this does not prove
 
@@ -161,6 +168,6 @@ Nine faults, each fixed and each held by a test that fails without the fix. None
 | `ports are not available ... 8080` | Compose and kind both use 8080: `docker compose down` or `deploy/local/up.sh down` first |
 | `verify.sh` says `429` on registration | Sign-up is limited to 10 an hour per client (about five runs). Compose: `docker compose restart auth`; kind: `kubectl -n task-api rollout restart deploy/auth` |
 | `verify.sh` fails only the email checks | Read the Notification service's log: `docker compose logs notifications` or `kubectl -n task-api logs deploy/notifications`. A `notification.consumer_crashed` line says why it stopped |
-| The kind cluster was made by an older `up.sh` and `up.sh` fails on `ingress-nginx-admission` | Jobs cannot be edited: `deploy/local/up.sh down`, then up again |
+| The kind cluster was made by an older `up.sh`: it fails on `ingress-nginx-admission`, or the Traefik pod stays `Pending` | Jobs cannot be edited, and the old controller still holds the node's port 80 (reasoned, not run for the Traefik case): `deploy/local/up.sh down`, then up again |
 | `docker compose` cannot find `RAILS_MASTER_KEY` | There is no `.env`: see the commands above; without `config/master.key`, use the throwaway credentials above |
 | The `Platform` job fails in CI | Open the step "What the platform said, when it failed": it is `diagnose.sh`. A failure before "Prove it works" (the build, `up -d`, `up.sh`) is in that step's own log |

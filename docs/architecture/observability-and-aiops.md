@@ -6,7 +6,7 @@
 |---|---|---|---|
 | **Logs** | `Rails.event`: domain events, `action_controller.request_completed` (the access log), job outcomes, `ai.completed`. JSON in production (`LOG_FORMAT`), one object per line | stdout → Fluent Bit (EKS add-on) → CloudWatch Logs | `request_id`, `user_id`, `trace_id`, `span_id` |
 | **Metrics** | Prometheus from the same events, plus gauges read at scrape time (queue backlog, connection pool); `GET /metrics`, private to the cluster | kube-prometheus-stack → Grafana, Alertmanager | labels: controller, action, status, feature |
-| **Traces** | OpenTelemetry (Rack, Rails, ActiveRecord, PG, Net::HTTP, AWS SDK, our `ai.*` spans with GenAI attributes), OTLP | collector → AWS X-Ray | `trace_id`, propagated across services (W3C and X-Ray headers) |
+| **Traces** | OpenTelemetry (a server span per request, named for the route, from Rack and ActionPack; PG, Net::HTTP, AWS SDK; our `ai.*` spans with GenAI attributes), OTLP; one setup, `ServiceKit::Tracing`, for the API and the services. Not traced: the Notification service's queue consumer, and the hop through SNS and SQS | collector → AWS X-Ray | `trace_id`, propagated across services (W3C and X-Ray headers) |
 
 Turned on by `OTEL_EXPORTER_OTLP_ENDPOINT`; absent locally, so there is nothing to run for development. X-Ray needs trace ids that
 start with a timestamp; the SDK is configured with the X-Ray id generator. Spans carry the user id, never names, emails or prompts.
