@@ -94,6 +94,20 @@ Three things in that table are worth knowing:
 - **The runner's image store is the Mac's.** Fault 1 of this document was reproduced on the containerd image store, and the runner uses it too, so it tests the fix on the store where the fault lives. The classic store is still untested.
 - **The failure path has not been run on a runner.** Both jobs passed, so `diagnose.sh` (`if: failure()`) never ran there. The job does not print the disk after kind has loaded its images, so how much of the 81 GB free it used is not measured; it fitted.
 
+**What 36 runs showed** (2026-11-02 to 2026-11-06: 24 on pull requests, 12 on pushes to `main`, 20 of them Dependabot's, every one a first attempt; 72 `Platform` jobs; [ADR 76](decisions.md#76-the-platform-jobs-are-watched-then-required-helm-is-pinned-and-the-settings-script-owns-mains-required-checks)):
+
+| | Compose job | kind job |
+| --- | --- | --- |
+| Passed | 36 of 36, 25 of 25 checks each | 36 of 36, 25 of 25 checks each |
+| Time (whole job) | median 3.5 min, fastest 2.8, 90th percentile 5.3, slowest 11.9 | median 5.9 min, fastest 4.5, 90th percentile 7.3, slowest 8.3 |
+| Constant | Docker Engine 29.4.2 on the containerd image store, Compose v5.1.3, Ubuntu 26.04, 81 to 83 GB free before the build | the same, and kind v0.33.0, node image v1.37.0, Helm v4.3.1 |
+| Moved | BuildKit v0.33.1, then v0.34.2 (the buildx action's) | the same, and kubectl client v1.37.1, then v1.37.2, over the days the runner image went from 20261025.179.1 to 20261101.186.1 |
+| Layer cache (steps reused) | none in 5 jobs (the first run of a pull request, four pushes to `main`), 15 in 2 (the Rails update: a new lockfile rebuilds `bundle install`), 31 to 41 in the other 29 | none in 4, 15 in 2, 21 to 42 in the other 30 |
+
+- **No run failed from a `Platform` job's own cause, and nothing was retried.** The slowest Compose job was one of ten Dependabot runs started within three minutes: its image build took 482 s (a bumped lockfile rebuilds the install layer whatever the cache holds) and `docker compose up` 153 s against about 28 s. The 30-minute limit is 2.5 times the slowest run.
+- **Helm is pinned** to v4.3.1, the release all 36 runs used, in one place (`HELM_VERSION` at the top of `ci.yml`), read by the chart checks and by `Platform (kind)`. To move it, change that line in a pull request: its own `Platform (kind)` run and the chart checks are the test. kubectl, Docker, Compose and BuildKit are not pinned; the job prints their versions.
+- **Whether `main` requires these jobs is a setting in GitHub, not in the repository.** `ruby deploy/scripts/github_settings.rb` reports it (`main requires these checks before a merge`) and `--apply` adds the two `Platform` checks, keeping any check already required. It has not been applied. Administrators are not held to `main`'s rules, so a required check is flagged on a pull request and the owner can still merge it.
+
 ## What it measured
 
 | | Docker Compose | kind |
@@ -134,10 +148,10 @@ Nine faults, each fixed and each held by a test that fails without the fix. None
 ## What this does not prove
 
 - **One machine**: an Apple-silicon Mac, Docker Desktop, Docker Engine 29.1.3 with the containerd image store. Fault 1 was reproduced only there; the fix is reasoned for the classic store, not run on it. Not run on Linux or amd64.
-- **Helm 4 only, as far as anything was run.** An earlier version of this page said CI uses Helm 3; that was not checked and is wrong for the jobs that install Helm themselves: `azure/setup-helm` installs the latest release (4.3.1 on 2026-11-02), so the chart checks in CI and the `Platform (kind)` job run Helm 4 too. Argo CD brings its own Helm, and I did not check which, or what Helm the runner has preinstalled for `chart_env_spec` (it is skipped where there is none). Nothing was run on Helm 3.
+- **Helm 4 only, as far as anything was run.** An earlier version of this page said CI uses Helm 3; that was not checked and is wrong for the jobs that install Helm themselves: `azure/setup-helm` installs the latest release (4.3.1 on 2026-11-02), so the chart checks in CI and the `Platform (kind)` job run Helm 4 too (pinned to v4.3.1 since [roadmap 12](roadmap.md#roadmap-12-watching-the-platform-jobs-pinning-helm-requiring-them)). Argo CD brings its own Helm, and I did not check which, or what Helm the runner has preinstalled for `chart_env_spec` (it is skipped where there is none). Nothing was run on Helm 3.
 - **The local overlay is not production.** One replica, no autoscaling, PodDisruptionBudgets, NetworkPolicies, External Secrets, Rollouts, KEDA or ALB, and the chart's cloud values are overridden. That the chart installs on `kind` says nothing about those templates.
 - **No KMS, no SES, no Bedrock**: keys come from Rails' credentials, mail goes to Mailpit, the AI provider is the offline fake.
-- **The CI job has passed on two runs of one pull request, and that is all.** Both passed both stacks with no retry, after a rehearsal on a Mac ([In CI](#in-ci)). Two runs say little about the flakes a runner adds: a network that pulls from Docker Hub, GitHub, `registry.k8s.io` and RubyGems on every run, a Docker and kubectl that GitHub picks and changes, and a Helm that moves with `latest`. The layer cache is hit only when the `images` job has written it for that pull request or for `main`; the failure path has not run on a runner; and nothing makes the job a required check yet (Next item 17).
+- **The CI job has passed in 36 of 36 runs, which is four days.** Every run was a first attempt and none was retried ([In CI](#in-ci)). That is one runner image family and one week of Dependabot churn: it says nothing about what a Docker release will do. The Docker, Compose and kubectl on the runner are GitHub's and change under it (kubectl moved a patch release inside the sample); Helm and kind are pinned. The layer cache is hit only when the `images` job has written it for that pull request or for `main`, and misses after a lockfile change. The failure path (`diagnose.sh`) has not run on a runner. Whether `main` requires the job is a GitHub setting that has not been applied (above).
 - **The negative controls were done by hand**, and `verify.sh` has no spec of its own beyond `shellcheck`, a parse under macOS's bash 3.2, and checks that it asks only for paths both stacks route.
 
 ## When it does not start

@@ -8,8 +8,18 @@ RSpec.describe "Load handling" do
   let!(:project) { create(:project, owner: user, organization: organization) }
   let(:cache) { ActiveSupport::Cache::MemoryStore.new }
 
+  # Both budgets count in windows that turn over on the wall clock, every five minutes, so a run that crosses a boundary in the middle of an example is given a
+  # fresh budget where the example expects an empty one: one CI run in 36 failed "starts afresh" that way (2026-11-05, its suite spanned 02:55:00), and the example
+  # that sends 121 requests is exposed far more. Every example in these two groups starts in the middle of a window with the clock held still. The ones about the
+  # boundary move it themselves with travel_to and no block, because a block cannot nest inside a held clock.
+  def in_the_middle_of_a_window
+    period = OrganizationBudget::PERIOD.to_i
+    travel_to(Time.zone.at(((Time.current.to_i / period) * period) + (period / 2)))
+  end
+
   describe "the per-organization write budget" do
     before do
+      in_the_middle_of_a_window
       @original = Rails.configuration.x.organization_writes_per_period
       Rails.configuration.x.organization_writes_per_period = 3
       allow(Rails).to receive(:cache).and_return(cache)
@@ -70,24 +80,23 @@ RSpec.describe "Load handling" do
       create_task
       expect(response).to have_http_status(:too_many_requests)
 
-      travel(OrganizationBudget::PERIOD + 1.second) { create_task }
+      travel(OrganizationBudget::PERIOD + 1.second)
+      create_task
 
       expect(response).to have_http_status(:created)
     end
 
     it "turns over on the clock, so Retry-After is true: a minute after the window ends, not five after the first write" do
       boundary = Time.zone.at((Time.current.to_i / OrganizationBudget::PERIOD.to_i + 1) * OrganizationBudget::PERIOD.to_i)
-      travel_to(boundary - 10.seconds) do
-        3.times { create_task }
-        create_task
-        expect(response).to have_http_status(:too_many_requests)
-        expect(response.headers["Retry-After"]).to eq("10")
-      end
+      travel_to(boundary - 10.seconds)
+      3.times { create_task }
+      create_task
+      expect(response).to have_http_status(:too_many_requests)
+      expect(response.headers["Retry-After"]).to eq("10")
 
-      travel_to(boundary + 1.second) do
-        create_task
-        expect(response).to have_http_status(:created)
-      end
+      travel_to(boundary + 1.second)
+      create_task
+      expect(response).to have_http_status(:created)
     end
 
     it "fails open when the cache is down: a cache outage does not stop people working" do
@@ -113,6 +122,7 @@ RSpec.describe "Load handling" do
 
   describe "the budget for the expensive endpoints" do
     before do
+      in_the_middle_of_a_window
       Rack::Attack.enabled = true
       Rack::Attack.cache.store = ActiveSupport::Cache::MemoryStore.new
     end
