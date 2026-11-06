@@ -8,6 +8,12 @@ module Webhooks
   # and comparing it with X-TaskApi-Signature ("sha256=<hex>"); rejecting old
   # timestamps defeats replays.
   #
+  # While a new secret is being rotated in (Webhook#begin_secret_rotation!), the same
+  # is sent a second time with it, in X-TaskApi-Signature-Next. X-TaskApi-Signature
+  # is still the current secret's, so a receiver that has done nothing keeps working;
+  # one that has the new secret can already check it. Promoting drops the second
+  # header and signs X-TaskApi-Signature with the new secret (ADR 78).
+  #
   # Non-2xx responses and network errors raise DeliveryFailed so the job retries.
   # A blocked address is permanent: it is recorded and never retried.
   class Deliverer
@@ -58,14 +64,18 @@ module Webhooks
       end
 
       def headers(body, timestamp)
-        {
+        headers = {
           "Content-Type" => "application/json",
           "User-Agent" => "TaskApi-Webhooks/1.0",
           "X-TaskApi-Event" => @delivery.event,
           "X-TaskApi-Delivery" => @delivery.id.to_s,
           "X-TaskApi-Timestamp" => timestamp,
-          "X-TaskApi-Signature" => "sha256=#{OpenSSL::HMAC.hexdigest('SHA256', @webhook.secret, "#{timestamp}.#{body}")}"
+          "X-TaskApi-Signature" => signature(@webhook.secret, timestamp, body)
         }
+        headers["X-TaskApi-Signature-Next"] = signature(@webhook.next_secret, timestamp, body) if @webhook.rotating?
+        headers
       end
+
+      def signature(secret, timestamp, body) = "sha256=#{OpenSSL::HMAC.hexdigest('SHA256', secret, "#{timestamp}.#{body}")}"
   end
 end

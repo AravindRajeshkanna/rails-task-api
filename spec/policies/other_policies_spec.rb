@@ -45,9 +45,11 @@ RSpec.describe "Child resource policies" do
     let(:webhook) { create(:webhook, project:) }
 
     it "is admin-only" do
-      expect(described_class.new(admin, webhook)).to permit_actions(%i[index show create update destroy])
-      expect(described_class.new(member, webhook)).to forbid_actions(%i[index show create update destroy])
-      expect(described_class.new(outsider, webhook)).to forbid_actions(%i[index show create update destroy])
+      actions = %i[index show create update destroy rotate_secret promote_secret cancel_rotation] # the last three replace the signing secret (ADR 78)
+
+      expect(described_class.new(admin, webhook)).to permit_actions(actions)
+      expect(described_class.new(member, webhook)).to forbid_actions(actions)
+      expect(described_class.new(outsider, webhook)).to forbid_actions(actions)
     end
 
     it "scopes to projects where the user is an admin" do

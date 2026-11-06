@@ -10,4 +10,9 @@ class WebhookPolicy < ApplicationPolicy
   def create? = admin_of?(record.project)
   def update? = admin_of?(record.project)
   def destroy? = admin_of?(record.project)
+
+  # Replacing the signing secret (ADR 78) is what an admin does about a leaked one: the same people who may change the webhook.
+  def rotate_secret? = update?
+  def promote_secret? = update?
+  def cancel_rotation? = update?
 end

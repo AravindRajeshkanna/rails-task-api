@@ -14,13 +14,24 @@
 #     before there is an answer. A claim that has been in progress for a minute is taken over (the worker died).
 #   * Only a success (2xx) is remembered, and it is recorded in the same transaction as the write, so there is never a stored answer for a write that
 #     rolled back, nor a committed write with no stored answer. A failure (validation, authorization, a 500) releases the key so the retry runs again.
+#   * An answer that shows a secret once is remembered without it (`redact:`): the answer sits in a table, in plain text, for a day.
 module Idempotency
   extend ActiveSupport::Concern
 
   HEADER = "Idempotency-Key".freeze
 
+  included do
+    class_attribute :idempotency_redactions, default: [], instance_writer: false
+  end
+
   class_methods do
-    def idempotent(*actions) = around_action(:with_idempotency, only: actions)
+    # +redact+ names attributes of the resource that the first response shows and a replay does not: a webhook's signing secret is returned once, when it is
+    # made, and a copy of that answer in `idempotency_keys` would be the one place the secret sat unencrypted (ADR 78). The caller who lost the first answer
+    # makes a new secret (POST /webhooks/:id/rotate_secret) instead of reading this one back.
+    def idempotent(*actions, redact: [])
+      self.idempotency_redactions = Array(redact).map(&:to_s)
+      around_action(:with_idempotency, only: actions)
+    end
   end
 
   private
@@ -46,7 +57,7 @@ module Idempotency
         yield
         raise ActiveRecord::Rollback unless response.successful?
 
-        record.complete!(status: response.status, body: response.body)
+        record.complete!(status: response.status, body: remembered(response.body))
         stored = true
       end
       stored ? Rails.event.notify("idempotency.stored", source: "request") : release(record)
@@ -56,6 +67,14 @@ module Idempotency
     end
 
     def release(record) = IdempotencyKey.where(id: record.id).delete_all
+
+    # The answer as it is kept: the response, less the attributes the action asked not to keep. Every resource answers { "data": { ... } }; one that does not
+    # raises (KeyError) and the write with it, so that a secret is never kept because the shape was not what this expects.
+    def remembered(body)
+      return body if idempotency_redactions.empty?
+
+      JSON.generate(JSON.parse(body).tap { |answer| answer.fetch("data").except!(*idempotency_redactions) })
+    end
 
     # No policy runs for a replay or a refusal, deliberately: nothing is read or changed. A replay is the caller's own earlier answer to the identical
     # request (the key is theirs and the fingerprint matches), so it shows them nothing they were not already sent, even if their access has since gone.

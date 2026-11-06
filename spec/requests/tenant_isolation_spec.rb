@@ -92,6 +92,9 @@ RSpec.describe "Tenant isolation" do
       [ "PATCH",  "/api/v1/webhooks/:id", webhook.id, 404, { active: false } ],
       [ "DELETE", "/api/v1/webhooks/:id", webhook.id, 404 ],
       [ "GET",    "/api/v1/webhooks/:id/deliveries", webhook.id, 404 ],
+      [ "POST",   "/api/v1/webhooks/:id/rotate_secret", webhook.id, 404 ],
+      [ "POST",   "/api/v1/webhooks/:id/promote_secret", webhook.id, 404 ],
+      [ "POST",   "/api/v1/webhooks/:id/cancel_rotation", webhook.id, 404 ],
 
       # Organizations: `member` is a plain member of this one, `outsider` is not in it at all.
       [ "GET",    "/api/v1/organizations/:id", organization.id, nil ],
@@ -137,7 +140,7 @@ RSpec.describe "Tenant isolation" do
 
   def snapshot
     [ Organization.pluck(:id, :name), OrganizationMembership.pluck(:id, :role), OrganizationInvitation.pluck(:id, :role, :revoked_at, :accepted_at), Team.pluck(:id, :name), TeamMembership.pluck(:id), ProjectTeam.pluck(:id, :role), Project.pluck(:id, :name, :discarded_at), Task.pluck(:id, :title, :discarded_at), Comment.pluck(:id, :body),
-      Tag.pluck(:id), Membership.pluck(:id, :role), Webhook.pluck(:id, :active), ActiveStorage::Attachment.count ]
+      Tag.pluck(:id), Membership.pluck(:id, :role), Webhook.pluck(:id, :active, :rotation_started_at), ActiveStorage::Attachment.count ]
   end
 
   it "answers 404 to someone outside the project, and changes nothing" do

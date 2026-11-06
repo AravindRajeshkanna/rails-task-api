@@ -50,6 +50,78 @@ RSpec.describe Webhook do
     end
   end
 
+  describe "rotating the secret" do
+    let!(:webhook) { create(:webhook) }
+
+    it "is not under way for a webhook nobody has rotated" do
+      expect(webhook).not_to be_rotating
+      expect(webhook.next_secret).to be_nil
+    end
+
+    it "makes a new secret that is not the current one, and leaves the current one alone" do
+      current = webhook.secret
+
+      new_secret = webhook.begin_secret_rotation!
+
+      expect(new_secret).to match(/\A\h{64}\z/)
+      expect(new_secret).not_to eq(current)
+      expect(webhook.reload).to be_rotating
+      expect(webhook).to have_attributes(secret: current, next_secret: new_secret, rotation_started_at: be_within(5.seconds).of(Time.current))
+    end
+
+    it "replaces a new secret that is already there, which is how a lost one is made again" do
+      first = webhook.begin_secret_rotation!
+      second = webhook.begin_secret_rotation!
+
+      expect(second).not_to eq(first)
+      expect(webhook.reload.next_secret).to eq(second)
+    end
+
+    it "promotes: the new secret becomes the secret, the old one is gone, and nothing is rotating" do
+      old = webhook.secret
+      new_secret = webhook.begin_secret_rotation!
+
+      expect(webhook.promote_next_secret).to be(true)
+
+      expect(webhook.reload).to have_attributes(secret: new_secret, next_secret: nil, rotation_started_at: nil)
+      expect(webhook).not_to be_rotating
+      expect(webhook.secret).not_to eq(old)
+    end
+
+    it "cancels: the new secret is forgotten and the secret is as it was" do
+      old = webhook.secret
+      webhook.begin_secret_rotation!
+
+      expect(webhook.cancel_secret_rotation).to be(true)
+
+      expect(webhook.reload).to have_attributes(secret: old, next_secret: nil, rotation_started_at: nil)
+    end
+
+    it "does nothing, and says so, when nothing is being rotated in" do
+      old = webhook.secret
+
+      expect(webhook.promote_next_secret).to be(false)
+      expect(webhook.cancel_secret_rotation).to be(false)
+      expect(webhook.reload.secret).to eq(old)
+    end
+
+    it "promotes once when two admins press the button together: the second finds the first one's work" do
+      new_secret = webhook.begin_secret_rotation!
+      second = Webhook.find(webhook.id) # another process, loaded before the first one promoted
+
+      results = [ webhook.promote_next_secret, second.promote_next_secret ]
+
+      expect(results).to eq([ true, false ])
+      expect(webhook.reload.secret).to eq(new_secret)
+    end
+
+    it "cannot be left half done: the database refuses a new secret with no start, and a start with no secret" do
+      # Each in a savepoint: a violation aborts the transaction the example runs in.
+      expect { Webhook.transaction(requires_new: true) { webhook.update_columns(rotation_started_at: Time.current) } }.to raise_error(ActiveRecord::CheckViolation, /webhooks_rotation_consistent/)
+      expect { Webhook.transaction(requires_new: true) { Webhook.where(id: webhook.id).update_all(next_secret: "x") } }.to raise_error(ActiveRecord::CheckViolation, /webhooks_rotation_consistent/)
+    end
+  end
+
   describe ".listening_to" do
     let!(:everything) { create(:webhook, events: []) }
     let!(:completions) { create(:webhook, events: %w[task.completed]) }

@@ -86,6 +86,12 @@ Rails.application.routes.draw do
         resources :memberships, only: %i[index create update destroy]
         resources :tags, only: %i[index create destroy]
         resources :webhooks do
+          # Replacing the signing secret with an overlap in which both sign (ADR 78).
+          member do
+            post :rotate_secret
+            post :promote_secret
+            post :cancel_rotation
+          end
           resources :deliveries, only: :index, controller: "webhook_deliveries"
         end
         resources :audit_events, only: :index

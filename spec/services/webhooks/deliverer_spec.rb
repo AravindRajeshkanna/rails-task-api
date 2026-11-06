@@ -32,6 +32,76 @@ RSpec.describe Webhooks::Deliverer do
     expect(delivery.duration_ms).to be >= 0
   end
 
+  describe "while a new secret is being rotated in (ADR 78)" do
+    let(:sent) { [] }
+
+    # What the receiver is sent, and what each of its two secrets would make of it: a receiver recomputes the HMAC of "<timestamp>.<body>" and compares.
+    def delivered_with(secret_of_the_receiver)
+      stub_request(:post, "https://hooks.example.com/in").to_return { |request| sent << request; { status: 204 } }
+      freeze_time { deliver }
+      request = sent.last
+      timestamp = request.headers["X-Taskapi-Timestamp"]
+      expected = "sha256=#{OpenSSL::HMAC.hexdigest('SHA256', secret_of_the_receiver, "#{timestamp}.#{request.body}")}"
+      [ request.headers["X-Taskapi-Signature"] == expected, request.headers["X-Taskapi-Signature-Next"] == expected, request ]
+    end
+
+    it "sends no second signature when nothing is being rotated" do
+      _, _, request = delivered_with(webhook.secret)
+
+      expect(request.headers).not_to have_key("X-Taskapi-Signature-Next")
+    end
+
+    it "signs X-TaskApi-Signature with the current secret, as before, and X-TaskApi-Signature-Next with the new one" do
+      current = webhook.secret
+      new_secret = webhook.begin_secret_rotation!
+
+      by_current = delivered_with(current)
+      by_new = delivered_with(new_secret)
+
+      expect(by_current.first(2)).to eq([ true, false ]) # a receiver that has done nothing: its secret verifies the header it always read
+      expect(by_new.first(2)).to eq([ false, true ]) # a receiver that has the new secret can already check it
+      expect(by_new.last.headers["X-Taskapi-Signature-Next"]).to match(/\Asha256=\h{64}\z/)
+    end
+
+    it "signs only with the new secret once it is promoted, and the old one verifies nothing any more" do
+      old = webhook.secret
+      new_secret = webhook.begin_secret_rotation!
+      webhook.promote_next_secret
+
+      with_new = delivered_with(new_secret)
+      with_old = delivered_with(old)
+
+      expect(with_new.first(2)).to eq([ true, false ])
+      expect(with_old.first(2)).to eq([ false, false ])
+      expect(with_new.last.headers).not_to have_key("X-Taskapi-Signature-Next")
+    end
+
+    it "is back to one signature, the old one, when the rotation is cancelled" do
+      old = webhook.secret
+      webhook.begin_secret_rotation!
+      webhook.cancel_secret_rotation
+
+      verified, _, request = delivered_with(old)
+
+      expect(verified).to be(true)
+      expect(request.headers).not_to have_key("X-Taskapi-Signature-Next")
+    end
+
+    it "signs each attempt with what is current at that attempt: a retry after the promotion carries the new secret" do
+      new_secret = webhook.begin_secret_rotation!
+      stub_request(:post, "https://hooks.example.com/in").to_return(status: 502)
+      expect { deliver }.to raise_error(described_class::DeliveryFailed)
+
+      webhook.promote_next_secret
+      retry_delivery = WebhookDelivery.find(delivery.id) # the job loads the delivery again for every attempt
+      stub_request(:post, "https://hooks.example.com/in").to_return { |request| sent << request; { status: 204 } }
+      described_class.new(retry_delivery).call
+
+      timestamp = sent.last.headers["X-Taskapi-Timestamp"]
+      expect(sent.last.headers["X-Taskapi-Signature"]).to eq("sha256=#{OpenSSL::HMAC.hexdigest('SHA256', new_secret, "#{timestamp}.#{sent.last.body}")}")
+    end
+  end
+
   it "connects to the IP it vetted, not to whatever DNS says later" do
     stub_request(:post, "https://hooks.example.com/in").to_return(status: 200)
     allow_any_instance_of(Net::HTTP).to receive(:ipaddr=).and_call_original

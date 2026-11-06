@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_31_110000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_06_100010) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_trgm"
@@ -362,7 +362,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_31_110000) do
     t.boolean "active", default: true, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.text "next_secret"
+    t.datetime "rotation_started_at"
     t.index ["project_id"], name: "index_webhooks_on_project_id"
+    t.check_constraint "(next_secret IS NULL) = (rotation_started_at IS NULL)", name: "webhooks_rotation_consistent"
   end
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"

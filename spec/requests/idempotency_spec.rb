@@ -25,6 +25,17 @@ RSpec.describe "Idempotency keys" do
     expect(Task.where(title: "Land on the moon").count).to eq(1)
   end
 
+  it "remembers an answer without the attributes its action asked not to keep, and the others as they were sent (ADR 78)" do
+    webhooks = Api::V1::WebhooksController.new
+
+    expect(webhooks.send(:remembered, '{"data":{"id":1,"secret":"s3cret","url":"https://x.example"}}')).to eq('{"data":{"id":1,"url":"https://x.example"}}')
+    expect(Api::V1::TasksController.new.send(:remembered, '{"data":{"id":1,"secret":"left alone"}}')).to eq('{"data":{"id":1,"secret":"left alone"}}')
+  end
+
+  it "does not remember an answer it cannot redact, rather than keep a secret it did not find" do
+    expect { Api::V1::WebhooksController.new.send(:remembered, '{"secret":"s3cret"}') }.to raise_error(KeyError)
+  end
+
   it "treats a new key as a new request, and no key as no protection (the header is optional)" do
     post_task
     post_task(key: SecureRandom.uuid)

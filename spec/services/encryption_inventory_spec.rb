@@ -30,16 +30,17 @@ RSpec.describe EncryptionInventory do
     it "says what form every value is in, from the stored bytes" do
       status = inventory.status
 
-      expect(status.keys).to eq(%w[User.email_address Webhook.secret])
+      expect(status.keys).to eq(%w[User.email_address Webhook.next_secret Webhook.secret])
       expect(status["User.email_address"]).to eq("encrypted" => 2)
       expect(status["Webhook.secret"]).to eq(local_key => 1)
+      expect(status["Webhook.next_secret"]).to eq({}) # nothing is being rotated in
     end
 
     it "tells plaintext and Rails-keyed values apart from KMS ones" do
       write_raw("users", user.id, "grace@example.com")
       write_raw("webhooks", webhook.id, legacy_secret("old"))
 
-      expect(inventory.status).to eq("User.email_address" => { "encrypted" => 1, "plaintext" => 1 }, "Webhook.secret" => { "rails_key" => 1 })
+      expect(inventory.status).to eq("User.email_address" => { "encrypted" => 1, "plaintext" => 1 }, "Webhook.next_secret" => {}, "Webhook.secret" => { "rails_key" => 1 })
     end
 
     it "needs no KMS to say so" do
@@ -71,7 +72,7 @@ RSpec.describe EncryptionInventory do
         encrypts_with_kms :secret
       end
 
-      expect(described_class.targets.map(&:label)).to eq(%w[User.email_address Webhook.secret])
+      expect(described_class.targets.map(&:label)).to eq(%w[User.email_address Webhook.next_secret Webhook.secret])
     end
   end
 
