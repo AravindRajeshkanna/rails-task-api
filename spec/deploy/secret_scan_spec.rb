@@ -161,10 +161,21 @@ RSpec.describe "The secret scan in CI" do
       end
 
       it "does not let through any other value or name: a token, an api key, a secret, or a subject that is not a UUID" do
-        [ %(auth_subject: "AKIAQWERTYUIOPASDFGH"), %(auth_subject: "not-a-uuid"), %(api_key: "#{uuid}"), %(client_secret: "#{uuid}"), %(token = "#{uuid}"), %(auth_token: "#{uuid}"),
+        [ %(auth_subject: "not-a-uuid"), %(auth_subject: ""), %(api_key: "#{uuid}"), %(client_secret: "#{uuid}"), %(token = "#{uuid}"), %(auth_token: "#{uuid}"),
           %(auth_subject: "#{uuid}-and-more-after-it-so-it-is-not-one") ].each do |line|
           expect(line).not_to match(pattern), line
         end
+      end
+    end
+
+    describe ".gitleaksignore" do
+      let(:entries) { Rails.root.join(".gitleaksignore").read.lines.map(&:strip).reject { |line| line.empty? || line.start_with?("#") } }
+
+      it "holds fingerprints of single findings (commit, file, rule, line) and nothing wider, each after a comment that says why" do
+        lines = Rails.root.join(".gitleaksignore").read.lines.map(&:strip)
+
+        expect(entries).to all(match(/\A\h{40}:[\w.\/-]+:[a-z0-9-]+:\d+\z/))
+        entries.each { |entry| expect(lines[lines.index(entry) - 1]).to start_with("#"), entry }
       end
     end
 
