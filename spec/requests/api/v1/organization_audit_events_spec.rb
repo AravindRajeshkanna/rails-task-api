@@ -166,7 +166,8 @@ RSpec.describe "Organization audit events" do
     expect(data.pluck("auditable_type").uniq).to all(be_in(%w[Project Task Membership]))
 
     api :get, path, as: ada
-    expect(data.pluck("auditable_id")).not_to include(other.id)
+    # The type goes with the id: the feed holds events of organizations, projects and memberships, whose ids run in separate sequences and meet by chance.
+    expect(data.map { |event| [ event["auditable_type"], event["auditable_id"] ] }).not_to include([ "Organization", other.id ])
   end
 
   it "does not record the cascade when an organization is deleted, and does not block it" do
