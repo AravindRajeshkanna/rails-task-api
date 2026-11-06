@@ -9,7 +9,8 @@ module Notifications
       "task.assigned" => [ Handlers::TaskAssigned ],
       "task.due_soon" => [ Handlers::TaskDueSoon ],
       "user.password_reset_requested" => [ Handlers::PasswordReset ],
-      "task.completed" => [ Handlers::SlackAnnouncement ]
+      "task.completed" => [ Handlers::SlackAnnouncement ],
+      "user.erased" => [ Handlers::UserErased ]
     }.freeze
 
     # Returns :handled, :duplicate or :ignored (an event type nobody here cares about).
