@@ -9,10 +9,11 @@ cd "$(dirname "$0")/../.."
 
 CLUSTER=task-api
 CHART=deploy/helm/taskapi-service
-# The kind build of ingress-nginx, at a fixed version. Not the "examples/ingress" file on kind.sigs.k8s.io: that one is now the generic manifest,
-# which lets the controller run on any node, while kind-cluster.yaml forwards localhost:8080 to the control-plane node only. This one pins the
-# controller to the node labelled ingress-ready, and says so on the Ingress status (localhost).
-INGRESS_MANIFEST=https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.12.1/deploy/static/provider/kind/deploy.yaml
+# The Ingress controller: Traefik, from its chart in its OCI registry, at a fixed version. This was ingress-nginx until the Kubernetes project retired it in March
+# 2026 (no more releases, fixes or security updates), and a controller that cannot be patched does not belong in the thing that proves the platform works (ADR 77).
+# Not a manifest from a page that changes: the version is this line. deploy/local/traefik-values.yaml puts the controller on the node kind forwards localhost:8080 to.
+TRAEFIK_CHART=oci://ghcr.io/traefik/helm/traefik
+TRAEFIK_VERSION=42.1.3
 
 if [ "${1:-}" = "down" ]; then
   kind delete cluster --name "$CLUSTER"
@@ -39,8 +40,7 @@ fi
 for image in api ai auth notifications; do kind load docker-image "task-api/$image:local" --name "$CLUSTER"; done
 
 echo "== Installing the ingress controller"
-kubectl apply -f "$INGRESS_MANIFEST"
-kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=180s
+helm upgrade --install traefik "$TRAEFIK_CHART" --version "$TRAEFIK_VERSION" -n traefik --create-namespace --skip-crds -f deploy/local/traefik-values.yaml --wait --timeout 180s
 
 echo "== Installing Postgres, the AWS mock and the mail catcher"
 kubectl apply -f deploy/local/infra.yaml
@@ -82,7 +82,7 @@ install() { # release image [extra helm args]
   helm upgrade --install "$release" "$CHART" -n task-api -f "deploy/helm/values/$release.yaml" "${common[@]}" --set "image.repository=task-api/$image" "$@"
 }
 install auth auth --set-string "env.AUTH_ISSUER=http://localhost:8080" --set "envFrom[0].secretRef.name=auth" \
-  --set-string "env.EVENTS_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:123456789012:task-api-events" --set "ingress.className=nginx"
+  --set-string "env.EVENTS_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:123456789012:task-api-events"
 install ai ai --set-string "env.AI_PROVIDER=fake" --set "envFrom[0].secretRef.name=ai"
 install notifications notifications --set "envFrom[0].secretRef.name=notifications" \
   --set-string "env.NOTIFICATIONS_QUEUE_URL=http://aws:5000/123456789012/notifications" --set-string "env.SMTP_ADDRESS=mailpit" --set-string "env.SMTP_PORT=1025"

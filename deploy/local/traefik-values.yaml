@@ -1,0 +1,27 @@
+# Traefik as the kind cluster's Ingress controller (deploy/local/up.sh, ADR 77): the chart's values for a cluster with no load balancer.
+#
+# localhost:8080 is forwarded by kind to port 80 of the control-plane node (kind-cluster.yaml), so the controller has to run on that node, which is the one
+# labelled ingress-ready, and listen on its port 80: hostPort, the way the ingress-nginx build for kind did. The container itself stays on 8000 and non-root.
+providers:
+  kubernetesIngress:
+    enabled: true
+    publishedService: { enabled: false }   # no Service, no load balancer: nothing to copy the address of onto the Ingresses
+  kubernetesCRD:
+    enabled: false                         # the chart's CRDs are not installed (--skip-crds); nothing here uses an IngressRoute
+ingressClass:
+  enabled: true
+  name: traefik                            # what deploy/local/values-local.yaml names as ingress.className
+  isDefaultClass: false
+ports:
+  web: { hostPort: 80 }
+  websecure: { expose: { default: false } }
+service: { enabled: false }
+api: { dashboard: false }
+global: { checkNewVersion: false }
+# One node can take the controller and it holds port 80, so an update cannot start the new pod beside the old one (the chart's default, one extra pod, waits for ever,
+# Pending on the port): stop the old one first. Local ingress is down for the few seconds that takes.
+updateStrategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 1, maxSurge: 0 } }
+nodeSelector: { ingress-ready: "true" }
+tolerations:
+  - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }
+log: { noColor: true }                     # diagnose.sh prints this log, into a CI log that does not render colour
