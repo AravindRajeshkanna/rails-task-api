@@ -4,6 +4,10 @@
 #
 # Refused (nothing changes) while the person owns a project that is not archived, or is the last owner of an organization:
 # those would be left without anyone responsible. Calling it again on an erased user does nothing.
+#
+# The services that hold something of theirs are told in the same transaction, through the outbox (ADR 79): the Auth service deletes the identity, the
+# Notification service the delivery log. The tombstone keeps the identity's subject, so that a token the Auth service issued before it deleted the
+# identity cannot make a new account for the same person (User.provision_from_claims!).
 class AccountErasure
   class Blocked < StandardError
     attr_reader :code
@@ -27,6 +31,7 @@ class AccountErasure
 
     refuse_while_responsible!
     address = user.email_address
+    subject = user.auth_subject
 
     User.transaction do
       leave_projects_and_organizations
@@ -35,6 +40,7 @@ class AccountErasure
       forget_invitations_to(address)
       user.avatar.purge_later
       tombstone
+      Events::Outbox.record_erasure(user, auth_subject: subject)
     end
 
     Rails.event.notify("user.erased", user_id: user.id)
@@ -79,7 +85,7 @@ class AccountErasure
 
     def tombstone
       user.update_columns( # rubocop:disable Rails/SkipsModelValidations -- the tombstone is deliberately not a valid user (no password, no way in)
-        name: TOMBSTONE_NAME, email_address: "erased-#{user.id}@erased.invalid", password_digest: nil, auth_subject: nil,
+        name: TOMBSTONE_NAME, email_address: "erased-#{user.id}@erased.invalid", password_digest: nil,
         erased_at: Time.current, updated_at: Time.current
       )
     end

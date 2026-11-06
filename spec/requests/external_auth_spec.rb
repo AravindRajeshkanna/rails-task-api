@@ -66,6 +66,28 @@ RSpec.describe "AUTH_MODE=jwt" do
     end
   end
 
+  describe "after the person was erased (ADR 79)" do
+    it "refuses a token the Auth service issued before it deleted the identity, and does not make the person again" do
+      me(jwt_headers(sub: "auth-5", email: "gone@example.com", name: "Gone"))
+      AccountErasure.call(User.find_by!(auth_subject: "auth-5"))
+
+      expect { me(jwt_headers(sub: "auth-5", email: "gone@example.com", name: "Gone")) }.not_to change(User, :count)
+
+      expect(response).to have_http_status(:unauthorized)
+      expect(User.find_by!(auth_subject: "auth-5")).to have_attributes(name: "Deleted user", email_address: a_string_ending_with("@erased.invalid"))
+    end
+
+    it "does not give the address back to the tombstone when the same address signs in under a new subject" do
+      me(jwt_headers(sub: "auth-5", email: "gone@example.com", name: "Gone"))
+      AccountErasure.call(User.find_by!(auth_subject: "auth-5"))
+
+      me(jwt_headers(sub: "auth-6", email: "gone@example.com", name: "Gone Again"))
+
+      expect(response).to have_http_status(:ok)
+      expect(User.find_by!(auth_subject: "auth-6")).not_to be_erased
+    end
+  end
+
   describe "linking accounts that existed before the migration" do
     let!(:legacy) { create(:user, email_address: "old@example.com", name: "Old Timer") }
 
@@ -87,6 +109,15 @@ RSpec.describe "AUTH_MODE=jwt" do
       expect(response).to have_http_status(:conflict)
       expect(error["code"]).to eq("account_conflict")
       expect(legacy.reload.auth_subject).to be_nil
+    end
+
+    it "does not link an erased account either: a tombstone is not somebody's pre-migration account" do
+      legacy.update_columns(erased_at: Time.current)
+
+      me(jwt_headers(sub: "auth-9", email: "new@example.com", name: "New", legacy_id: legacy.id))
+
+      expect(legacy.reload.auth_subject).to be_nil
+      expect(User.where(auth_subject: "auth-9").sole.id).not_to eq(legacy.id)
     end
 
     it "does not re-link an account that already belongs to another identity" do

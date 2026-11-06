@@ -25,8 +25,31 @@ module Events
       }
       envelope = CloudEvent.build(event, **{ id: id }.compact) or return
 
-      OutboxEvent.insert({ event_id: envelope[:id], event_type: name, payload: envelope, created_at: Time.current }, unique_by: :event_id) # rubocop:disable Rails/SkipsModelValidations -- ON CONFLICT DO NOTHING is the point
+      write(envelope)
+    end
+
+    # A person's erasure (AccountErasure, ADR 79), for the services that hold something of theirs: the Auth service deletes the identity it holds under
+    # +auth_subject+, the Notification service the deliveries it logged for +user_id+. Not a model event (the subject is a tombstone by the time anyone reads
+    # it), so the envelope is made here, and it carries two ids and **not the address**: an event about forgetting someone must not be the newest copy of them.
+    # The id is the person's, so recording it twice stores it once.
+    def record_erasure(user, auth_subject:)
+      return unless enabled?
+
+      write(erasure_envelope(user, auth_subject: auth_subject))
+    end
+
+    # Also what `bin/rails erasure:publish` sends again (docs/runbooks/account-erasure.md).
+    def erasure_envelope(user, auth_subject:)
+      {
+        specversion: "1.0", id: "user.erased:#{user.id}", source: CloudEvent::SOURCE, type: "user.erased", time: Time.current.utc.iso8601(3),
+        datacontenttype: "application/json", subject: user.to_global_id.to_s, data: { user_id: user.id, auth_subject: auth_subject }.compact
+      }
+    end
+
+    def write(envelope)
+      OutboxEvent.insert({ event_id: envelope[:id], event_type: envelope[:type], payload: envelope, created_at: Time.current }, unique_by: :event_id) # rubocop:disable Rails/SkipsModelValidations -- ON CONFLICT DO NOTHING is the point
       ActiveRecord::Base.connection.current_transaction.after_commit { OutboxRelayJob.wake }
     end
+    private_class_method :write
   end
 end
