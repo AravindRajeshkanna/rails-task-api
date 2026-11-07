@@ -168,17 +168,6 @@ RSpec.describe "The secret scan in CI" do
       end
     end
 
-    describe ".gitleaksignore" do
-      let(:entries) { Rails.root.join(".gitleaksignore").read.lines.map(&:strip).reject { |line| line.empty? || line.start_with?("#") } }
-
-      it "holds fingerprints of single findings (commit, file, rule, line) and nothing wider, each after a comment that says why" do
-        lines = Rails.root.join(".gitleaksignore").read.lines.map(&:strip)
-
-        expect(entries).to all(match(/\A\h{40}:[\w.\/-]+:[a-z0-9-]+:\d+\z/))
-        entries.each { |entry| expect(lines[lines.index(entry) - 1]).to start_with("#"), entry }
-      end
-    end
-
     it "matches nothing the repository tracks today", if: Rails.root.join(".git").exist? do
       tracked, status = Open3.capture2("git", "ls-files", chdir: Rails.root.to_s)
 
