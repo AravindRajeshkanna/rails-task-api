@@ -104,7 +104,7 @@ GEM
       uri (>= 0.13.1)
     addressable (2.9.2)
       public_suffix (>= 2.0.2, < 8.0)
-    alba (4.0.1)
+    alba (4.0.3)
     ast (2.4.3)
     aws-eventstream (1.4.1)
     aws-partitions (1.1305.0)
@@ -680,7 +680,7 @@ CHECKSUMS
   activesupport (8.1.4.1) sha256=16ac4f341ca65c85a1fcdb8ac73f68891aae9e3c4a6f9c3a27daed8b00017ed7
   addressable (2.9.2) sha256=9117c7e7d6ee07230e75ce41fb9401ae55354dc654fcd0e862ba41d539e9a610
   ai_core (0.1.0)
-  alba (4.0.1) sha256=f7182a4b630e119d3eabca38e37098a9843b1a103206fe9f6f3a9ba16324a5f0
+  alba (4.0.3) sha256=ad9b87b3fa90051504d89c8739a1a3ce8c0db1388eba8b5dad2c2cfac2d897c7
   ast (2.4.3) sha256=954615157c1d6a382bc27d690d973195e79db7f55e9765ac7c481c60bdb4d383
   aws-eventstream (1.4.1) sha256=ceb6a99c61df4bb00344e54aed0351574beca24f87a0d1487d1d2ed80929ce96
   aws-partitions (1.1305.0) sha256=dbcf06fd557d111f8bba82180b8f32317f756516c40f3df72bdf94851ffbfa96
