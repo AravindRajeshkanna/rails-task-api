@@ -98,11 +98,11 @@ GEM
     addressable (2.9.2)
       public_suffix (>= 2.0.2, < 8.0)
     aws-eventstream (1.4.1)
-    aws-partitions (1.1305.0)
-    aws-sdk-bedrockruntime (1.92.0)
-      aws-sdk-core (~> 3, >= 3.265.0)
+    aws-partitions (1.1308.0)
+    aws-sdk-bedrockruntime (1.95.0)
+      aws-sdk-core (~> 3, >= 3.268.0)
       aws-sigv4 (~> 1.5)
-    aws-sdk-core (3.268.0)
+    aws-sdk-core (3.270.0)
       aws-eventstream (~> 1, >= 1.4.1)
       aws-partitions (~> 1, >= 1.992.0)
       aws-sigv4 (~> 1.9)
@@ -180,6 +180,7 @@ GEM
       net-smtp
     marcel (1.2.1)
     mini_mime (1.1.5)
+    mini_portile2 (2.8.9)
     minitest (6.0.6)
       drb (~> 2.0)
       prism (~> 1.5)
@@ -193,6 +194,9 @@ GEM
     net-smtp (0.5.2)
       net-protocol
     nio4r (2.7.5)
+    nokogiri (1.19.6)
+      mini_portile2 (~> 2.8.2)
+      racc (~> 1.4)
     nokogiri (1.19.6-aarch64-linux-gnu)
       racc (~> 1.4)
     nokogiri (1.19.6-aarch64-linux-musl)
@@ -420,9 +424,9 @@ CHECKSUMS
   addressable (2.9.2) sha256=9117c7e7d6ee07230e75ce41fb9401ae55354dc654fcd0e862ba41d539e9a610
   ai_core (0.1.0)
   aws-eventstream (1.4.1) sha256=ceb6a99c61df4bb00344e54aed0351574beca24f87a0d1487d1d2ed80929ce96
-  aws-partitions (1.1305.0) sha256=dbcf06fd557d111f8bba82180b8f32317f756516c40f3df72bdf94851ffbfa96
-  aws-sdk-bedrockruntime (1.92.0) sha256=60335c094acaf1a68a1b59b5fcb0f1c6ae5bd754ce10d9a5dd2378581238a022
-  aws-sdk-core (3.268.0) sha256=471950504724daa017711705647245ed2dcb44afc658dda88ca38176fe0f4612
+  aws-partitions (1.1308.0) sha256=902952315e2b93360277c4a567811b73f5d4bbbc25abc3fba77c6babd7c637a6
+  aws-sdk-bedrockruntime (1.95.0) sha256=d3932a84133e67e8997e0079d723be9b2c62b9fd47c19a6c0c5605e70fb61cf2
+  aws-sdk-core (3.270.0) sha256=386da460d5e96dd09a94f9d6ccc0bbb6ea2635424d6af0a3ad0024e9b91cd83f
   aws-sigv4 (1.12.1) sha256=6973ff95cb0fd0dc58ba26e90e9510a2219525d07620c8babeb70ef831826c00
   base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
   bigdecimal (4.1.3) sha256=61ebe1e5e559bdc3cc6f2c0ee7f427321fc838f59611c294356eb04d6e21cf66
@@ -458,12 +462,14 @@ CHECKSUMS
   mail (2.9.1) sha256=06574eca475253d6c18145dd70af80d0eb970182d55053497c5f4d797ea160e8
   marcel (1.2.1) sha256=1678e9360e32f9eafa917c80029e2f6d10b2715c66a4b87b6d0da9b9cd1f859f
   mini_mime (1.1.5) sha256=8681b7e2e4215f2a159f9400b5816d85e9d8c6c6b491e96a12797e798f8bccef
+  mini_portile2 (2.8.9) sha256=0cd7c7f824e010c072e33f68bc02d85a00aeb6fce05bb4819c03dfd3c140c289
   minitest (6.0.6) sha256=153ea36d1d987a62942382b61075745042a2b3123b1cd48f4c3675af9cc7d6f1
   net-imap (0.6.8) sha256=eb30bb62227b64a3af6b518b04b2375113d69f68f15de59b0193b07d98acf6d9
   net-pop (0.1.2) sha256=848b4e982013c15b2f0382792268763b748cce91c9e91e36b0f27ed26420dff3
   net-protocol (0.4.0) sha256=f9f90c8c6f64794a45160bf422177a336db12809de3beeeaa26b88fcd2e8c853
   net-smtp (0.5.2) sha256=35103cc04d6b2d94632f9928ede07483c24b70b9c0db1f231fea43909b678f3c
   nio4r (2.7.5) sha256=6c90168e48fb5f8e768419c93abb94ba2b892a1d0602cb06eef16d8b7df1dca1
+  nokogiri (1.19.6) sha256=a61e7192fc2691c23bc0241907c4dbcb70ada6ab904796ce2426a57171022c8f
   nokogiri (1.19.6-aarch64-linux-gnu) sha256=746fca23be3cd3f121cabab65cb44c52049e4cf9f0d36e7e8c3c0eb6cc298c57
   nokogiri (1.19.6-aarch64-linux-musl) sha256=4a5620da1c52150e0343bd2bba7dbd9b3899b5eb41687dc1942c9092d81e52a3
   nokogiri (1.19.6-arm-linux-gnu) sha256=574e50ddd99ed71aaa868027d84eb3b9f051e55fe07ddc844e4fdd654be953fc
