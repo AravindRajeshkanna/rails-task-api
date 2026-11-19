@@ -107,7 +107,7 @@ GEM
     alba (4.0.1)
     ast (2.4.3)
     aws-eventstream (1.4.1)
-    aws-partitions (1.1305.0)
+    aws-partitions (1.1308.0)
     aws-sdk-bedrockruntime (1.90.0)
       aws-sdk-core (~> 3, >= 3.263.0)
       aws-sigv4 (~> 1.5)
@@ -117,7 +117,7 @@ GEM
     aws-sdk-cloudwatchlogs (1.171.0)
       aws-sdk-core (~> 3, >= 3.263.0)
       aws-sigv4 (~> 1.5)
-    aws-sdk-core (3.268.0)
+    aws-sdk-core (3.270.0)
       aws-eventstream (~> 1, >= 1.4.1)
       aws-partitions (~> 1, >= 1.992.0)
       aws-sigv4 (~> 1.9)
@@ -139,8 +139,8 @@ GEM
     aws-sdk-sns (1.126.0)
       aws-sdk-core (~> 3, >= 3.263.0)
       aws-sigv4 (~> 1.5)
-    aws-sdk-xray (1.109.0)
-      aws-sdk-core (~> 3, >= 3.263.0)
+    aws-sdk-xray (1.114.0)
+      aws-sdk-core (~> 3, >= 3.268.0)
       aws-sigv4 (~> 1.5)
     aws-sigv4 (1.12.1)
       aws-eventstream (~> 1, >= 1.0.2)
@@ -185,6 +185,7 @@ GEM
       railties (>= 6.1.0)
     faker (3.8.0)
       i18n (>= 1.8.11, < 2)
+    ffi (1.17.4)
     ffi (1.17.4-aarch64-linux-gnu)
     ffi (1.17.4-aarch64-linux-musl)
     ffi (1.17.4-arm-linux-gnu)
@@ -264,6 +265,7 @@ GEM
       net-smtp
     marcel (1.2.1)
     mini_mime (1.1.5)
+    mini_portile2 (2.8.9)
     minitest (6.0.6)
       drb (~> 2.0)
       prism (~> 1.5)
@@ -286,6 +288,9 @@ GEM
     net-ssh (7.3.8)
       logger
     nio4r (2.7.5)
+    nokogiri (1.19.6)
+      mini_portile2 (~> 2.8.2)
+      racc (~> 1.4)
     nokogiri (1.19.6-aarch64-linux-gnu)
       racc (~> 1.4)
     nokogiri (1.19.6-aarch64-linux-musl)
@@ -683,16 +688,16 @@ CHECKSUMS
   alba (4.0.1) sha256=f7182a4b630e119d3eabca38e37098a9843b1a103206fe9f6f3a9ba16324a5f0
   ast (2.4.3) sha256=954615157c1d6a382bc27d690d973195e79db7f55e9765ac7c481c60bdb4d383
   aws-eventstream (1.4.1) sha256=ceb6a99c61df4bb00344e54aed0351574beca24f87a0d1487d1d2ed80929ce96
-  aws-partitions (1.1305.0) sha256=dbcf06fd557d111f8bba82180b8f32317f756516c40f3df72bdf94851ffbfa96
+  aws-partitions (1.1308.0) sha256=902952315e2b93360277c4a567811b73f5d4bbbc25abc3fba77c6babd7c637a6
   aws-sdk-bedrockruntime (1.90.0) sha256=3546b3aa716a95f90e3b3291edece21100d762a42e8dc877a22ab3ace97e7bf3
   aws-sdk-cloudwatch (1.154.0) sha256=5d2f83b2726c9ee877aaeb88aab20307f44ab41e2cf5d08414516556f41abaae
   aws-sdk-cloudwatchlogs (1.171.0) sha256=9129b6bef8143032d347aa47b3bc1bf1dcdc0362c097a40ee590c56f717d91f1
-  aws-sdk-core (3.268.0) sha256=471950504724daa017711705647245ed2dcb44afc658dda88ca38176fe0f4612
+  aws-sdk-core (3.270.0) sha256=386da460d5e96dd09a94f9d6ccc0bbb6ea2635424d6af0a3ad0024e9b91cd83f
   aws-sdk-eks (1.186.0) sha256=87f78d7493f6e8ab77b7682abf2e168463ffec9e24bd9ffc352bd32e67f4328b
   aws-sdk-kms (1.140.0) sha256=1ba7cf795e5680fe5041a10d636aca01f1d2b6fa18e7b5d60ec6197319bce1c9
   aws-sdk-s3 (1.237.0) sha256=1e8a96a5411124d66f85f397bd00a1d6df53da1946725b6d5980d921a8e11191
   aws-sdk-sns (1.126.0) sha256=85227359817d4c48d9301d0ba3421eb4853cfb4ef1d8978467ec7d3225e56515
-  aws-sdk-xray (1.109.0) sha256=836f3b0988235ce7f5114d6470f413b261911c2390d8b17b5743886cffed5590
+  aws-sdk-xray (1.114.0) sha256=a3c5638446a50e66cc1dd7ecded8e144da67f81d0f7df1f95cf62fe146f8aa6e
   aws-sigv4 (1.12.1) sha256=6973ff95cb0fd0dc58ba26e90e9510a2219525d07620c8babeb70ef831826c00
   base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
   bcrypt (3.1.22) sha256=1f0072e88c2d705d94aff7f2c5cb02eb3f1ec4b8368671e19112527489f29032
@@ -720,6 +725,7 @@ CHECKSUMS
   factory_bot (6.6.0) sha256=1fc1b3b5620ec980a6a27aec1b6ec8c250ca82962e970e8a40f93e8d388d4b89
   factory_bot_rails (6.5.1) sha256=d3cc4851eae4dea8a665ec4a4516895045e710554d2b5ac9e68b94d351bc6d68
   faker (3.8.0) sha256=c147b308df73a90f27a4fc84f18d4c22ef0ad9c2a64b2b61c86fd0ca71753efc
+  ffi (1.17.4) sha256=bcd1642e06f0d16fc9e09ac6d49c3a7298b9789bcb58127302f934e437d60acf
   ffi (1.17.4-aarch64-linux-gnu) sha256=b208f06f91ffd8f5e1193da3cae3d2ccfc27fc36fba577baf698d26d91c080df
   ffi (1.17.4-aarch64-linux-musl) sha256=9286b7a615f2676245283aef0a0a3b475ae3aae2bb5448baace630bb77b91f39
   ffi (1.17.4-arm-linux-gnu) sha256=d6dbddf7cb77bf955411af5f187a65b8cd378cb003c15c05697f5feee1cb1564
@@ -756,6 +762,7 @@ CHECKSUMS
   mail (2.9.1) sha256=06574eca475253d6c18145dd70af80d0eb970182d55053497c5f4d797ea160e8
   marcel (1.2.1) sha256=1678e9360e32f9eafa917c80029e2f6d10b2715c66a4b87b6d0da9b9cd1f859f
   mini_mime (1.1.5) sha256=8681b7e2e4215f2a159f9400b5816d85e9d8c6c6b491e96a12797e798f8bccef
+  mini_portile2 (2.8.9) sha256=0cd7c7f824e010c072e33f68bc02d85a00aeb6fce05bb4819c03dfd3c140c289
   minitest (6.0.6) sha256=153ea36d1d987a62942382b61075745042a2b3123b1cd48f4c3675af9cc7d6f1
   msgpack (1.8.6) sha256=a148c24e7d9026a88baf78918f6b1c297569bb6cc0f87953f444f3069950d4e5
   neighbor (1.2.0) sha256=29c4a6881ab7287c605cc252f72cd8d24546780e9e85efbea878362881e28196
@@ -767,6 +774,7 @@ CHECKSUMS
   net-smtp (0.5.2) sha256=35103cc04d6b2d94632f9928ede07483c24b70b9c0db1f231fea43909b678f3c
   net-ssh (7.3.8) sha256=16bb1fccc4d9a580decdeea8ddb98e8544df29b7e6ac8cb94d4b379cfe4bee9f
   nio4r (2.7.5) sha256=6c90168e48fb5f8e768419c93abb94ba2b892a1d0602cb06eef16d8b7df1dca1
+  nokogiri (1.19.6) sha256=a61e7192fc2691c23bc0241907c4dbcb70ada6ab904796ce2426a57171022c8f
   nokogiri (1.19.6-aarch64-linux-gnu) sha256=746fca23be3cd3f121cabab65cb44c52049e4cf9f0d36e7e8c3c0eb6cc298c57
   nokogiri (1.19.6-aarch64-linux-musl) sha256=4a5620da1c52150e0343bd2bba7dbd9b3899b5eb41687dc1942c9092d81e52a3
   nokogiri (1.19.6-arm-linux-gnu) sha256=574e50ddd99ed71aaa868027d84eb3b9f051e55fe07ddc844e4fdd654be953fc
